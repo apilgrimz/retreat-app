@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=yes"/>
 <meta name="theme-color" content="#0B1024"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
@@ -47,6 +47,7 @@ button { background: none; border: none; cursor: pointer; padding: 0; }
 input, select, textarea {
   background: var(--bg-1); border: 1px solid var(--line); color: var(--ink);
   border-radius: 10px; padding: 10px 12px; width: 100%;
+  font-size: 16px;
   transition: border-color .15s, background .15s;
 }
 input[type="checkbox"] { appearance: auto; width: auto; padding: 0; margin: 0; accent-color: var(--gold); }
@@ -1886,7 +1887,6 @@ function renderFeeSupportSheet() {
     </div>
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary" onclick="execPrintFeeSupport()" style="flex:1">인쇄</button>
-      <button class="btn btn-primary" id="fsAdd" style="flex:2">+ 지원자 추가</button>
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="margin-bottom:0; min-width:550px;">
@@ -1898,11 +1898,6 @@ function renderFeeSupportSheet() {
   `;
   openSheet('회비 지원 명단', html, null, { hideSave:true });
   setTimeout(() => {
-    $('#fsAdd').onclick = () => { closeSheet(true); setTimeout(() => {
-      const nm = emptyMember(ZONES[0]);
-      openMemberSheet(nm, true, () => { setTimeout(renderFeeSupportSheet, 300); });
-      setTimeout(() => { const c = $('#mFsCheck'); if (c) c.checked = true; }, 120);
-    }, 300); };
     $$('[data-fs-id]').forEach(el => el.onclick = () => {
       const fs = DB.feeSupport.find(x => x.id === el.dataset.fsId);
       if (fs) { closeSheet(true); setTimeout(() => openFeeSupportSheet(fs, false), 300); }
@@ -2126,14 +2121,32 @@ function intakeTable(list, withRegister) {
   return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + (withRegister ? '430' : '380') + 'px">' + head + rows + '</div></div>';
 }
 
+var INTAKE_LABELS = { pre1: '사전 1차 접수 · 명찰 수령', pre2: '사전 2차 접수 · 명찰 현장 수령', onsite: '현장 접수' };
+function intakeMenuButton(key, count, desc) {
+  return '<button class="menu-item" onclick="openIntakeGroup(\'' + key + '\')">' +
+    '<div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>' +
+    '<div class="lb"><div class="t">' + INTAKE_LABELS[key] + ' <span style="color:var(--gold);font-weight:800">' + count + '명</span></div><div class="d">' + desc + '</div></div></button>';
+}
 function openIntakeStatus() {
   const g = intakeGroups();
   const html =
-    '<div class="notice">사전 1·2차 접수자는 등록 인원에 집계됩니다. 현장 접수자는 \'등록\'을 누르면 즉시 정식 등록됩니다.</div>' +
-    '<div class="section-title">사전 1차 접수 · 명찰 수령 (' + g.pre1.length + '명)</div>' + intakeTable(g.pre1, false) +
-    '<div class="section-title" style="margin-top:16px">사전 2차 접수 · 명찰 현장 수령 (' + g.pre2.length + '명)</div>' + intakeTable(g.pre2, false) +
-    '<div class="section-title" style="margin-top:16px">현장 접수 (' + g.onsite.length + '명)</div>' + intakeTable(g.onsite, true);
+    '<div class="notice">사전 1·2차 접수자는 등록 인원에 집계됩니다. 현장 접수자는 명단에서 \'등록\'을 누르면 즉시 정식 등록됩니다.</div>' +
+    '<div class="menu-list">' +
+    intakeMenuButton('pre1', g.pre1.length, '미리 접수하고 명찰을 받은 인원') +
+    intakeMenuButton('pre2', g.pre2.length, '미리 접수했으나 명찰은 현장 수령') +
+    intakeMenuButton('onsite', g.onsite.length, '현장에서 접수 — 등록 시 집계 반영') +
+    '</div>';
   openSheet('접수 현황', html, null, { hideSave: true });
+}
+function openIntakeGroup(key) {
+  const g = intakeGroups();
+  const list = g[key] || [];
+  const isOnsite = key === 'onsite';
+  const html =
+    (isOnsite ? '<div class="notice">\'등록\'을 누르면 해당 인원이 즉시 정식 등록되어 모든 집계에 반영됩니다.</div>' : '') +
+    '<div class="section-title">' + INTAKE_LABELS[key] + ' (' + list.length + '명)</div>' +
+    intakeTable(list, isOnsite);
+  openSheet(INTAKE_LABELS[key], html, null, { hideSave: true });
 }
 
 function intakeRegister(id) {
@@ -2144,7 +2157,7 @@ function intakeRegister(id) {
     saveDB();
     render();
     toast('등록됐어요');
-    setTimeout(openIntakeStatus, 150);
+    setTimeout(function(){ openIntakeGroup('onsite'); }, 150);
   }, '등록');
 }
 
@@ -2251,34 +2264,6 @@ function execPrintPrayList() {
     '<thead><tr><th>번호</th><th>구역</th><th>성명</th><th>회(부서)</th><th>인도자</th><th>관계</th><th>비고</th></tr></thead>' +
     '<tbody>' + trs + '</tbody></table>';
   doPrint(titleText, body);
-}
-
-/* ===== 화면 확대 (글씨 크기) ===== */
-var FONT_SCALE_KEY = 'retreat_font_scale';
-function applyFontScale(v) {
-  document.documentElement.style.fontSize = (15 * v) + 'px';
-}
-function loadFontScale() {
-  var v = parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1') || 1;
-  if (v < 0.8) v = 0.8; if (v > 1.6) v = 1.6;
-  applyFontScale(v);
-  return v;
-}
-function setFontScale(v) {
-  if (v < 0.8) v = 0.8; if (v > 1.6) v = 1.6;
-  v = Math.round(v * 100) / 100;
-  applyFontScale(v);
-  try { localStorage.setItem(FONT_SCALE_KEY, String(v)); } catch (e) {}
-  updateFontChip(v);
-  return v;
-}
-function changeFontScale(delta) {
-  var cur = parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1') || 1;
-  return setFontScale(cur + delta);
-}
-function updateFontChip(v) {
-  var el = document.getElementById('fontPct');
-  if (el) el.textContent = Math.round(v * 100) + '%';
 }
 
 /* ===== Firebase 실시간 동기화 (행사 코드 = 방) ===== */
@@ -2652,18 +2637,7 @@ function shareDataFile() {
 }
 
 function renderMore() {
-  const fscale = parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1') || 1;
   return `
-    <div class="card">
-      <div class="card-head"><div class="card-title">화면 글씨 크기</div></div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:8px 4px">
-        <button class="btn btn-secondary" onclick="changeFontScale(-0.1)" style="font-size:22px;width:54px;height:44px;padding:0">A−</button>
-        <div style="min-width:64px;text-align:center;font-size:18px;font-weight:800;color:var(--gold)"><span id="fontPct">${Math.round(fscale*100)}%</span></div>
-        <button class="btn btn-secondary" onclick="changeFontScale(0.1)" style="font-size:22px;width:54px;height:44px;padding:0">A＋</button>
-        <button class="btn btn-secondary" onclick="setFontScale(1)" style="font-size:13px;height:44px">기본</button>
-      </div>
-      <div class="helper" style="text-align:center">앱 전체 글씨 크기를 조절합니다 (80%~160%).</div>
-    </div>
     <div class="card">
       <div class="card-head"><div class="card-title">데이터 통합 공유</div></div>
       <div class="menu-list">
@@ -2771,7 +2745,6 @@ function renderEvangelismSheet() {
   const html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary" onclick="execPrintEvangelism()" style="flex:1">인쇄</button>
-      <button class="btn btn-primary" id="evAdd" style="flex:2">+ 대상자 추가</button>
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:640px;">
@@ -2783,11 +2756,6 @@ function renderEvangelismSheet() {
   `;
   openSheet('전도대상자 명단 전체', html, null, { hideSave:true });
   setTimeout(() => {
-    $('#evAdd').onclick = () => { closeSheet(true); setTimeout(() => {
-      const nm = emptyMember(ZONES[0]);
-      openMemberSheet(nm, true, () => { setTimeout(renderEvangelismSheet, 300); });
-      setTimeout(() => { const c = $('#mEvCheck'); if (c) c.checked = true; }, 120);
-    }, 300); };
     // 이름 클릭 편집은 openEvangelismEditById가 처리 (상태 버튼과 분리)
   }, 50);
 }
@@ -3157,7 +3125,6 @@ if ('serviceWorker' in navigator) {
 render();
 
 /* ===== Firebase 실시간 동기화 부팅 ===== */
-try{ loadFontScale(); }catch(e){}
 window.addEventListener('load', function(){ try{ fbInit(); }catch(e){ console.error(e); } });
 window.addEventListener('online', function(){ if(sync.code) setSyncStatus('live'); if(typeof currentTab!=='undefined' && currentTab==='more') safeRender(); });
 window.addEventListener('offline', function(){ if(sync.code) setSyncStatus('offline'); });

@@ -403,14 +403,17 @@ function emptyMember(zone) {
     id: uid(), zone: zone || ZONES[0], dept: '', name: '', session: '',
     transUp: '', transDown: '', privateUp: '', privateDown: '',
     extraUp: {}, extraDown: {},
-    leaderName: '', leaderRel: '', lodging: '', salvation: false, baptism: false, note: ''
+    leaderName: '', leaderRel: '', lodging: '', salvation: false, baptism: false, note: '', regType: 'pre1', status: ''
   };
 }
 function emptyEvangelism() {
-  return { id: uid(), memberId: '', zone:'', dept:'', name:'', relation:'', leader:'', lodging:'', salvation:'', baptism:'', note:'' };
+  return { id: uid(), memberId: '', zone:'', dept:'', name:'', relation:'', leader:'', lodging:'', salvation:'', baptism:'', note:'', status:'' };
 }
 function emptyFeeSupport() {
   return { id: uid(), memberId: '', zone:'', dept:'', name:'', amount:0, note:'' };
+}
+function emptyPray() {
+  return { id: uid(), zone:'', dept:'', name:'', leader:'', relation:'', note:'', status:'' };
 }
 function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
 
@@ -437,7 +440,7 @@ function freshEvent(title) {
                 extraUps: ['금저'], extraDowns: ['토저'],
                 privateCarList: [] },
     fees: { ...DEFAULT_FEES },
-    members: [], evangelism: [], feeSupport: [],
+    members: [], evangelism: [], feeSupport: [], prayList: [],
     createdAt: Date.now(),
   };
 }
@@ -512,6 +515,10 @@ function hydrateEvent(d) {
   if (!d.members) d.members = [];
   if (!d.evangelism) d.evangelism = [];
   if (!d.feeSupport) d.feeSupport = [];
+  if (!d.prayList) d.prayList = [];
+  d.members.forEach(m => { if (!m.regType) m.regType = 'pre1'; if (m.status === undefined) m.status = ''; });
+  d.evangelism.forEach(e => { if (e.status === undefined) e.status = ''; });
+  d.prayList.forEach(p => { if (p.status === undefined) p.status = ''; });
   updateTransportOptions();
 }
 
@@ -617,7 +624,7 @@ function getYearPrefix() {
 
 function getLodgings() {
   const dict = {};
-  DB.members.forEach(m => {
+  registeredMembers().forEach(m => {
     const l = m.lodging ? m.lodging.trim() : '';
     if (!l) return; 
     if (!dict[l]) dict[l] = [];
@@ -789,7 +796,7 @@ function getTransportStats() {
     return null;
   }
 
-  DB.members.forEach(m => {
+  registeredMembers().forEach(m => {
     let aUp = Object.values(m.extraUp||{}).find(v=>v) || m.transUp;
     let mUp = mapT(aUp);
     if (mUp && countUp[mUp] !== undefined) countUp[mUp]++;
@@ -913,12 +920,12 @@ function execPrintTransport() {
       });
     }
   } else if (BUSES.includes(type)) {
-    const u = DB.members.filter(m => m.transUp === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const d = DB.members.filter(m => m.transDown === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const u = registeredMembers().filter(m => m.transUp === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const d = registeredMembers().filter(m => m.transDown === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
     body += buildSplitTable(null, u, d, true);
   } else {
-    const uList = DB.members.filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const dList = DB.members.filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
     if (uList.length === 0 && dList.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">해당 차편 등록자가 없습니다.</div>`;
     else body += buildSplitTable(`${esc(type)}`, uList, dList, true);
   }
@@ -926,7 +933,7 @@ function execPrintTransport() {
 }
 
 function execPrintSession(session) {
-  const list = DB.members.filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
   const titleText = `${getYearPrefix()} 하계수양회 - ${session} 명단`;
   let trs = list.map((m, i) => {
     let up = m.transUp || ''; let down = m.transDown || '';
@@ -957,7 +964,7 @@ function execPrintSession(session) {
 }
 
 function execPrintDept(dept) {
-  const list = DB.members.filter(m => m.dept === dept).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const list = registeredMembers().filter(m => m.dept === dept).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
   const titleText = `${getYearPrefix()} 하계수양회 - ${dept} 명단`;
   const body = `<div class="print-title">${titleText}</div>
     ${rosterPrintRowsHtml(list, 1, 'dept')}`;
@@ -1175,7 +1182,7 @@ $('#sheetCancel').onclick = () => closeSheet(); $('#sheetBackdrop').onclick = ()
 $('#sheetSave').onclick = () => { if (sheetHandlers.save) { if (sheetHandlers.save() !== false) closeSheet(); } else closeSheet(); };
 
 function openSessionSheet(session) {
-  const list = DB.members.filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary btn-block" onclick="execPrintSession('${esc(session)}')">인쇄</button>
@@ -1225,7 +1232,7 @@ function openZoneSheet(zone) {
 }
 
 function openDeptSheet(dept) {
-  const list = DB.members.filter(m => m.dept === dept).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const list = registeredMembers().filter(m => m.dept === dept).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary btn-block" onclick="execPrintDept('${esc(dept)}')">인쇄</button>
@@ -1249,11 +1256,13 @@ function openDeptSheet(dept) {
   openSheet(`${dept} 명단`, html, null, {hideSave:true});
 }
 
-function membersByZone(zone) { return DB.members.filter(m => m.zone === zone); }
-function totalRegistered() { return DB.members.length; }
+function isReg(m){ return m.regType !== 'onsite'; }
+function registeredMembers(){ return DB.members.filter(isReg); }
+function membersByZone(zone) { return registeredMembers().filter(m => m.zone === zone); }
+function totalRegistered() { return registeredMembers().length; }
 function sessionCounts() {
   const r = Object.fromEntries(SESSIONS.map(s => [s, 0]));
-  DB.members.forEach(m => {
+  registeredMembers().forEach(m => {
     (m.session||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(s => {
       if (r.hasOwnProperty(s)) r[s]++;
     });
@@ -1262,14 +1271,14 @@ function sessionCounts() {
 }
 function deptCounts() {
   const r = Object.fromEntries(DEPTS.map(d => [d, 0]));
-  DB.members.forEach(m => { if (r.hasOwnProperty(m.dept)) r[m.dept]++; }); return r;
+  registeredMembers().forEach(m => { if (r.hasOwnProperty(m.dept)) r[m.dept]++; }); return r;
 }
 function feeTotalByDept() {
   const totals = Object.fromEntries(DEPTS.map(d => [d, 0]));
-  DB.members.forEach(m => { if (totals.hasOwnProperty(m.dept)) totals[m.dept] += (DB.fees[m.dept] || 0); }); return totals;
+  registeredMembers().forEach(m => { if (totals.hasOwnProperty(m.dept)) totals[m.dept] += (DB.fees[m.dept] || 0); }); return totals;
 }
 function feeTotalByZone(zone) {
-  return DB.members.filter(m => m.zone === zone).reduce((s, m) => s + (DB.fees[m.dept] || 0), 0);
+  return registeredMembers().filter(m => m.zone === zone).reduce((s, m) => s + (DB.fees[m.dept] || 0), 0);
 }
 
 let currentTab = 'home';
@@ -1389,7 +1398,14 @@ function renderHome() {
   return `
     <div class="hero">
       <div class="title">${esc(DB.meta.title)} <button class="card-action" onclick="execPrintHome()" style="float:right;font-size:12px">인쇄</button></div>
-      <div class="big">${total}<span class="unit">명 등록</span><span style="font-size:18px;color:var(--ink-soft);font-weight:600;margin-left:14px">· 전도대상자 <b style="color:var(--gold-soft);font-weight:800;font-size:22px">${evCount}</b><span style="font-size:15px;color:var(--ink-soft)">명</span></span></div>
+      <div class="big" style="display:flex;align-items:baseline;flex-wrap:wrap;gap:6px">
+        <span>${total}<span class="unit">명 등록</span></span>
+        <span style="font-size:18px;color:var(--ink-soft);font-weight:600;margin-left:8px">· 전도대상자 <b style="color:var(--gold-soft);font-weight:800;font-size:22px">${evCount}</b><span style="font-size:15px;color:var(--ink-soft)">명</span></span>
+        <span style="margin-left:auto;display:flex;gap:6px">
+          <button class="card-action" onclick="openIntakeStatus()" style="font-size:12px">접수 현황</button>
+          <button class="card-action" onclick="openPrayList()" style="font-size:12px">기도 명단</button>
+        </span>
+      </div>
       <div class="sub">
         <div class="sub-item">차수 <b>${esc(DB.meta.session||'2차')}</b></div>
         <div class="sub-item">상행 <b>${esc(DB.meta.upTime)}</b></div>
@@ -1440,8 +1456,8 @@ function renderHome() {
       </div>
       <div style="overflow-x:auto;">
         <div class="roster-table" style="margin-bottom:0; min-width:720px;">
-          <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div></div>
-          ${DB.evangelism.slice(0,5).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
+          <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div><div style="text-align:center">상태</div></div>
+          ${DB.evangelism.slice(0,5).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:1px 5px;${e.status?'color:var(--gold)':''}" onclick="event.stopPropagation();openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'●':'○'}</button></div></div>`).join('')}
           ${evCount > 5 ? `<div style="text-align:center; padding:8px; font-size:12px; color:var(--ink-mute);">...외 ${evCount - 5}명</div>` : ''}
           ${evCount === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 전도대상자가 없습니다.</div>` : ''}
         </div>
@@ -1520,7 +1536,7 @@ function buildMemberListHTML() {
   const matches = (m) => !q || (m.name||'').toLowerCase().includes(q) || (m.dept||'').toLowerCase().includes(q);
 
   if (isAll) {
-    const totalList = DB.members.filter(matches);
+    const totalList = registeredMembers().filter(matches);
     if (totalList.length === 0) return `<div class="empty-state">${q ? '검색 결과 없음' : '등록된 인원이 없습니다.<br/><span style="font-size:12px;display:inline-block;margin-top:6px">우측 하단 + 버튼으로 새 인원을 추가하세요</span>'}</div>`;
     let html = '';
     ZONES.forEach(zn => {
@@ -1547,7 +1563,7 @@ function renderRoster() {
   const isAll = z === ALL_ZONES;
   return `
     <div class="zone-scroll" id="zoneScroll">
-      <button class="zone-pill ${isAll?'active':''}" data-zone="${ALL_ZONES}">전체<span class="ct">${DB.members.length}</span></button>
+      <button class="zone-pill ${isAll?'active':''}" data-zone="${ALL_ZONES}">전체<span class="ct">${registeredMembers().length}</span></button>
       ${ZONES.map(zn => `<button class="zone-pill ${zn===z?'active':''}" data-zone="${esc(zn)}">${esc(zn)}<span class="ct">${membersByZone(zn).length}</span></button>`).join('')}
     </div>
     <div class="searchbar">
@@ -1580,7 +1596,7 @@ function memberItemHTML(m, no) {
   `;
 }
 
-function openMemberSheet(m, isNew=false) {
+function openMemberSheet(m, isNew=false, afterSave=null) {
   const existingEv = DB.evangelism.find(e => e.memberId === m.id || (e.name === m.name && e.name !== '' && e.zone === m.zone));
   const existingFs = DB.feeSupport.find(f => f.memberId === m.id || (f.name === m.name && f.name !== '' && f.zone === m.zone));
   
@@ -1627,6 +1643,16 @@ function openMemberSheet(m, isNew=false) {
       <div class="field"><label>부서(회)</label><select id="mDept"><option value="">선택</option>${DEPTS.map(d => `<option value="${esc(d)}" ${m.dept===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
     </div>
     <div class="field"><label>성명</label><input id="mName" value="${esc(m.name)}" placeholder="홍길동" autocomplete="off"/></div>
+    <div class="field">
+      <label>접수 구분</label>
+      <div class="time-pill-row" id="mRegTypeRow">
+        ${[['pre1','사전 1차'],['pre2','사전 2차'],['onsite','현장 접수']].map(([v,lb]) => {
+          const sel = (m.regType||'pre1')===v;
+          return `<label class="time-pill ${sel?'active':''}"><input type="radio" name="mRegType" value="${v}" ${sel?'checked':''}/><span>${lb}</span></label>`;
+        }).join('')}
+      </div>
+      <div class="helper">현장 접수는 접수 현황에만 표시되며, 접수 현황에서 '등록'을 누르면 정식 등록됩니다.</div>
+    </div>
     <div class="field">
       <label>차수 <span style="font-weight:400;color:var(--ink-mute);font-size:11px">(복수 선택 가능)</span></label>
       <div class="time-pill-row" id="mSessionRow">
@@ -1703,6 +1729,7 @@ function openMemberSheet(m, isNew=false) {
       salvation: $('#mSalvation').checked,
       baptism: $('#mBaptism').checked,
       note: $('#mNote').value.trim(),
+      regType: (document.querySelector('input[name="mRegType"]:checked')||{}).value || 'pre1',
     };
 
     // 상행 시점 분기
@@ -1737,6 +1764,7 @@ function openMemberSheet(m, isNew=false) {
     saveDB();
     if (rosterFilter.zone !== ALL_ZONES) rosterFilter.zone = updated.zone;
     render(); toast(isNew ? '추가됐어요' : '수정됐어요');
+    if (typeof afterSave === 'function') { closeSheet(true); setTimeout(function(){ afterSave(updated); }, 300); return false; }
   });
 
   // 라디오/체크박스 pill 클릭 시 active 시각 토글 + (시점 그룹만) 셀렉트 옵션 재구성
@@ -1775,7 +1803,7 @@ function openMemberSheet(m, isNew=false) {
 }
 
 function driverList(driver, direction) {
-  return DB.members.filter(m => {
+  return registeredMembers().filter(m => {
     if (direction === 'up') {
       if (m.transUp === '개인차' && (m.privateUp||'').trim() === driver) return true;
       if (m.extraUp && Object.values(m.extraUp).includes(driver)) return true;
@@ -1790,7 +1818,7 @@ function driverList(driver, direction) {
 function allPrivateDrivers() {
   const set = new Set(PRIVATE_CAR_LIST);
   const known = new Set([...BUSES, ...CHURCH_CARS, ...OTHER_TRANSPORTS, ...PRIVATE_CARS, '']);
-  DB.members.forEach(m => {
+  registeredMembers().forEach(m => {
     if (m.transUp === '개인차' && m.privateUp) set.add(m.privateUp.trim());
     if (m.transDown === '개인차' && m.privateDown) set.add(m.privateDown.trim());
     if (m.extraUp) Object.values(m.extraUp).forEach(v => { if (v && !known.has(v)) set.add(v); });
@@ -1829,12 +1857,12 @@ function renderTransport() {
       if (!anyShown) html += `<div class="empty-state">표시할 명단이 없습니다.</div>`;
     }
   } else if (BUSES.includes(type)) {
-    const uList = DB.members.filter(m => m.transUp === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const dList = DB.members.filter(m => m.transDown === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const uList = registeredMembers().filter(m => m.transUp === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const dList = registeredMembers().filter(m => m.transDown === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
     html += buildSplitTable(null, uList, dList, false);
   } else {
-    const uList = DB.members.filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const dList = DB.members.filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
     if (uList.length === 0 && dList.length === 0) html += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
     else html += buildSplitTable(null, uList, dList, false);
   }
@@ -1870,7 +1898,11 @@ function renderFeeSupportSheet() {
   `;
   openSheet('회비 지원 명단', html, null, { hideSave:true });
   setTimeout(() => {
-    $('#fsAdd').onclick = () => { closeSheet(true); setTimeout(() => openFeeSupportSheet(emptyFeeSupport(), true), 300); };
+    $('#fsAdd').onclick = () => { closeSheet(true); setTimeout(() => {
+      const nm = emptyMember(ZONES[0]);
+      openMemberSheet(nm, true, () => { setTimeout(renderFeeSupportSheet, 300); });
+      setTimeout(() => { const c = $('#mFsCheck'); if (c) c.checked = true; }, 120);
+    }, 300); };
     $$('[data-fs-id]').forEach(el => el.onclick = () => {
       const fs = DB.feeSupport.find(x => x.id === el.dataset.fsId);
       if (fs) { closeSheet(true); setTimeout(() => openFeeSupportSheet(fs, false), 300); }
@@ -2053,6 +2085,202 @@ function shareApp() {
   }
 }
 
+/* ===== 접수 현황 / 기도 명단 / 상태 메모 / 화면 확대 ===== */
+
+/* 상태(status) 메모 — 인쇄 제외, 상세 기술용. evangelism / prayList 공용 */
+function openStatusMemo(listName, id) {
+  const arr = DB[listName] || [];
+  const item = arr.find(function (x) { return x.id === id; });
+  if (!item) return;
+  const html =
+    '<div class="notice">이 메모는 인쇄에 포함되지 않습니다. 이 사람을 위한 기도 제목, 상황 등을 자유롭게 적어두세요.</div>' +
+    '<div class="field"><label>' + esc(item.name || '대상자') + ' 상태 / 메모</label>' +
+    '<textarea id="stMemo" rows="8" placeholder="예: 직장 문제로 기도 요청. 다음 주 재방문 예정.">' + esc(item.status || '') + '</textarea></div>';
+  openSheet('상태 / 메모', html, function () {
+    item.status = $('#stMemo').value.trim();
+    saveDB();
+    return true;
+  });
+}
+
+/* ===== 접수 현황 ===== */
+function intakeGroups() {
+  const g = { pre1: [], pre2: [], onsite: [] };
+  (DB.members || []).forEach(function (m) {
+    const t = m.regType || 'pre1';
+    (g[t] || g.pre1).push(m);
+  });
+  const byZone = function (a, b) { return (a.zone || '').localeCompare(b.zone || '', 'ko') || (a.name || '').localeCompare(b.name || '', 'ko'); };
+  g.pre1.sort(byZone); g.pre2.sort(byZone); g.onsite.sort(byZone);
+  return g;
+}
+
+function intakeTable(list, withRegister) {
+  if (!list.length) return '<div style="text-align:center;padding:16px;font-size:12px;color:var(--ink-mute)">해당 없음</div>';
+  const cols = withRegister ? '28px 44px 1fr 60px 50px 1.2fr 52px' : '28px 44px 1fr 60px 50px 1.4fr';
+  let head = '<div class="roster-row head" style="grid-template-columns:' + cols + '"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>차수</div><div>비고</div>' + (withRegister ? '<div style="text-align:center">등록</div>' : '') + '</div>';
+  let rows = list.map(function (m, i) {
+    const reg = withRegister ? '<div style="text-align:center"><button class="card-action" style="font-size:11px;padding:2px 8px" onclick="intakeRegister(\'' + esc(m.id) + '\')">등록</button></div>' : '';
+    return '<div class="roster-row" style="grid-template-columns:' + cols + '"><div class="no">' + (i + 1) + '</div><div>' + esc(m.zone) + '</div><div class="nm">' + esc(m.name) + '</div><div>' + esc(m.dept) + '</div><div>' + esc(m.session || '') + '</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.note || '') + '</div>' + reg + '</div>';
+  }).join('');
+  return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + (withRegister ? '430' : '380') + 'px">' + head + rows + '</div></div>';
+}
+
+function openIntakeStatus() {
+  const g = intakeGroups();
+  const html =
+    '<div class="notice">사전 1·2차 접수자는 등록 인원에 집계됩니다. 현장 접수자는 \'등록\'을 누르면 즉시 정식 등록됩니다.</div>' +
+    '<div class="section-title">사전 1차 접수 · 명찰 수령 (' + g.pre1.length + '명)</div>' + intakeTable(g.pre1, false) +
+    '<div class="section-title" style="margin-top:16px">사전 2차 접수 · 명찰 현장 수령 (' + g.pre2.length + '명)</div>' + intakeTable(g.pre2, false) +
+    '<div class="section-title" style="margin-top:16px">현장 접수 (' + g.onsite.length + '명)</div>' + intakeTable(g.onsite, true);
+  openSheet('접수 현황', html, null, { hideSave: true });
+}
+
+function intakeRegister(id) {
+  const m = (DB.members || []).find(function (x) { return x.id === id; });
+  if (!m) return;
+  confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (사전 1차로 전환)', function () {
+    m.regType = 'pre1';
+    saveDB();
+    render();
+    toast('등록됐어요');
+    setTimeout(openIntakeStatus, 150);
+  }, '등록');
+}
+
+/* ===== 전도대상자 기도 명단 (evangelism과 완전 분리) ===== */
+function openPrayList() {
+  const list = (DB.prayList || []).slice().sort(function (a, b) {
+    return (a.zone || '').localeCompare(b.zone || '', 'ko') || (a.name || '').localeCompare(b.name || '', 'ko');
+  });
+  const cols = '24px 40px 1fr 56px 56px 44px 1fr 38px 44px';
+  let head = '<div class="roster-row head" style="grid-template-columns:' + cols + '"><div class="no">번호</div><div>구역</div><div>성명</div><div>회</div><div>인도자</div><div>관계</div><div>비고</div><div style="text-align:center">상태</div><div style="text-align:center">등록</div></div>';
+  let rows = list.map(function (p, i) {
+    return '<div class="roster-row" style="grid-template-columns:' + cols + '">' +
+      '<div class="no">' + (i + 1) + '</div>' +
+      '<div>' + esc(p.zone) + '</div>' +
+      '<div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openPrayEdit(\'' + esc(p.id) + '\')">' + esc(p.name || '(이름)') + '</div>' +
+      '<div>' + esc(p.dept) + '</div>' +
+      '<div>' + esc(p.leader) + '</div>' +
+      '<div>' + esc(p.relation) + '</div>' +
+      '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.note) + '</div>' +
+      '<div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;' + (p.status ? 'color:var(--gold)' : '') + '" onclick="openStatusMemo(\'prayList\',\'' + esc(p.id) + '\')">' + (p.status ? '●' : '○') + '</button></div>' +
+      '<div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px" onclick="prayRegister(\'' + esc(p.id) + '\')">등록</button></div>' +
+      '</div>';
+  }).join('');
+  if (!list.length) rows = '<div style="text-align:center;padding:16px;font-size:12px;color:var(--ink-mute)">기도 명단이 비어 있습니다. 아래 \'+ 대상자 추가\'로 입력하세요.</div>';
+
+  const html =
+    '<div class="notice">전도하고자 하는 대상의 기도 명단입니다. 여기 입력하면 바로 저장됩니다. \'상태\'는 상세 메모(인쇄 제외)이고, \'등록\'을 누르면 정식 등록으로 넘어갑니다.</div>' +
+    '<div style="display:flex;gap:8px;margin-bottom:12px">' +
+    '<button class="btn btn-primary" id="prayAdd" style="flex:1">+ 대상자 추가</button>' +
+    '<button class="btn btn-secondary" id="prayPrint" style="flex:1">인쇄</button></div>' +
+    '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:560px">' + head + rows + '</div></div>';
+  openSheet('전도대상자 기도 명단', html, null, { hideSave: true });
+  setTimeout(function () {
+    var a = $('#prayAdd'); if (a) a.onclick = function () { openPrayEdit(null); };
+    var pr = $('#prayPrint'); if (pr) pr.onclick = execPrintPrayList;
+  }, 50);
+}
+
+function openPrayEdit(id) {
+  const isNew = !id;
+  const p = isNew ? emptyPray() : (DB.prayList || []).find(function (x) { return x.id === id; });
+  if (!p) return;
+  const html =
+    '<div class="row-2">' +
+    '<div class="field"><label>구역</label><select id="pZone"><option value="">선택</option>' + ZONES.map(function (z) { return '<option value="' + esc(z) + '" ' + (p.zone === z ? 'selected' : '') + '>' + esc(z) + '</option>'; }).join('') + '</select></div>' +
+    '<div class="field"><label>회(부서)</label><select id="pDept"><option value="">선택</option>' + DEPTS.map(function (d) { return '<option value="' + esc(d) + '" ' + (p.dept === d ? 'selected' : '') + '>' + esc(d) + '</option>'; }).join('') + '</select></div>' +
+    '</div>' +
+    '<div class="field"><label>성명</label><input id="pName" value="' + esc(p.name) + '" placeholder="홍길동" autocomplete="off"/></div>' +
+    '<div class="row-2">' +
+    '<div class="field"><label>인도자</label><input id="pLeader" value="' + esc(p.leader) + '"/></div>' +
+    '<div class="field"><label>관계</label><input id="pRelation" value="' + esc(p.relation) + '"/></div>' +
+    '</div>' +
+    '<div class="field"><label>비고</label><textarea id="pNote" rows="2">' + esc(p.note) + '</textarea></div>' +
+    (isNew ? '' : '<button class="btn btn-danger btn-block" id="pDelete" style="margin-top:8px">삭제</button>');
+  openSheet(isNew ? '기도 대상자 추가' : '기도 대상자 편집', html, function () {
+    p.zone = $('#pZone').value; p.dept = $('#pDept').value; p.name = $('#pName').value.trim();
+    p.leader = $('#pLeader').value.trim(); p.relation = $('#pRelation').value.trim(); p.note = $('#pNote').value.trim();
+    if (!p.name) { toast('성명을 입력해 주세요', true); return false; }
+    if (isNew) DB.prayList.push(p);
+    saveDB();
+    closeSheet(true); setTimeout(openPrayList, 300); toast('저장됐어요'); return false;
+  });
+  if (!isNew) setTimeout(function () {
+    var d = $('#pDelete'); if (d) d.onclick = function () {
+      confirmModal('삭제', esc(p.name) + '을(를) 기도 명단에서 삭제합니다.', function () {
+        DB.prayList = DB.prayList.filter(function (x) { return x.id !== p.id; });
+        saveDB(); closeSheet(true); setTimeout(openPrayList, 300);
+      });
+    };
+  }, 50);
+}
+
+/* 기도명단 → 등록: 인원 추가 화면으로 (전도대상자 체크 ON), 저장 후 기도명단에서 제거하고 복귀 */
+function prayRegister(id) {
+  const p = (DB.prayList || []).find(function (x) { return x.id === id; });
+  if (!p) return;
+  const m = emptyMember(p.zone || ZONES[0]);
+  m.zone = p.zone || ZONES[0]; m.dept = p.dept || ''; m.name = p.name || '';
+  m.leaderName = p.leader || ''; m.leaderRel = p.relation || ''; m.note = p.note || '';
+  closeSheet(true);
+  setTimeout(function () {
+    openMemberSheet(m, true, function () {
+      // 저장 완료 → 전도대상자 체크가 켜져 있었으면 evangelism으로 자동 이동(저장 로직이 처리),
+      // 기도 명단에서는 제거
+      DB.prayList = DB.prayList.filter(function (x) { return x.id !== p.id; });
+      saveDB();
+      setTimeout(openPrayList, 300);
+    });
+    // 전도대상자 체크를 기본 ON으로
+    setTimeout(function () { var c = $('#mEvCheck'); if (c) c.checked = true; }, 120);
+  }, 300);
+}
+
+function execPrintPrayList() {
+  const titleText = getYearPrefix() + ' 하계수양회 - 전도대상자 기도 명단';
+  const list = (DB.prayList || []).slice().sort(function (a, b) { return (a.zone || '').localeCompare(b.zone || '', 'ko'); });
+  let trs = list.map(function (p, i) {
+    return '<tr><td>' + (i + 1) + '</td><td style="white-space:nowrap">' + esc(p.zone) + '</td><td class="print-name">' + esc(p.name) + '</td><td style="white-space:nowrap">' + esc(p.dept) + '</td><td style="white-space:nowrap">' + esc(p.leader) + '</td><td style="white-space:nowrap">' + esc(p.relation) + '</td><td class="tl">' + esc(p.note) + '</td></tr>';
+  }).join('');
+  if (!trs) trs = '<tr><td colspan="7" style="padding:20px;color:#666">기도 명단이 없습니다.</td></tr>';
+  const body = '<div class="print-title">' + titleText + '</div>' +
+    '<table class="print-table" style="font-size:11px;table-layout:fixed">' +
+    '<colgroup><col style="width:5%"><col style="width:9%"><col style="width:12%"><col style="width:12%"><col style="width:11%"><col style="width:9%"><col style="width:42%"></colgroup>' +
+    '<thead><tr><th>번호</th><th>구역</th><th>성명</th><th>회(부서)</th><th>인도자</th><th>관계</th><th>비고</th></tr></thead>' +
+    '<tbody>' + trs + '</tbody></table>';
+  doPrint(titleText, body);
+}
+
+/* ===== 화면 확대 (글씨 크기) ===== */
+var FONT_SCALE_KEY = 'retreat_font_scale';
+function applyFontScale(v) {
+  document.documentElement.style.fontSize = (15 * v) + 'px';
+}
+function loadFontScale() {
+  var v = parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1') || 1;
+  if (v < 0.8) v = 0.8; if (v > 1.6) v = 1.6;
+  applyFontScale(v);
+  return v;
+}
+function setFontScale(v) {
+  if (v < 0.8) v = 0.8; if (v > 1.6) v = 1.6;
+  v = Math.round(v * 100) / 100;
+  applyFontScale(v);
+  try { localStorage.setItem(FONT_SCALE_KEY, String(v)); } catch (e) {}
+  updateFontChip(v);
+  return v;
+}
+function changeFontScale(delta) {
+  var cur = parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1') || 1;
+  return setFontScale(cur + delta);
+}
+function updateFontChip(v) {
+  var el = document.getElementById('fontPct');
+  if (el) el.textContent = Math.round(v * 100) + '%';
+}
+
 /* ===== Firebase 실시간 동기화 (행사 코드 = 방) ===== */
 /* 설계 요약:
    - rooms/{code}                : 행사 공통(meta/settings/fees) 1개 문서
@@ -2116,11 +2344,12 @@ function roomMetaOf(ev) {
 }
 
 function snapOf(ev) {
-  const m = {}, e = {}, f = {};
+  const m = {}, e = {}, f = {}, p = {};
   (ev.members || []).forEach(function (x) { if (x && x.id != null) m[String(x.id)] = stableStr(x); });
   (ev.evangelism || []).forEach(function (x) { if (x && x.id != null) e[String(x.id)] = stableStr(x); });
   (ev.feeSupport || []).forEach(function (x) { if (x && x.id != null) f[String(x.id)] = stableStr(x); });
-  return { meta: stableStr(roomMetaOf(ev)), members: m, evangelism: e, feeSupport: f };
+  (ev.prayList || []).forEach(function (x) { if (x && x.id != null) p[String(x.id)] = stableStr(x); });
+  return { meta: stableStr(roomMetaOf(ev)), members: m, evangelism: e, feeSupport: f, prayList: p };
 }
 
 /* ---------- 리스너 부착/해제 ---------- */
@@ -2137,7 +2366,7 @@ function syncAttachActive() {
   sync.mirror = snapOf(DB);
   setSyncStatus('connecting');
   sync.unsub.push(roomRef(code).onSnapshot(function (d) { onRoomMeta(d); }, function (err) { onSyncErr(err); }));
-  ['members', 'evangelism', 'feeSupport'].forEach(function (sub) {
+  ['members', 'evangelism', 'feeSupport', 'prayList'].forEach(function (sub) {
     sync.unsub.push(subRef(code, sub).onSnapshot(function (qs) { onSubSnap(sub, qs); }, function (err) { onSyncErr(err); }));
   });
 }
@@ -2225,7 +2454,7 @@ async function pushDiff(code, ev) {
     writes.push({ ref: roomRef(code), data: md, merge: true });
     sync.mirror.meta = metaStr;
   }
-  ['members', 'evangelism', 'feeSupport'].forEach(function (sub) {
+  ['members', 'evangelism', 'feeSupport', 'prayList'].forEach(function (sub) {
     const cur = {};
     (ev[sub] || []).forEach(function (x) { if (x && x.id != null) cur[String(x.id)] = x; });
     const mir = sync.mirror[sub] || (sync.mirror[sub] = {});
@@ -2262,6 +2491,7 @@ async function pushFullEvent(code, ev) {
   await pushRecords(code, 'members', ev.members || []);
   await pushRecords(code, 'evangelism', ev.evangelism || []);
   await pushRecords(code, 'feeSupport', ev.feeSupport || []);
+  await pushRecords(code, 'prayList', ev.prayList || []);
 }
 
 async function pushRecords(code, sub, arr) {
@@ -2313,7 +2543,7 @@ async function syncJoin() {
     if (d.settings) ev.settings = Object.assign(ev.settings, d.settings);
     if (d.fees) ev.fees = Object.assign(ev.fees, d.fees);
     if (d.meta) ev.meta = Object.assign(ev.meta, d.meta);
-    ev.members = []; ev.evangelism = []; ev.feeSupport = [];
+    ev.members = []; ev.evangelism = []; ev.feeSupport = []; ev.prayList = [];
     VAULT.events.push(ev);
     VAULT.activeId = ev.id;
     DB = ev;
@@ -2422,7 +2652,18 @@ function shareDataFile() {
 }
 
 function renderMore() {
+  const fscale = parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1') || 1;
   return `
+    <div class="card">
+      <div class="card-head"><div class="card-title">화면 글씨 크기</div></div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:8px 4px">
+        <button class="btn btn-secondary" onclick="changeFontScale(-0.1)" style="font-size:22px;width:54px;height:44px;padding:0">A−</button>
+        <div style="min-width:64px;text-align:center;font-size:18px;font-weight:800;color:var(--gold)"><span id="fontPct">${Math.round(fscale*100)}%</span></div>
+        <button class="btn btn-secondary" onclick="changeFontScale(0.1)" style="font-size:22px;width:54px;height:44px;padding:0">A＋</button>
+        <button class="btn btn-secondary" onclick="setFontScale(1)" style="font-size:13px;height:44px">기본</button>
+      </div>
+      <div class="helper" style="text-align:center">앱 전체 글씨 크기를 조절합니다 (80%~160%).</div>
+    </div>
     <div class="card">
       <div class="card-head"><div class="card-title">데이터 통합 공유</div></div>
       <div class="menu-list">
@@ -2534,22 +2775,27 @@ function renderEvangelismSheet() {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:640px;">
-        <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>비고</div></div>
-        ${DB.evangelism.map((e, i) => `<div class="roster-row clickable" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
+        <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr 40px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>비고</div><div style="text-align:center">상태</div></div>
+        ${DB.evangelism.map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'●':'○'}</button></div></div>`).join('')}
         ${DB.evangelism.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>
   `;
   openSheet('전도대상자 명단 전체', html, null, { hideSave:true });
   setTimeout(() => {
-    $('#evAdd').onclick = () => { closeSheet(true); setTimeout(() => openEvangelismEdit(emptyEvangelism(), true), 300); };
-    $$('[data-ev-id]').forEach(el => el.onclick = () => {
-      const e = DB.evangelism.find(x => x.id === el.dataset.evId);
-      if (e) { closeSheet(true); setTimeout(() => openEvangelismEdit(e, false), 300); }
-    });
+    $('#evAdd').onclick = () => { closeSheet(true); setTimeout(() => {
+      const nm = emptyMember(ZONES[0]);
+      openMemberSheet(nm, true, () => { setTimeout(renderEvangelismSheet, 300); });
+      setTimeout(() => { const c = $('#mEvCheck'); if (c) c.checked = true; }, 120);
+    }, 300); };
+    // 이름 클릭 편집은 openEvangelismEditById가 처리 (상태 버튼과 분리)
   }, 50);
 }
 
+function openEvangelismEditById(id) {
+  const e = DB.evangelism.find(x => x.id === id);
+  if (e) { closeSheet(true); setTimeout(() => openEvangelismEdit(e, false), 300); }
+}
 function openEvangelismEdit(e, isNew) {
   const html = `
     <div class="row-2">
@@ -2911,6 +3157,7 @@ if ('serviceWorker' in navigator) {
 render();
 
 /* ===== Firebase 실시간 동기화 부팅 ===== */
+try{ loadFontScale(); }catch(e){}
 window.addEventListener('load', function(){ try{ fbInit(); }catch(e){ console.error(e); } });
 window.addEventListener('online', function(){ if(sync.code) setSyncStatus('live'); if(typeof currentTab!=='undefined' && currentTab==='more') safeRender(); });
 window.addEventListener('offline', function(){ if(sync.code) setSyncStatus('offline'); });

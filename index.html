@@ -240,9 +240,14 @@ nav.tabbar {
 .split-ui-table td.check-cell { background: var(--bg-0); }
 /* 모바일에서 글자가 작아져도 부서 칸이 잘리지 않도록 */
 @media (max-width: 520px) {
-  .split-wrap-ui { gap: 8px; }
-  .split-ui-table { font-size: 12px; }
-  .split-ui-table th, .split-ui-table td { padding: 8px 5px; }
+  .split-wrap-ui { gap: 6px; }
+  .split-ui-table { font-size: 10.5px; }
+  .split-ui-table th, .split-ui-table td { padding: 7px 2px; white-space: normal; word-break: break-all; line-height: 1.25; }
+  .split-ui-table td.nm { word-break: keep-all; }
+}
+@media (max-width: 380px) {
+  .split-ui-table { font-size: 9.5px; }
+  .split-ui-table th, .split-ui-table td { padding: 6px 1px; }
 }
 
 /* 대형 모달 */
@@ -373,7 +378,7 @@ nav.tabbar {
  * 하계수양회 등록 관리 (업데이트 V13)
  * ============================================================ */
 
-let ZONES = ['11구역','12구역','13구역','21구역','22구역','23구역','31구역','32구역'];
+let ZONES = ['11구역','12구역','13구역','14구역','21구역','22구역','23구역','24구역','31구역','32구역','33구역','34구역'];
 let SESSIONS = ['1차','2차','3차','4차','5차','6차','7차','8차'];
 let BUSES = ['1호차','2호차','3호차','4호차','5호차'];
 let CHURCH_CARS = ['교회차1','교회차2'];
@@ -433,7 +438,7 @@ function freshEvent(title) {
   return {
     id: newEventId(),
     meta: { title: title || '새 수양회', session: '2차', upTime: '', downTime: '' },
-    settings: { zones: ['11구역','12구역','13구역','21구역','22구역','23구역','31구역','32구역'],
+    settings: { zones: ['11구역','12구역','13구역','14구역','21구역','22구역','23구역','24구역','31구역','32구역','33구역','34구역'],
                 sessions: ['1차','2차','3차','4차','5차','6차','7차','8차'],
                 buses: ['1호차','2호차','3호차','4호차','5호차'],
                 churchCars: ['교회차1','교회차2'],
@@ -662,11 +667,11 @@ function buildSplitTable(title, uList, dList, isPrint=false) {
        <thead>
          <tr><th colspan="5" class="side-head ${label==='상행'?'up-head':'down-head'}">${label} (${list.length}명)</th></tr>
          <tr>
-           <th style="width:${isPrint?'10%':'10%'}">번호</th>
-           <th style="width:${isPrint?'15%':'18%'}">구역</th>
-           <th style="width:${isPrint?'23%':'22%'}">성명</th>
-           <th style="width:${isPrint?'25%':'26%'}">부서</th>
-           <th style="width:${isPrint?'14%':'14%'}">확인</th>
+           <th style="width:${isPrint?'10%':'12%'}">번호</th>
+           <th style="width:${isPrint?'15%':'17%'}">구역</th>
+           <th style="width:${isPrint?'23%':'26%'}">성명</th>
+           <th style="width:${isPrint?'25%':'29%'}">부서</th>
+           <th style="width:${isPrint?'14%':'16%'}">확인</th>
          </tr>
        </thead>
        <tbody>${rows}</tbody>
@@ -2748,8 +2753,8 @@ function renderEvangelismSheet() {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:640px;">
-        <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr 40px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>비고</div><div style="text-align:center">상태</div></div>
-        ${DB.evangelism.map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
+        <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div><div style="text-align:center">상태</div></div>
+        ${DB.evangelism.map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
         ${DB.evangelism.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>
@@ -3018,6 +3023,12 @@ async function exportToExcel() {
       if (DB.fees && DB.fees[dept] !== undefined) edits[`K${row}`] = DB.fees[dept];
     });
     await patchSheetFile('회비지원', edits);
+  }
+
+  // 6-1) 통계 시트 — 교통편 통계의 '본 차수' 기준값 기록 (B23)
+  {
+    const sess = (DB.meta && DB.meta.session) ? String(DB.meta.session).trim() : '';
+    await patchSheetFile('통계', { 'B23': sess });
   }
 
   // 7) 생성된 ZIP을 Blob으로 저장

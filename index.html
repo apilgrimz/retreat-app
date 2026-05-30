@@ -194,9 +194,9 @@ nav.tabbar {
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 
 /* 차편/표/회비 */
-.transport-tabs { display: flex; gap: 4px; overflow-x: auto; margin: 0 -16px 12px; padding: 0 16px; scrollbar-width: none; }
+.transport-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 14px; padding: 0 16px 2px; scrollbar-width: none; }
 .transport-tabs::-webkit-scrollbar { display: none; }
-.tt-pill { flex-shrink: 0; padding: 6px 12px; border-radius: 8px; background: var(--bg-1); border: 1px solid var(--line); color: var(--ink-soft); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.tt-pill { flex-shrink: 0; padding: 9px 16px; border-radius: 8px; background: var(--bg-1); border: 1px solid var(--line); color: var(--ink-soft); font-size: 13px; font-weight: 500; white-space: nowrap; }
 .tt-pill.active { background: var(--bg-3); color: var(--gold); border-color: var(--gold); }
 
 .roster-table { background: var(--bg-1); border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; margin-bottom: 12px;}
@@ -233,16 +233,16 @@ nav.tabbar {
 .split-wrap-ui { display: flex; gap: 8px; margin-bottom: 12px; align-items: flex-start; }
 .split-wrap-ui .split-side { flex: 1 1 0; min-width: 0; }
 .split-ui-table { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--bg-1); border-radius: 8px; overflow: hidden; table-layout: fixed; }
-.split-ui-table th, .split-ui-table td { border: 1px solid var(--line-soft); padding: 6px 4px; text-align: center; word-break: keep-all; }
+.split-ui-table th, .split-ui-table td { border: 1px solid var(--line-soft); padding: 9px 6px; text-align: center; word-break: keep-all; }
 .split-ui-table th { background: var(--bg-2); color: var(--ink-mute); font-weight: 600; font-size: 11px; }
 .split-ui-table th.side-head { font-size: 12px; color: var(--gold); padding: 7px 4px; }
 .split-ui-table td.nm { font-weight: 600; color: var(--ink); }
 .split-ui-table td.check-cell { background: var(--bg-0); }
 /* 모바일에서 글자가 작아져도 부서 칸이 잘리지 않도록 */
 @media (max-width: 520px) {
-  .split-wrap-ui { gap: 6px; }
-  .split-ui-table { font-size: 11px; }
-  .split-ui-table th, .split-ui-table td { padding: 5px 2px; }
+  .split-wrap-ui { gap: 8px; }
+  .split-ui-table { font-size: 12px; }
+  .split-ui-table th, .split-ui-table td { padding: 8px 4px; }
 }
 
 /* 대형 모달 */
@@ -1402,9 +1402,9 @@ function renderHome() {
       <div class="big" style="display:flex;align-items:baseline;flex-wrap:wrap;gap:6px">
         <span>${total}<span class="unit">명 등록</span></span>
         <span style="font-size:18px;color:var(--ink-soft);font-weight:600;margin-left:8px">· 전도대상자 <b style="color:var(--gold-soft);font-weight:800;font-size:22px">${evCount}</b><span style="font-size:15px;color:var(--ink-soft)">명</span></span>
-        <span style="margin-left:auto;display:flex;gap:6px">
-          <button class="card-action" onclick="openIntakeStatus()" style="font-size:12px">접수 현황</button>
-          <button class="card-action" onclick="openPrayList()" style="font-size:12px">기도 명단</button>
+        <span style="margin-left:auto;display:flex;gap:6px;align-self:flex-start">
+          <button class="card-action" onclick="openIntakeStatus()" style="font-size:12px;line-height:1.25;padding:6px 10px;text-align:center">접수<br/>현황</button>
+          <button class="card-action" onclick="openPrayList()" style="font-size:12px;line-height:1.25;padding:6px 10px;text-align:center">기도<br/>명단</button>
         </span>
       </div>
       <div class="sub">
@@ -2639,23 +2639,6 @@ function shareDataFile() {
 function renderMore() {
   return `
     <div class="card">
-      <div class="card-head"><div class="card-title">데이터 통합 공유</div></div>
-      <div class="menu-list">
-        <button class="menu-item" onclick="shareApp()">
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg></div>
-          <div class="lb"><div class="t">앱 링크 공유하기</div><div class="d">초기 빈 상태의 앱 설치 링크 전송</div></div>
-        </button>
-        <button class="menu-item" onclick="shareDataFile()">
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
-          <div class="lb"><div class="t">데이터 백업 및 공유</div><div class="d">현재 등록된 데이터를 파일로 추출/전송</div></div>
-        </button>
-        <button class="menu-item" onclick="$('#jsonInput').click()">
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
-          <div class="lb"><div class="t">데이터 복원하기</div><div class="d">공유받은 백업 파일(.json) 불러오기</div></div>
-        </button>
-      </div>
-    </div>
-    <div class="card">
       <div class="card-head"><div class="card-title">실시간 동기화 (행사 코드)</div></div>
       <div style="padding:2px 4px 10px;font-size:12px;font-weight:700;">
         <span id="syncStatusText" style="color:var(--ink-mute)">○ 동기화 꺼짐</span>${DB.roomCode ? ` · 코드 <b id="syncCardCode" style="font-family:monospace;color:var(--gold-soft);letter-spacing:1px">${esc(DB.roomCode)}</b>` : ''}
@@ -2707,6 +2690,23 @@ function renderMore() {
         <button class="menu-item" data-action="export">
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
           <div class="lb"><div class="t">엑셀로 내보내기</div><div class="d">모든 데이터를 파일로 저장합니다.</div></div>
+        </button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">데이터 통합 공유</div></div>
+      <div class="menu-list">
+        <button class="menu-item" onclick="shareApp()">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg></div>
+          <div class="lb"><div class="t">앱 링크 공유하기</div><div class="d">초기 빈 상태의 앱 설치 링크 전송</div></div>
+        </button>
+        <button class="menu-item" onclick="shareDataFile()">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          <div class="lb"><div class="t">데이터 백업 및 공유</div><div class="d">현재 등록된 데이터를 파일로 추출/전송</div></div>
+        </button>
+        <button class="menu-item" onclick="$('#jsonInput').click()">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+          <div class="lb"><div class="t">데이터 복원하기</div><div class="d">공유받은 백업 파일(.json) 불러오기</div></div>
         </button>
       </div>
     </div>

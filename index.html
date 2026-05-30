@@ -2894,14 +2894,22 @@ function classifyExtra(val) {
   if (!v) return '';
   if (v === '대중교통' || v.includes('대중교통')) return '대중교통';
   if (v === '타교회' || v.includes('타교회')) return '타교회';
+  if (v.includes('교회차')) return '교회차';   // '교회차'/'교회차1'/'교회차2'
   return '개인차'; // 그 외(차주 이름 등)는 개인차
 }
-// 엑셀 H/I 셀 표기: 대중교통/타교회는 그대로, 개인차는 '이름 (개인차)' (시점 정보는 생략)
+// '교회차' 단독 → '교회차1'로 정규화
+function normChurchCar(val){
+  const v = String(val||'').trim();
+  if (v === '교회차') return '교회차1';
+  return v;
+}
+// 엑셀 H/I 셀 표기: 교회차는 '교회차1/2', 대중교통/타교회는 그대로, 개인차는 이름만
 function extraCellText(timeKey, val) {
   const kind = classifyExtra(val);
+  if (kind === '교회차') return normChurchCar(val);
   if (kind === '개인차') {
     const name = String(val||'').trim();
-    return name && name !== '개인차' ? `${name} (개인차)` : '개인차';
+    return (name && name !== '개인차') ? name : '개인차';  // 이름만
   }
   return kind; // '대중교통' | '타교회'
 }
@@ -3068,6 +3076,9 @@ async function exportToExcel() {
     // 상/하행 차편 종류: 본대(호차/교회차) 직접지정 우선, 없으면 기타값을 분류
     function upKind(m){ if(m.transUp) return m.transUp; const v=firstExtraUp(m); return v?classifyExtra(v):''; }
     function downKind(m){ if(m.transDown) return m.transDown; const v=firstExtraDown(m); return v?classifyExtra(v):''; }
+    // 교회차 여부 (본대 직접지정 '교회차1/2' 또는 기타 분류 '교회차' 모두 포함)
+    function isChurchUp(m){ const k=upKind(m); return CHURCH_CARS.includes(k) || k==='교회차'; }
+    function isChurchDown(m){ const k=downKind(m); return CHURCH_CARS.includes(k) || k==='교회차'; }
     const regs = registeredMembers().slice().sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko')||(a.name||'').localeCompare(b.name||'','ko'));
     const Z=m=>m.zone||'', D=m=>m.dept||'', NM=m=>m.name||'', NT=m=>m.note||'';
 
@@ -3085,7 +3096,7 @@ async function exportToExcel() {
 
     // (B) 교회차 시트: 상행 A~E, 하행 G~K (교회차1·2 합침)
     if (nameToFile['교회차']) {
-      const up=regs.filter(m=>CHURCH_CARS.includes(upKind(m))), dn=regs.filter(m=>CHURCH_CARS.includes(downKind(m)));
+      const up=regs.filter(isChurchUp), dn=regs.filter(isChurchDown);
       const ed={};
       for(let i=0;i<40;i++){ const r=4+i;
         const u=up[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`E${r}`]=u?NT(u):'';

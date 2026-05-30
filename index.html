@@ -3061,78 +3061,93 @@ async function exportToExcel() {
     await patchSheetFile('통계', { 'B23': sess });
   }
 
-  // 6-2) 차편별 명단 시트 채우기 (호차 / 교회차 / 개인차 / 타교회·대중교통)
+  // 6-2) 차편별 명단 시트 채우기 (앱이 직접 제어 — 통합 시트 미사용)
   {
-    // 멤버의 상행/하행 차편 종류 판단
-    function upKind(m) {
-      if (m.transUp) return m.transUp;                 // 본대 호차/교회차 등 직접 지정
-      const k = Object.keys(m.extraUp||{}).find(x=>m.extraUp[x]);
-      return k ? classifyExtra(m.extraUp[k]) : '';
-    }
-    function downKind(m) {
-      if (m.transDown) return m.transDown;
-      const k = Object.keys(m.extraDown||{}).find(x=>m.extraDown[x]);
-      return k ? classifyExtra(m.extraDown[k]) : '';
-    }
-    function upDriver(m) { // 개인차 차주명 (기타 기반)
-      const k = Object.keys(m.extraUp||{}).find(x=>m.extraUp[x]);
-      if (k && classifyExtra(m.extraUp[k])==='개인차') { const v=String(m.extraUp[k]).trim(); return v==='개인차'?'':v; }
-      return '';
-    }
-    function downDriver(m) {
-      const k = Object.keys(m.extraDown||{}).find(x=>m.extraDown[x]);
-      if (k && classifyExtra(m.extraDown[k])==='개인차') { const v=String(m.extraDown[k]).trim(); return v==='개인차'?'':v; }
-      return '';
-    }
+    function firstExtraUp(m){ const k=Object.keys(m.extraUp||{}).find(x=>m.extraUp[x]); return k?String(m.extraUp[k]).trim():''; }
+    function firstExtraDown(m){ const k=Object.keys(m.extraDown||{}).find(x=>m.extraDown[x]); return k?String(m.extraDown[k]).trim():''; }
+    // 상/하행 차편 종류: 본대(호차/교회차) 직접지정 우선, 없으면 기타값을 분류
+    function upKind(m){ if(m.transUp) return m.transUp; const v=firstExtraUp(m); return v?classifyExtra(v):''; }
+    function downKind(m){ if(m.transDown) return m.transDown; const v=firstExtraDown(m); return v?classifyExtra(v):''; }
     const regs = registeredMembers().slice().sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko')||(a.name||'').localeCompare(b.name||'','ko'));
-    const byZone = m => m.zone||'';
+    const Z=m=>m.zone||'', D=m=>m.dept||'', NM=m=>m.name||'', NT=m=>m.note||'';
 
     // (A) 호차 시트: 상행 A~F(NO,구역,회,성명,확인,비고), 하행 H~M
     for (const bus of BUSES) {
-      const sheet = bus; // '1호차'...
-      if (!nameToFile[sheet]) continue;
-      const up = regs.filter(m=>upKind(m)===bus);
-      const dn = regs.filter(m=>downKind(m)===bus);
-      const ed = {};
-      for (let i=0;i<36;i++){ const r=4+i;
-        const u=up[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?byZone(u):''; ed[`C${r}`]=u?(u.dept||''):''; ed[`D${r}`]=u?(u.name||''):''; ed[`F${r}`]=u?(u.note||''):'';
-        const d=dn[i]; ed[`H${r}`]=d?i+1:''; ed[`I${r}`]=d?byZone(d):''; ed[`J${r}`]=d?(d.dept||''):''; ed[`K${r}`]=d?(d.name||''):''; ed[`M${r}`]=d?(d.note||''):'';
-      }
-      await patchSheetFile(sheet, ed);
-    }
-
-    // (B) 교회차/타교회_대중교통: 상행 A~E(NO,구역,회,성명,비고), 하행 G~K
-    async function fillAEGK(sheet, upList, dnList) {
-      if (!nameToFile[sheet]) return;
+      if (!nameToFile[bus]) continue;
+      const up=regs.filter(m=>upKind(m)===bus), dn=regs.filter(m=>downKind(m)===bus);
       const ed={};
-      for (let i=0;i<36;i++){ const r=4+i;
-        const u=upList[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?byZone(u):''; ed[`C${r}`]=u?(u.dept||''):''; ed[`D${r}`]=u?(u.name||''):''; ed[`E${r}`]=u?(u.note||''):'';
-        const d=dnList[i]; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?byZone(d):''; ed[`I${r}`]=d?(d.dept||''):''; ed[`J${r}`]=d?(d.name||''):''; ed[`K${r}`]=d?(d.note||''):'';
+      for(let i=0;i<40;i++){ const r=4+i;
+        const u=up[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`F${r}`]=u?NT(u):'';
+        const d=dn[i]; ed[`H${r}`]=d?i+1:''; ed[`I${r}`]=d?Z(d):''; ed[`J${r}`]=d?D(d):''; ed[`K${r}`]=d?NM(d):''; ed[`M${r}`]=d?NT(d):'';
       }
-      await patchSheetFile(sheet, ed);
+      await patchSheetFile(bus, ed);
     }
-    // 교회차: 교회차1/교회차2 모두 이 시트로 (구분 없이 합침)
-    await fillAEGK('교회차',
-      regs.filter(m=>CHURCH_CARS.includes(upKind(m))),
-      regs.filter(m=>CHURCH_CARS.includes(downKind(m))));
-    // 타교회 + 대중교통 한 시트
-    await fillAEGK('타교회_대중교통',
-      regs.filter(m=>upKind(m)==='타교회'||upKind(m)==='대중교통'),
-      regs.filter(m=>downKind(m)==='타교회'||downKind(m)==='대중교통'));
 
-    // (C) 개인차 시트: 상행 A~E, 하행 G~K — 비고에 차주명
-    {
-      const sheet='개인차';
-      if (nameToFile[sheet]) {
-        const up = regs.filter(m=>upKind(m)==='개인차');
-        const dn = regs.filter(m=>downKind(m)==='개인차');
-        const ed={};
-        for (let i=0;i<36;i++){ const r=4+i;
-          const u=up[i]; const ud=u?upDriver(u):''; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?byZone(u):''; ed[`C${r}`]=u?(u.dept||''):''; ed[`D${r}`]=u?(u.name||''):''; ed[`E${r}`]=u?((ud?('차주:'+ud):'')+(u.note?(' '+u.note):'')).trim():'';
-          const d=dn[i]; const dd=d?downDriver(d):''; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?byZone(d):''; ed[`I${r}`]=d?(d.dept||''):''; ed[`J${r}`]=d?(d.name||''):''; ed[`K${r}`]=d?((dd?('차주:'+dd):'')+(d.note?(' '+d.note):'')).trim():'';
-        }
-        await patchSheetFile(sheet, ed);
+    // (B) 교회차 시트: 상행 A~E, 하행 G~K (교회차1·2 합침)
+    if (nameToFile['교회차']) {
+      const up=regs.filter(m=>CHURCH_CARS.includes(upKind(m))), dn=regs.filter(m=>CHURCH_CARS.includes(downKind(m)));
+      const ed={};
+      for(let i=0;i<40;i++){ const r=4+i;
+        const u=up[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`E${r}`]=u?NT(u):'';
+        const d=dn[i]; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?Z(d):''; ed[`I${r}`]=d?D(d):''; ed[`J${r}`]=d?NM(d):''; ed[`K${r}`]=d?NT(d):'';
       }
+      await patchSheetFile('교회차', ed);
+    }
+
+    // (C) 타교회_대중교통: 타교회 블록(4~43, 상A~E/하G~K) + 대중교통 블록(48~87)
+    if (nameToFile['타교회_대중교통']) {
+      const ed={};
+      function fillBlock(baseRow, upList, dnList){
+        for(let i=0;i<40;i++){ const r=baseRow+i;
+          const u=upList[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`E${r}`]=u?NT(u):'';
+          const d=dnList[i]; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?Z(d):''; ed[`I${r}`]=d?D(d):''; ed[`J${r}`]=d?NM(d):''; ed[`K${r}`]=d?NT(d):'';
+        }
+      }
+      // 타교회: 4~43
+      fillBlock(4,  regs.filter(m=>upKind(m)==='타교회'),  regs.filter(m=>downKind(m)==='타교회'));
+      // 대중교통: 48~87
+      fillBlock(48, regs.filter(m=>upKind(m)==='대중교통'), regs.filter(m=>downKind(m)==='대중교통'));
+      await patchSheetFile('타교회_대중교통', ed);
+    }
+
+    // (D) 개인차 시트: 차주별 블록(개인차1~20). 블록당 10행(제목 base, 헤더 base+2, 데이터 base+3~base+9 = 7명).
+    //   차주 식별: 어떤 멤버의 성명 == 다른 멤버 기타칸의 개인차 이름  → 그 멤버가 차주.
+    if (nameToFile['개인차']) {
+      // 1) 개인차 탑승자 수집 (상/하 각각), 차주이름 추출
+      function driverNameOf(val){ const k=classifyExtra(val); if(k!=='개인차') return ''; const v=String(val||'').trim(); return (v && v!=='개인차')?v:''; }
+      // 멤버별 상행 차주명 / 하행 차주명
+      const upDriverName  = m => (upKind(m)==='개인차') ? driverNameOf(firstExtraUp(m)) : '';
+      const downDriverName= m => (downKind(m)==='개인차') ? driverNameOf(firstExtraDown(m)) : '';
+      // 2) 차주 목록 만들기 (등장 순서 유지). 차주는 '이름'으로 식별.
+      const driverOrder=[]; const seen=new Set();
+      function addDriver(name){ if(name && !seen.has(name)){ seen.add(name); driverOrder.push(name); } }
+      regs.forEach(m=>{ addDriver(upDriverName(m)); addDriver(downDriverName(m)); });
+      // 3) 차주명 → 차주 멤버(성명 일치) 찾기 (차주 본인도 명단에 포함시키기 위해)
+      const memberByName={}; regs.forEach(m=>{ if(m.name) memberByName[m.name.trim()] = memberByName[m.name.trim()]||m; });
+      // 4) 블록별로 채우기 (최대 20블록)
+      const ed={};
+      driverOrder.slice(0,20).forEach((drv, bi)=>{
+        const base=1+bi*10;          // 제목행
+        ed[`A${base}`]= `개인차${bi+1} (차주: ${drv})`;
+        // 상행 탑승자: 이 차주의 차를 상행으로 탄 사람들 + 차주 본인(상행이면)
+        const upMembers = regs.filter(m=>upDriverName(m)===drv);
+        const downMembers = regs.filter(m=>downDriverName(m)===drv);
+        // 차주 본인 포함: 차주가 멤버이고, 그가 상/하행에 자기 차로 안 잡혀있으면 추가
+        const ownerM = memberByName[drv];
+        // 차주 본인을 맨 앞에. 단, 차주가 그 방향에 자기 차로 잡혀있지 않더라도
+        // 차주는 자기 차를 운전하므로, 그 방향에 '탑승자가 있으면' 차주도 포함.
+        let upList=upMembers.filter(m=>m!==ownerM);
+        let downList=downMembers.filter(m=>m!==ownerM);
+        if(ownerM){
+          if(upList.length || upDriverName(ownerM)===drv) upList.unshift(ownerM);
+          if(downList.length || downDriverName(ownerM)===drv) downList.unshift(ownerM);
+        }
+        for(let i=0;i<7;i++){ const r=base+3+i;
+          const u=upList[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`E${r}`]=u?NT(u):'';
+          const d=downList[i]; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?Z(d):''; ed[`I${r}`]=d?D(d):''; ed[`J${r}`]=d?NM(d):''; ed[`K${r}`]=d?NT(d):'';
+        }
+      });
+      await patchSheetFile('개인차', ed);
     }
   }
 

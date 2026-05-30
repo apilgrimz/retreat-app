@@ -233,7 +233,7 @@ nav.tabbar {
 .split-wrap-ui { display: flex; gap: 8px; margin-bottom: 12px; align-items: flex-start; }
 .split-wrap-ui .split-side { flex: 1 1 0; min-width: 0; }
 .split-ui-table { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--bg-1); border-radius: 8px; overflow: hidden; table-layout: fixed; }
-.split-ui-table th, .split-ui-table td { border: 1px solid var(--line-soft); padding: 9px 6px; text-align: center; word-break: keep-all; }
+.split-ui-table th, .split-ui-table td { border: 1px solid var(--line-soft); padding: 9px 7px; text-align: center; word-break: keep-all; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .split-ui-table th { background: var(--bg-2); color: var(--ink-mute); font-weight: 600; font-size: 11px; }
 .split-ui-table th.side-head { font-size: 12px; color: var(--gold); padding: 7px 4px; }
 .split-ui-table td.nm { font-weight: 600; color: var(--ink); }
@@ -242,7 +242,7 @@ nav.tabbar {
 @media (max-width: 520px) {
   .split-wrap-ui { gap: 8px; }
   .split-ui-table { font-size: 12px; }
-  .split-ui-table th, .split-ui-table td { padding: 8px 4px; }
+  .split-ui-table th, .split-ui-table td { padding: 8px 5px; }
 }
 
 /* 대형 모달 */
@@ -1402,7 +1402,7 @@ function renderHome() {
       <div class="big" style="display:flex;align-items:baseline;flex-wrap:wrap;gap:6px">
         <span>${total}<span class="unit">명 등록</span></span>
         <span style="font-size:18px;color:var(--ink-soft);font-weight:600;margin-left:8px">· 전도대상자 <b style="color:var(--gold-soft);font-weight:800;font-size:22px">${evCount}</b><span style="font-size:15px;color:var(--ink-soft)">명</span></span>
-        <span style="margin-left:auto;display:flex;gap:6px;align-self:flex-start">
+        <span style="margin-left:auto;display:flex;gap:6px;align-self:flex-end;transform:translateY(-7px)">
           <button class="card-action" onclick="openIntakeStatus()" style="font-size:12px;line-height:1.25;padding:6px 10px;text-align:center">접수<br/>현황</button>
           <button class="card-action" onclick="openPrayList()" style="font-size:12px;line-height:1.25;padding:6px 10px;text-align:center">기도<br/>명단</button>
         </span>
@@ -1458,7 +1458,7 @@ function renderHome() {
       <div style="overflow-x:auto;">
         <div class="roster-table" style="margin-bottom:0; min-width:720px;">
           <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div><div style="text-align:center">상태</div></div>
-          ${DB.evangelism.slice(0,5).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:1px 5px;${e.status?'color:var(--gold)':''}" onclick="event.stopPropagation();openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'●':'○'}</button></div></div>`).join('')}
+          ${DB.evangelism.slice(0,5).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:1px 5px;${e.status?'color:var(--gold)':''}" onclick="event.stopPropagation();openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
           ${evCount > 5 ? `<div style="text-align:center; padding:8px; font-size:12px; color:var(--ink-mute);">...외 ${evCount - 5}명</div>` : ''}
           ${evCount === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 전도대상자가 없습니다.</div>` : ''}
         </div>
@@ -2177,7 +2177,7 @@ function openPrayList() {
       '<div>' + esc(p.leader) + '</div>' +
       '<div>' + esc(p.relation) + '</div>' +
       '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.note) + '</div>' +
-      '<div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;' + (p.status ? 'color:var(--gold)' : '') + '" onclick="openStatusMemo(\'prayList\',\'' + esc(p.id) + '\')">' + (p.status ? '●' : '○') + '</button></div>' +
+      '<div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;' + (p.status ? 'color:var(--gold)' : '') + '" onclick="openStatusMemo(\'prayList\',\'' + esc(p.id) + '\')">' + (p.status ? '♥' : '♡') + '</button></div>' +
       '<div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px" onclick="prayRegister(\'' + esc(p.id) + '\')">등록</button></div>' +
       '</div>';
   }).join('');
@@ -2749,7 +2749,7 @@ function renderEvangelismSheet() {
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:640px;">
         <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr 40px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>비고</div><div style="text-align:center">상태</div></div>
-        ${DB.evangelism.map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'●':'○'}</button></div></div>`).join('')}
+        ${DB.evangelism.map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
         ${DB.evangelism.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>

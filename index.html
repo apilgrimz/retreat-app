@@ -1811,10 +1811,8 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
 function driverList(driver, direction) {
   return registeredMembers().filter(m => {
     if (direction === 'up') {
-      if (m.transUp === '개인차' && (m.privateUp||'').trim() === driver) return true;
       if (m.extraUp && Object.values(m.extraUp).includes(driver)) return true;
     } else {
-      if (m.transDown === '개인차' && (m.privateDown||'').trim() === driver) return true;
       if (m.extraDown && Object.values(m.extraDown).includes(driver)) return true;
     }
     return false;
@@ -1825,8 +1823,6 @@ function allPrivateDrivers() {
   const set = new Set(PRIVATE_CAR_LIST);
   const known = new Set([...BUSES, ...CHURCH_CARS, ...OTHER_TRANSPORTS, ...PRIVATE_CARS, '']);
   registeredMembers().forEach(m => {
-    if (m.transUp === '개인차' && m.privateUp) set.add(m.privateUp.trim());
-    if (m.transDown === '개인차' && m.privateDown) set.add(m.privateDown.trim());
     if (m.extraUp) Object.values(m.extraUp).forEach(v => { if (v && !known.has(v)) set.add(v); });
     if (m.extraDown) Object.values(m.extraDown).forEach(v => { if (v && !known.has(v)) set.add(v); });
   });
@@ -1834,7 +1830,7 @@ function allPrivateDrivers() {
 }
 
 function renderTransport() {
-  const TYPES = [...BUSES, ...CHURCH_CARS, ...OTHER_TRANSPORTS, '개인차'];
+  const TYPES = [...BUSES, ...CHURCH_CARS, '개인차', ...OTHER_TRANSPORTS];
   let type = transportTab.type;
   if (!TYPES.includes(type)) { transportTab.type = TYPES[0]; type = TYPES[0]; }
 
@@ -2892,6 +2888,23 @@ function importFromWorkbook(wb) {
    셀은 <c r="B4" s="7"/> 형태. 값을 넣을 때 inlineStr 형식으로 셀 노드만 교체.
    styles.xml, sharedStrings.xml, theme 등은 손대지 않음 → 모든 디자인 그대로. */
 
+// 기타 칸 값 → 차편 종류 분류 ('개인차' | '타교회' | '대중교통')
+function classifyExtra(val) {
+  const v = String(val || '').trim();
+  if (!v) return '';
+  if (v === '대중교통' || v.includes('대중교통')) return '대중교통';
+  if (v === '타교회' || v.includes('타교회')) return '타교회';
+  return '개인차'; // 그 외(차주 이름 등)는 개인차
+}
+// 엑셀 H/I 셀 표기: 대중교통/타교회는 그대로, 개인차는 '이름 (개인차)' (시점 정보는 생략)
+function extraCellText(timeKey, val) {
+  const kind = classifyExtra(val);
+  if (kind === '개인차') {
+    const name = String(val||'').trim();
+    return name && name !== '개인차' ? `${name} (개인차)` : '개인차';
+  }
+  return kind; // '대중교통' | '타교회'
+}
 async function exportToExcel() {
   const title = DB.meta.title || '하계수양회';
 
@@ -2984,17 +2997,18 @@ async function exportToExcel() {
       edits[`E${row}`] = m ? (m.session||'') : '';
       edits[`F${row}`] = m ? (m.transUp||'') : '';
       edits[`G${row}`] = m ? (m.transDown||'') : '';
-      // H/I: 기타 일정(본대 아닌 합류/이탈) — "시점 차편" 형식
+      // H/I: 기타 일정(본대 아닌 합류/이탈). 통계 분류를 위해 차편 종류 키워드 포함.
+      // 값이 '대중교통'/'타교회'면 그대로, 그 외(차주 이름)면 '이름 (개인차)' 형식.
       if (m) {
         const euKey = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
         const edKey = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
-        edits[`H${row}`] = euKey ? `${euKey} ${m.extraUp[euKey]}` : '';
-        edits[`I${row}`] = edKey ? `${edKey} ${m.extraDown[edKey]}` : '';
+        edits[`H${row}`] = euKey ? extraCellText(euKey, m.extraUp[euKey]) : '';
+        edits[`I${row}`] = edKey ? extraCellText(edKey, m.extraDown[edKey]) : '';
       } else {
         edits[`H${row}`] = ''; edits[`I${row}`] = '';
       }
-      edits[`J${row}`] = m ? (m.privateUp||'') : '';
-      edits[`K${row}`] = m ? (m.privateDown||'') : '';
+      edits[`J${row}`] = '';   // 개인차 상행 컬럼 폐지 (개인차는 기타로 입력)
+      edits[`K${row}`] = '';   // 개인차 하행 컬럼 폐지
       edits[`L${row}`] = m ? (m.leaderName||'') : '';
       edits[`M${row}`] = m ? (m.leaderRel||'') : '';
       edits[`N${row}`] = m ? (m.note||'') : '';
@@ -3045,6 +3059,81 @@ async function exportToExcel() {
   {
     const sess = (DB.meta && DB.meta.session) ? String(DB.meta.session).trim() : '';
     await patchSheetFile('통계', { 'B23': sess });
+  }
+
+  // 6-2) 차편별 명단 시트 채우기 (호차 / 교회차 / 개인차 / 타교회·대중교통)
+  {
+    // 멤버의 상행/하행 차편 종류 판단
+    function upKind(m) {
+      if (m.transUp) return m.transUp;                 // 본대 호차/교회차 등 직접 지정
+      const k = Object.keys(m.extraUp||{}).find(x=>m.extraUp[x]);
+      return k ? classifyExtra(m.extraUp[k]) : '';
+    }
+    function downKind(m) {
+      if (m.transDown) return m.transDown;
+      const k = Object.keys(m.extraDown||{}).find(x=>m.extraDown[x]);
+      return k ? classifyExtra(m.extraDown[k]) : '';
+    }
+    function upDriver(m) { // 개인차 차주명 (기타 기반)
+      const k = Object.keys(m.extraUp||{}).find(x=>m.extraUp[x]);
+      if (k && classifyExtra(m.extraUp[k])==='개인차') { const v=String(m.extraUp[k]).trim(); return v==='개인차'?'':v; }
+      return '';
+    }
+    function downDriver(m) {
+      const k = Object.keys(m.extraDown||{}).find(x=>m.extraDown[x]);
+      if (k && classifyExtra(m.extraDown[k])==='개인차') { const v=String(m.extraDown[k]).trim(); return v==='개인차'?'':v; }
+      return '';
+    }
+    const regs = registeredMembers().slice().sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko')||(a.name||'').localeCompare(b.name||'','ko'));
+    const byZone = m => m.zone||'';
+
+    // (A) 호차 시트: 상행 A~F(NO,구역,회,성명,확인,비고), 하행 H~M
+    for (const bus of BUSES) {
+      const sheet = bus; // '1호차'...
+      if (!nameToFile[sheet]) continue;
+      const up = regs.filter(m=>upKind(m)===bus);
+      const dn = regs.filter(m=>downKind(m)===bus);
+      const ed = {};
+      for (let i=0;i<36;i++){ const r=4+i;
+        const u=up[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?byZone(u):''; ed[`C${r}`]=u?(u.dept||''):''; ed[`D${r}`]=u?(u.name||''):''; ed[`F${r}`]=u?(u.note||''):'';
+        const d=dn[i]; ed[`H${r}`]=d?i+1:''; ed[`I${r}`]=d?byZone(d):''; ed[`J${r}`]=d?(d.dept||''):''; ed[`K${r}`]=d?(d.name||''):''; ed[`M${r}`]=d?(d.note||''):'';
+      }
+      await patchSheetFile(sheet, ed);
+    }
+
+    // (B) 교회차/타교회_대중교통: 상행 A~E(NO,구역,회,성명,비고), 하행 G~K
+    async function fillAEGK(sheet, upList, dnList) {
+      if (!nameToFile[sheet]) return;
+      const ed={};
+      for (let i=0;i<36;i++){ const r=4+i;
+        const u=upList[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?byZone(u):''; ed[`C${r}`]=u?(u.dept||''):''; ed[`D${r}`]=u?(u.name||''):''; ed[`E${r}`]=u?(u.note||''):'';
+        const d=dnList[i]; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?byZone(d):''; ed[`I${r}`]=d?(d.dept||''):''; ed[`J${r}`]=d?(d.name||''):''; ed[`K${r}`]=d?(d.note||''):'';
+      }
+      await patchSheetFile(sheet, ed);
+    }
+    // 교회차: 교회차1/교회차2 모두 이 시트로 (구분 없이 합침)
+    await fillAEGK('교회차',
+      regs.filter(m=>CHURCH_CARS.includes(upKind(m))),
+      regs.filter(m=>CHURCH_CARS.includes(downKind(m))));
+    // 타교회 + 대중교통 한 시트
+    await fillAEGK('타교회_대중교통',
+      regs.filter(m=>upKind(m)==='타교회'||upKind(m)==='대중교통'),
+      regs.filter(m=>downKind(m)==='타교회'||downKind(m)==='대중교통'));
+
+    // (C) 개인차 시트: 상행 A~E, 하행 G~K — 비고에 차주명
+    {
+      const sheet='개인차';
+      if (nameToFile[sheet]) {
+        const up = regs.filter(m=>upKind(m)==='개인차');
+        const dn = regs.filter(m=>downKind(m)==='개인차');
+        const ed={};
+        for (let i=0;i<36;i++){ const r=4+i;
+          const u=up[i]; const ud=u?upDriver(u):''; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?byZone(u):''; ed[`C${r}`]=u?(u.dept||''):''; ed[`D${r}`]=u?(u.name||''):''; ed[`E${r}`]=u?((ud?('차주:'+ud):'')+(u.note?(' '+u.note):'')).trim():'';
+          const d=dn[i]; const dd=d?downDriver(d):''; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?byZone(d):''; ed[`I${r}`]=d?(d.dept||''):''; ed[`J${r}`]=d?(d.name||''):''; ed[`K${r}`]=d?((dd?('차주:'+dd):'')+(d.note?(' '+d.note):'')).trim():'';
+        }
+        await patchSheetFile(sheet, ed);
+      }
+    }
   }
 
   // 7) 생성된 ZIP을 Blob으로 저장

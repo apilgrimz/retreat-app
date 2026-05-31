@@ -1315,34 +1315,40 @@ $$('.tabbar button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 /* ---------- 좌우 스와이프로 탭 이동 ---------- */
 (function setupSwipe() {
   const order = ['home', 'roster', 'transport', 'more'];
-  let touchStartX = 0, touchStartY = 0, touchActive = false;
+  let touchStartX = 0, touchStartY = 0, touchStartT = 0, touchActive = false;
+  let hScrollEl = null, hScrollStartLeft = 0, hScrollMax = 0;
 
-  // 가로 스크롤이 가능한 조상이 있는지 체크 (있으면 스와이프 무시)
-  function hasHorizontalScrollAncestor(el) {
+  // 터치 지점에서 가로 스크롤 가능한 가장 가까운 조상 찾기 (없으면 null)
+  function findHorizontalScrollAncestor(el) {
     let node = el;
     while (node && node !== document.body) {
       if (node.scrollWidth > node.clientWidth + 2) {
-        const style = getComputedStyle(node);
-        const ox = style.overflowX;
-        if (ox === 'auto' || ox === 'scroll') return true;
+        const ox = getComputedStyle(node).overflowX;
+        if (ox === 'auto' || ox === 'scroll') return node;
       }
       node = node.parentElement;
     }
-    return false;
+    return null;
   }
 
   document.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) return;
-    // 시트/모달이 열려 있으면 스와이프 무시
-    if ($('#sheet') && $('#sheet').classList.contains('show')) return;
-    if ($('#modal') && $('#modal').classList.contains('show')) return;
+    if (e.touches.length !== 1) { touchActive = false; return; }
+    if ($('#sheet') && $('#sheet').classList.contains('show')) { touchActive = false; return; }
+    if ($('#modal') && $('#modal').classList.contains('show')) { touchActive = false; return; }
     const t = e.target;
-    // 입력/셀렉트/가로스크롤 컨테이너 위에선 스와이프 무시 (버튼은 제외 — 더보기 탭이 버튼 천지라 스와이프 막힘)
-    if (t.closest('input,select,textarea,.zone-scroll,.transport-tabs')) return;
-    // 가로 스크롤 가능한 영역(전도대상자/회비지원 등 카드 내부 표) 위에선 무시
-    if (hasHorizontalScrollAncestor(t)) return;
+    // 입력류/특정 컨테이너 위에선 스와이프 무시
+    if (t.closest('input,select,textarea,.zone-scroll,.transport-tabs')) { touchActive = false; return; }
+    // 가로 스크롤 가능한 표 위인지 기록 (스크롤 끝 판정에 사용)
+    hScrollEl = findHorizontalScrollAncestor(t);
+    if (hScrollEl) {
+      hScrollStartLeft = hScrollEl.scrollLeft;
+      hScrollMax = hScrollEl.scrollWidth - hScrollEl.clientWidth;
+    } else {
+      hScrollStartLeft = 0; hScrollMax = 0;
+    }
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
+    touchStartT = Date.now();
     touchActive = true;
   }, { passive: true });
 
@@ -1352,7 +1358,22 @@ $$('.tabbar button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
     const t = e.changedTouches[0];
     const dx = t.clientX - touchStartX;
     const dy = t.clientY - touchStartY;
+    const dt = Date.now() - touchStartT;
+    // 가로 동작이 아니면 무시 (세로 스크롤 의도)
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
+    // 가로 스크롤 표 위에서 시작했다면:
+    if (hScrollEl) {
+      const speed = Math.abs(dx) / Math.max(1, dt);   // px/ms (플릭 감지)
+      const FLICK = speed > 0.9;                        // 빠른 스와이프 기준
+      const atLeftEnd = hScrollStartLeft <= 0;
+      const atRightEnd = hScrollStartLeft >= hScrollMax - 1;
+      // 왼쪽으로 스와이프(dx<0, 다음 탭): 표가 오른쪽 끝이었거나 빠른 플릭일 때만 탭 전환
+      // 오른쪽으로 스와이프(dx>0, 이전 탭): 표가 왼쪽 끝이었거나 빠른 플릭일 때만 탭 전환
+      if (dx < 0 && !(atRightEnd || FLICK)) return;   // 아직 표를 더 스크롤할 여지 → 탭 전환 안 함
+      if (dx > 0 && !(atLeftEnd || FLICK)) return;
+    }
+
     const idx = order.indexOf(currentTab);
     if (idx < 0) return;
     if (dx < 0 && idx < order.length - 1) setTab(order[idx + 1]);

@@ -329,9 +329,7 @@ nav.tabbar {
         <div class="sub" id="topbarSub">등록 관리</div>
       </div>
     </div>
-    <button class="iconbtn" id="btnExit" aria-label="앱 종료">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-    </button>
+
   </header>
 
   <main class="content" id="view"></main>
@@ -1165,10 +1163,12 @@ function execPrintHome() {
   doPrint(titleText, body);
 }
 
-window.addEventListener('load', () => history.replaceState({ tab: 'home' }, '', '#home'));
 window.addEventListener('popstate', (e) => {
-  if (document.body.classList.contains('sheet-open')) closeSheet(true);
-  if (e.state && e.state.tab) setTab(e.state.tab, true);
+  // 시트(편집창)가 열려 있으면 뒤로가기로 시트만 닫는다 (안전장치).
+  // 시트가 없으면 아무것도 가로채지 않으므로 뒤로가기 = 앱 종료.
+  if (document.body.classList.contains('sheet-open')) {
+    closeSheet(true);
+  }
 });
 
 let sheetHandlers = { save: null, cancel: null };
@@ -1301,7 +1301,7 @@ function setTab(tab, skipHistory=false) {
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
-  if (!skipHistory) history.pushState({ tab: tab }, '', '#' + tab);
+  // 탭 전환은 히스토리에 쌓지 않음 → 탭 화면에서 뒤로가기 누르면 앱이 바로 종료됨
 }
 $$('.tabbar button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 
@@ -3231,21 +3231,6 @@ function bindViewHandlers() {
   $$('[data-action="import"]').forEach(b => b.onclick = () => $('#fileInput').click());
   $$('[data-action="export"]').forEach(b => b.onclick = exportToExcel);
   
-  const exitBtn = $('#btnExit');
-  if (exitBtn) {
-    exitBtn.onclick = () => {
-      // 확인창 없이 한 번에 종료
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-        || window.navigator.standalone === true;
-      try { window.close(); } catch(e) { /* noop */ }
-      setTimeout(() => {
-        if (!document.hidden) {
-          if (isStandalone) toast('앱이 종료되지 않으면 홈 버튼을 눌러 빠져나가세요.');
-          else toast('브라우저 탭을 닫거나 다른 페이지로 이동해 주세요.');
-        }
-      }, 250);
-    };
-  }
 }
 
 if ('serviceWorker' in navigator) {

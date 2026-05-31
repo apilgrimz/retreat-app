@@ -210,9 +210,10 @@ nav.tabbar {
 .roster-row .zo { color: var(--ink-soft); font-size: 12px; }
 .roster-row .de { color: var(--ink-mute); font-size: 11px; }
 /* 홈 카드 내부 세로 스크롤 (N줄 높이 고정, 헤더 sticky) */
-.vscroll { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+/* overscroll-behavior는 두지 않음 → 내부 스크롤이 끝에 닿으면 페이지 스크롤로 자연스럽게 이어짐 */
+.vscroll { overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .vscroll .roster-row.head { position: sticky; top: 0; z-index: 2; }
-.vscroll::-webkit-scrollbar { width: 6px; }
+.vscroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .vscroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 
 .fee-grid { display: grid; gap: 8px; }
@@ -1392,8 +1393,8 @@ function renderHome() {
     const lList = lodgings[lk].sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
     lodgingHtml += `
       <div class="clickable" style="margin-top:12px; font-weight:700; color:var(--gold); font-size:13px; text-decoration:underline; text-decoration-style:dotted;" onclick="openSingleLodging('${esc(lk).replace(/'/g,"\\'")}')">${esc(lk)} (${lList.length}명)</div>
-      <div style="overflow-x:auto;">
-        <div class="roster-table vscroll" style="margin-bottom:0; min-width:400px; margin-top:6px; max-height:202px;">
+      <div class="vscroll" style="max-height:202px; margin-top:6px;">
+        <div class="roster-table" style="margin-bottom:0; min-width:400px;">
           <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div></div>
           ${lList.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
         </div>
@@ -1464,8 +1465,8 @@ function renderHome() {
           <button class="card-action" data-action="goto-evangelism">전체보기</button>
         </div>
       </div>
-      <div style="overflow-x:auto;">
-        <div class="roster-table vscroll" style="margin-bottom:0; min-width:720px; max-height:240px;">
+      <div class="vscroll" style="max-height:240px;">
+        <div class="roster-table" style="margin-bottom:0; min-width:720px;">
           <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div><div style="text-align:center">상태</div></div>
           ${DB.evangelism.map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:1px 5px;${e.status?'color:var(--gold)':''}" onclick="event.stopPropagation();openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
           ${evCount === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 전도대상자가 없습니다.</div>` : ''}
@@ -1481,8 +1482,8 @@ function renderHome() {
           <button class="card-action" data-action="goto-fee-sheet">전체보기</button>
         </div>
       </div>
-      <div style="overflow-x:auto;">
-        <div class="roster-table vscroll" style="margin-bottom:0; min-width:550px; max-height:202px;">
+      <div class="vscroll" style="max-height:202px;">
+        <div class="roster-table" style="margin-bottom:0; min-width:550px;">
           <div class="roster-row head" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div><div style="text-align:right">금액</div></div>
           ${DB.feeSupport.map((fs, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
           ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">회비 지원자가 없습니다.</div>` : ''}

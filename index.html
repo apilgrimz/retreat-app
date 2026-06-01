@@ -411,7 +411,7 @@ function updateTransportOptions() {
 
 function emptyMember(zone) {
   return {
-    id: uid(), zone: zone || ZONES[0], dept: '', name: '', session: '',
+    id: uid(), zone: zone || '', dept: '', name: '', session: '',
     transUp: '', transDown: '', privateUp: '', privateDown: '',
     extraUp: {}, extraDown: {},
     leaderName: '', leaderRel: '', lodging: '', salvation: false, baptism: false, note: '', regType: 'pre1', status: ''
@@ -1687,11 +1687,14 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
   // 현재 선택된 시점 파악 — extraUp에 값이 있으면 그 키, 아니면 '본대'
   const activeUpKey = (() => {
     const k = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
-    return k || '본대';
+    if (k) return k;
+    // 신규: 미선택(직접 고르도록). 기존: 본대로 표시
+    return isNew ? '' : (m.transUp ? '본대' : '');
   })();
   const activeDownKey = (() => {
     const k = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
-    return k || '본대';
+    if (k) return k;
+    return isNew ? '' : (m.transDown ? '본대' : '');
   })();
   // 현재 시점의 차편 값
   const activeUpVehicle = activeUpKey === '본대' ? (m.transUp||'') : (m.extraUp[activeUpKey]||'');
@@ -1722,7 +1725,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
 
   const html = `
     <div class="row-2">
-      <div class="field"><label>구역</label><select id="mZone">${ZONES.map(z => `<option value="${esc(z)}" ${m.zone===z?'selected':''}>${esc(z)}</option>`).join('')}</select></div>
+      <div class="field"><label>구역</label><select id="mZone"><option value="" ${!m.zone?'selected':''}>선택</option>${ZONES.map(z => `<option value="${esc(z)}" ${m.zone===z?'selected':''}>${esc(z)}</option>`).join('')}</select></div>
       <div class="field"><label>부서(회)</label><select id="mDept"><option value="">선택</option>${DEPTS.map(d => `<option value="${esc(d)}" ${m.dept===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
     </div>
     <div class="field"><label>성명</label><input id="mName" value="${esc(m.name)}" placeholder="홍길동" autocomplete="off"/></div>
@@ -1794,9 +1797,9 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
   `;
   openSheet(isNew ? '인원 추가' : '인원 편집', html, () => {
     // 라디오 선택값 + 차편 셀렉트값 읽기
-    const upTime = (document.querySelector('input[name="mUpTime"]:checked') || {}).value || '본대';
+    const upTime = (document.querySelector('input[name="mUpTime"]:checked') || {}).value || '';
     const upVehicle = $('#mUpVehicle').value;
-    const downTime = (document.querySelector('input[name="mDownTime"]:checked') || {}).value || '본대';
+    const downTime = (document.querySelector('input[name="mDownTime"]:checked') || {}).value || '';
     const downVehicle = $('#mDownVehicle').value;
 
     // 차수 — 체크된 항목들을 콤마로 결합
@@ -1815,15 +1818,24 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       regType: (document.querySelector('input[name="mRegType"]:checked')||{}).value || 'pre1',
     };
 
-    // 상행 시점 분기
+    // 필수 입력 검증 (분기 전에 먼저 — 빈 시점 키 생성 방지)
+    if (!updated.zone) { toast('구역을 선택해 주세요', true); return false; }
+    if (!updated.dept) { toast('회(부서)를 선택해 주세요', true); return false; }
+    if (!updated.name) { toast('성명을 입력해 주세요', true); return false; }
+    if (!updated.regType) { toast('접수 구분을 선택해 주세요', true); return false; }
+    if (!sessionStr) { toast('차수를 선택해 주세요', true); return false; }
+    if (!upTime) { toast('상행 (참석 시점)을 선택해 주세요', true); return false; }
+    if (!upVehicle) { toast('상행 차편을 선택해 주세요', true); return false; }
+    if (!downTime) { toast('하행 (귀가 시점)을 선택해 주세요', true); return false; }
+    if (!downVehicle) { toast('하행 차편을 선택해 주세요', true); return false; }
+
+    // 상행 시점 분기 (검증 통과 후)
     if (upTime === '본대') updated.transUp = upVehicle;
     else updated.extraUp[upTime] = upVehicle;
 
     // 하행 시점 분기
     if (downTime === '본대') updated.transDown = downVehicle;
     else updated.extraDown[downTime] = downVehicle;
-
-    if (!updated.name) { toast('성명을 입력해 주세요', true); return false; }
 
     if (isNew) DB.members.push(updated);
     else { const idx = DB.members.findIndex(x => x.id === m.id); if (idx >= 0) DB.members[idx] = updated; }
@@ -2316,8 +2328,8 @@ function openPrayEdit(id) {
 function prayRegister(id) {
   const p = (DB.prayList || []).find(function (x) { return x.id === id; });
   if (!p) return;
-  const m = emptyMember(p.zone || ZONES[0]);
-  m.zone = p.zone || ZONES[0]; m.dept = p.dept || ''; m.name = p.name || '';
+  const m = emptyMember(p.zone || '');
+  m.zone = p.zone || ''; m.dept = p.dept || ''; m.name = p.name || '';
   m.leaderName = p.leader || ''; m.leaderRel = p.relation || ''; m.note = p.note || '';
   closeSheet(true);
   setTimeout(function () {
@@ -3471,7 +3483,7 @@ function bindViewHandlers() {
   $$('.member-item[data-id]').forEach(item => item.onclick = () => { const m = DB.members.find(x => x.id === item.dataset.id); if (m) openMemberSheet(m, false); });
   const addBtn = $('#btnAddMember');
   if (addBtn) addBtn.onclick = () => {
-    const startZone = (rosterFilter.zone === ALL_ZONES) ? ZONES[0] : rosterFilter.zone;
+    const startZone = (rosterFilter.zone === ALL_ZONES) ? '' : rosterFilter.zone;
     openMemberSheet(emptyMember(startZone), true);
   };
   $$('#ttTabs .tt-pill').forEach(b => b.onclick = () => { transportTab.type = b.dataset.t; render(); });

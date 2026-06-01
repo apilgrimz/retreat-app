@@ -644,17 +644,22 @@ function getLodgings() {
   return dict;
 }
 
-function buildSplitTable(title, uList, dList, isPrint=false) {
+function buildSplitTable(title, uList, dList, isPrint=false, driver=null) {
    // 상행/하행을 각자 위에서부터 채움. 외곽선이 깨지는 문제를 막기 위해
    // 두 개의 독립된 <table>을 좌우로 나란히 배치 (각자 닫힌 외곽선을 가짐)
-   const uSorted = uList.slice().sort((a,b) => {
+   // driver(개인차 차주명)가 주어지면 그 사람을 1번으로
+   const drvName = String(driver||'').trim();
+   const cmp = (a,b) => {
+     if (drvName) {
+       const aD = (a.name||'').trim() === drvName, bD = (b.name||'').trim() === drvName;
+       if (aD && !bD) return -1;
+       if (!aD && bD) return 1;
+     }
      const z = (a.zone||'').localeCompare(b.zone||'','ko');
      return z !== 0 ? z : (a.name||'').localeCompare(b.name||'','ko');
-   });
-   const dSorted = dList.slice().sort((a,b) => {
-     const z = (a.zone||'').localeCompare(b.zone||'','ko');
-     return z !== 0 ? z : (a.name||'').localeCompare(b.name||'','ko');
-   });
+   };
+   const uSorted = uList.slice().sort(cmp);
+   const dSorted = dList.slice().sort(cmp);
 
    const tableClass = isPrint ? 'split-print-table' : 'split-ui-table';
 
@@ -924,9 +929,9 @@ function openTransportFull() {
     else {
       let any=false;
       drivers.forEach(drv => {
-        const uList = driverList(drv, 'up').sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-        const dList = driverList(drv, 'down').sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-        if (uList.length > 0 || dList.length > 0) { any=true; body += buildSplitTable(`🚗 ${esc(drv)}`, uList, dList, false); }
+        const uList = sortDriverList(driverList(drv, 'up'), drv);
+        const dList = sortDriverList(driverList(drv, 'down'), drv);
+        if (uList.length > 0 || dList.length > 0) { any=true; body += buildSplitTable(`🚗 ${esc(drv)}`, uList, dList, false, drv); }
       });
       if (!any) body += `<div class="empty-state">표시할 명단이 없습니다.</div>`;
     }
@@ -941,7 +946,8 @@ function openTransportFull() {
     if (uList.length === 0 && dList.length === 0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
     else body += buildSplitTable(null, uList, dList, false);
   }
-  openSheet(`${esc(type)} 탑승 명단 전체`, body, null, { hideSave:true });
+  const printBar = `<div style="display:flex; justify-content:flex-end; margin-bottom:10px;"><button class="card-action" onclick="execPrintTransport()">인쇄</button></div>`;
+  openSheet(`${esc(type)} 탑승 명단 전체`, printBar + body, null, { hideSave:true });
 }
 
 function execPrintTransport() {
@@ -954,10 +960,10 @@ function execPrintTransport() {
     if (drivers.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">등록된 개인차 차주가 없습니다.</div>`;
     else {
       drivers.forEach(drv => {
-        const uList = driverList(drv, 'up').sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-        const dList = driverList(drv, 'down').sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+        const uList = sortDriverList(driverList(drv, 'up'), drv);
+        const dList = sortDriverList(driverList(drv, 'down'), drv);
         if (uList.length > 0 || dList.length > 0) {
-          body += buildSplitTable(`🚗 ${esc(drv)}`, uList, dList, true);
+          body += buildSplitTable(`🚗 ${esc(drv)}`, uList, dList, true, drv);
         }
       });
     }
@@ -1908,6 +1914,17 @@ function driverList(driver, direction) {
   });
 }
 
+// 개인차 명단 정렬: 차주 본인(이름이 차주명과 동일)을 1번으로, 나머지는 구역순
+function sortDriverList(list, driver) {
+  return list.slice().sort((a,b) => {
+    const aIsDriver = (a.name||'').trim() === String(driver||'').trim();
+    const bIsDriver = (b.name||'').trim() === String(driver||'').trim();
+    if (aIsDriver && !bIsDriver) return -1;
+    if (!aIsDriver && bIsDriver) return 1;
+    return (a.zone||'').localeCompare(b.zone||'','ko');
+  });
+}
+
 function allPrivateDrivers() {
   const set = new Set(PRIVATE_CAR_LIST);
   const known = new Set([...BUSES, ...CHURCH_CARS, ...OTHER_TRANSPORTS, ...PRIVATE_CARS, '']);
@@ -1942,7 +1959,7 @@ function renderTransport() {
         const dList = driverList(drv, 'down');
         if (uList.length > 0 || dList.length > 0) {
           anyShown = true;
-          html += buildSplitTable(`🚗 ${esc(drv)}`, uList, dList, false);
+          html += buildSplitTable(`🚗 ${esc(drv)}`, uList, dList, false, drv);
         }
       });
       if (!anyShown) html += `<div class="empty-state">표시할 명단이 없습니다.</div>`;

@@ -72,7 +72,7 @@ header.topbar {
 .brand .badge {
   width: 44px; height: 44px; background: transparent;
   display: grid; place-items: center; overflow: visible; padding: 0;
-  align-self: flex-start; margin-top: -2px;
+  align-self: flex-start; margin-top: -6px;
 }
 .brand .badge svg { width: 18px; height: 18px; }
 #syncChip { margin-left: auto; flex-shrink: 0; font-size: 11px; font-weight: 700; white-space: nowrap; padding: 5px 10px; border-radius: 999px; background: var(--bg-1); border: 1px solid var(--line); cursor: pointer; }
@@ -1762,7 +1762,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       <select id="mUpVehicle">${vehicleSelectHtml(activeUpKey, activeUpVehicle)}</select>
     </div>
 
-    <div class="section-title">하행 (이탈 시점)</div>
+    <div class="section-title">하행 (귀가 시점)</div>
     <div class="time-pill-row" data-group="down">
       ${radioPills('mDownTime', downTimeOptions, activeDownKey)}
     </div>
@@ -3140,18 +3140,19 @@ async function exportToExcel() {
       edits[`E${row}`] = m ? (m.session||'') : '';
       edits[`F${row}`] = m ? (m.transUp||'') : '';
       edits[`G${row}`] = m ? (m.transDown||'') : '';
-      // H/I: 기타 일정(본대 아닌 합류/이탈). 통계 분류를 위해 차편 종류 키워드 포함.
-      // 값이 '대중교통'/'타교회'면 그대로, 그 외(차주 이름)면 '이름 (개인차)' 형식.
+      // 기타 묶음: H=상행(차편), I=하행(차편), J=합류(상행 시점), K=귀가(하행 시점)
+      // 통계 분류는 H/I의 차편 키워드를 사용하므로 차편을 그대로 기록.
       if (m) {
         const euKey = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
         const edKey = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
-        edits[`H${row}`] = euKey ? extraCellText(euKey, m.extraUp[euKey]) : '';
-        edits[`I${row}`] = edKey ? extraCellText(edKey, m.extraDown[edKey]) : '';
+        edits[`H${row}`] = euKey ? extraCellText(euKey, m.extraUp[euKey]) : '';  // 상행 차편
+        edits[`I${row}`] = edKey ? extraCellText(edKey, m.extraDown[edKey]) : ''; // 하행 차편
+        edits[`J${row}`] = euKey || '';   // 합류 시점 (예: 금저)
+        edits[`K${row}`] = edKey || '';   // 귀가 시점 (예: 토저)
       } else {
         edits[`H${row}`] = ''; edits[`I${row}`] = '';
+        edits[`J${row}`] = ''; edits[`K${row}`] = '';
       }
-      edits[`J${row}`] = '';   // 개인차 상행 컬럼 폐지 (개인차는 기타로 입력)
-      edits[`K${row}`] = '';   // 개인차 하행 컬럼 폐지
       edits[`L${row}`] = m ? (m.leaderName||'') : '';
       edits[`M${row}`] = m ? (m.leaderRel||'') : '';
       edits[`N${row}`] = m ? (m.note||'') : '';

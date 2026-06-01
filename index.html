@@ -1545,7 +1545,7 @@ function renderHome() {
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:202px; min-width:0;">
         <div style="min-width:550px;">
           <div class="roster-row head" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div><div style="text-align:right">금액</div></div>
-          ${DB.feeSupport.map((fs, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
+          ${DB.feeSupport.map((fs, i) => `<div class="roster-row clickable" onclick="openFeeSupportSheetById('${esc(fs.id)}')" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
           ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">회비 지원자가 없습니다.</div>` : ''}
         </div>
       </div>
@@ -2100,6 +2100,10 @@ function openFeeRateSheet() {
   });
 }
 
+function openFeeSupportSheetById(id) {
+  const fs = DB.feeSupport.find(x => x.id === id);
+  if (fs) openFeeSupportSheet(fs, false);
+}
 function openFeeSupportSheet(fs, isNew=false) {
   const html = `
     <div class="row-2">

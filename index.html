@@ -416,7 +416,7 @@ function emptyMember(zone) {
     id: uid(), zone: zone || '', dept: '', name: '', session: '',
     transUp: '', transDown: '', privateUp: '', privateDown: '',
     extraUp: {}, extraDown: {},
-    leaderName: '', leaderRel: '', lodging: '', salvation: false, baptism: false, note: '', regType: 'pre1', status: ''
+    leaderName: '', leaderRel: '', lodging: '', salvation: false, baptism: false, note: '', regType: '', status: ''
   };
 }
 function emptyEvangelism() {
@@ -1775,7 +1775,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       <label>접수 구분</label>
       <div class="time-pill-row" id="mRegTypeRow">
         ${[['pre1','사전 1차'],['pre2','사전 2차'],['onsite','현장 접수']].map(([v,lb]) => {
-          const sel = (m.regType||'pre1')===v;
+          const sel = (m.regType||'')===v;
           return `<label class="time-pill ${sel?'active':''}"><input type="radio" name="mRegType" value="${v}" ${sel?'checked':''}/><span>${lb}</span></label>`;
         }).join('')}
       </div>
@@ -1857,7 +1857,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       salvation: $('#mSalvation').checked,
       baptism: $('#mBaptism').checked,
       note: $('#mNote').value.trim(),
-      regType: (document.querySelector('input[name="mRegType"]:checked')||{}).value || 'pre1',
+      regType: (document.querySelector('input[name="mRegType"]:checked')||{}).value || '',
     };
 
     // 필수 입력 검증 (분기 전에 먼저 — 빈 시점 키 생성 방지)

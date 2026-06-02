@@ -160,7 +160,8 @@ nav.tabbar {
 }
 
 /* ============ 명단(구역) ============ */
-.zone-scroll { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 8px; margin: 0 -16px 12px; padding-left: 16px; padding-right: 16px; scrollbar-width: none; }
+.zone-scroll { display: flex; gap: 6px; overflow-x: auto; padding: 8px 16px; margin: 0 -16px 12px; scrollbar-width: none;
+  position: sticky; top: var(--topbar-h, 62px); z-index: 30; background: var(--bg-0); }
 .zone-scroll::-webkit-scrollbar { display: none; }
 .zone-scroll::after { content: ''; flex: 0 0 8px; }
 .zone-pill { flex-shrink: 0; padding: 8px 14px; border-radius: 999px; background: var(--bg-1); border: 1px solid var(--line); color: var(--ink-soft); font-size: 13px; font-weight: 500; white-space: nowrap; }
@@ -197,7 +198,8 @@ nav.tabbar {
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 
 /* 차편/표/회비 */
-.transport-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 14px; padding: 0 16px 2px; scrollbar-width: none; }
+.transport-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 14px; padding: 10px 16px; scrollbar-width: none;
+  position: sticky; top: var(--topbar-h, 62px); z-index: 30; background: var(--bg-0); }
 .transport-tabs::-webkit-scrollbar { display: none; }
 .tt-pill { flex-shrink: 0; padding: 9px 16px; border-radius: 8px; background: var(--bg-1); border: 1px solid var(--line); color: var(--ink-soft); font-size: 13px; font-weight: 500; white-space: nowrap; }
 .tt-pill.active { background: var(--bg-3); color: var(--gold); border-color: var(--gold); }
@@ -1447,6 +1449,10 @@ $$('.tabbar button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
   }, { passive: true });
 })();
 
+function updateTopbarHeight() {
+  const tb = document.querySelector('.topbar');
+  if (tb) document.documentElement.style.setProperty('--topbar-h', Math.round(tb.getBoundingClientRect().height) + 'px');
+}
 function render() {
   const v = $('#view'); v.innerHTML = '';
   if (currentTab === 'home')      v.innerHTML = renderHome();
@@ -1454,6 +1460,7 @@ function render() {
   else if (currentTab === 'transport') v.innerHTML = renderTransport();
   else if (currentTab === 'more')      v.innerHTML = renderMore();
   bindViewHandlers();
+  updateTopbarHeight();
   try{ if(typeof refreshSyncUI==='function') refreshSyncUI(); }catch(e){}
 }
 
@@ -3558,6 +3565,8 @@ render();
 
 /* ===== Firebase 실시간 동기화 부팅 ===== */
 window.addEventListener('load', function(){ try{ fbInit(); }catch(e){ console.error(e); } });
+window.addEventListener('resize', function(){ try{ updateTopbarHeight(); }catch(e){} });
+window.addEventListener('load', function(){ try{ updateTopbarHeight(); }catch(e){} });
 window.addEventListener('online', function(){ if(sync.code) setSyncStatus('live'); if(typeof currentTab!=='undefined' && currentTab==='more') safeRender(); });
 window.addEventListener('offline', function(){ if(sync.code) setSyncStatus('offline'); });
 document.addEventListener('focusout', function(){ setTimeout(function(){ if(sync.renderPending && !isEditingFocused() && !isSheetOpen()){ sync.renderPending=false; render(); } }, 200); });

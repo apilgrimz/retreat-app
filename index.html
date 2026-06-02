@@ -1020,7 +1020,7 @@ function execPrintDept(dept) {
 
 function execPrintEvangelism() {
   const titleText = `${getYearPrefix()} 하계수양회 - 전도대상자 명단`;
-  let trs = DB.evangelism.map((e, i) => `<tr>
+  let trs = sortMembers(DB.evangelism).map((e, i) => `<tr>
     <td>${i+1}</td>
     <td style="white-space:nowrap;">${esc(e.zone)}</td>
     <td class="print-name">${esc(e.name)}</td>
@@ -1061,7 +1061,7 @@ function execPrintEvangelism() {
 function execPrintFeeSupport() {
   const titleText = `${getYearPrefix()} 하계수양회 - 회비 지원 명단`;
   const fsTotal = DB.feeSupport.reduce((s, fs) => s + (fs.amount||0), 0);
-  let trs = DB.feeSupport.map((fs, i) => `<tr>
+  let trs = sortMembers(DB.feeSupport).map((fs, i) => `<tr>
     <td>${i+1}</td><td>${esc(fs.zone)}</td>
     <td class="print-name">${esc(fs.name)}</td>
     <td>${esc(fs.dept)}</td>
@@ -1563,7 +1563,7 @@ function renderHome() {
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0;">
         <div style="min-width:720px;">
           <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div><div style="text-align:center">상태</div></div>
-          ${DB.evangelism.map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:1px 5px;${e.status?'color:var(--gold)':''}" onclick="event.stopPropagation();openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
+          ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 36px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:1px 5px;${e.status?'color:var(--gold)':''}" onclick="event.stopPropagation();openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
           ${evCount === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 전도대상자가 없습니다.</div>` : ''}
         </div>
       </div>
@@ -1580,7 +1580,7 @@ function renderHome() {
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:202px; min-width:0;">
         <div style="min-width:550px;">
           <div class="roster-row head" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div><div style="text-align:right">금액</div></div>
-          ${DB.feeSupport.map((fs, i) => `<div class="roster-row clickable" onclick="openFeeSupportSheetById('${esc(fs.id)}')" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
+          ${sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row clickable" onclick="openFeeSupportSheetById('${esc(fs.id)}')" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
           ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">회비 지원자가 없습니다.</div>` : ''}
         </div>
       </div>
@@ -1658,12 +1658,12 @@ function buildMemberListHTML() {
     if (totalList.length === 0) return `<div class="empty-state">${q ? '검색 결과 없음' : '등록된 인원이 없습니다.<br/><span style="font-size:12px;display:inline-block;margin-top:6px">우측 하단 + 버튼으로 새 인원을 추가하세요</span>'}</div>`;
     let html = '';
     ZONES.forEach(zn => {
-      const zList = totalList.filter(m => m.zone === zn);
+      const zList = totalList.filter(m => m.zone === zn).sort(memberSortCmp);
       if (zList.length === 0) return;
       html += `<div style="margin:14px 4px 6px;font-size:12px;font-weight:700;letter-spacing:.02em;display:flex;align-items:center;gap:6px"><span style="color:var(--gold-soft)">${esc(zn)}</span><span style="color:var(--ink-mute);font-weight:500">${zList.length}명</span></div>`;
       html += zList.map((m, i) => memberItemHTML(m, i+1)).join('');
     });
-    const orphan = totalList.filter(m => !ZONES.includes(m.zone));
+    const orphan = totalList.filter(m => !ZONES.includes(m.zone)).sort(memberSortCmp);
     if (orphan.length > 0) {
       html += `<div style="margin:14px 4px 6px;font-size:12px;font-weight:700;color:var(--rose)">미분류 (${orphan.length}명)</div>`;
       html += orphan.map((m, i) => memberItemHTML(m, i+1)).join('');
@@ -2022,7 +2022,7 @@ function renderFeeSupportSheet() {
       <div class="roster-table" style="margin-bottom:0; min-width:550px;">
         <div class="roster-row head" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div><div style="text-align:right">금액</div></div>
         ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : 
-          DB.feeSupport.map((fs, i) => `<div class="roster-row clickable" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
+          sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row clickable" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
       </div>
     </div>
   `;
@@ -2876,7 +2876,7 @@ function renderEvangelismSheet() {
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:640px;">
         <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div><div style="text-align:center">상태</div></div>
-        ${DB.evangelism.map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
+        ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.salvation?'○':''}</div><div style="text-align:center;font-weight:700;color:var(--gold)">${e.baptism?'○':''}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
         ${DB.evangelism.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>
@@ -3219,8 +3219,9 @@ async function exportToExcel() {
   //    전도현황 컬럼: A=NO B=구역 C=성명 D=회(부서) E=인도자 F=관계 G=구원시인 H=침례여부 I=비고
   {
     const edits = {};
+    const evSorted = sortMembers(DB.evangelism);
     for (let i = 0; i < 40; i++) {
-      const e = DB.evangelism[i];
+      const e = evSorted[i];
       const row = 3 + i;
       edits[`A${row}`] = e ? i + 1 : '';
       edits[`B${row}`] = e ? (e.zone||'') : '';
@@ -3238,8 +3239,9 @@ async function exportToExcel() {
   // 6) 회비지원 — 3행부터, E열은 VLOOKUP 공식이라 건드리지 않음
   {
     const edits = {};
+    const fsSorted = sortMembers(DB.feeSupport);
     for (let i = 0; i < 80; i++) {
-      const fs = DB.feeSupport[i];
+      const fs = fsSorted[i];
       const row = 3 + i;
       edits[`A${row}`] = i + 1;
       edits[`B${row}`] = fs ? (fs.zone||'') : '';

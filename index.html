@@ -399,7 +399,7 @@ let PRIVATE_CAR_LIST = [];
 let TRANSPORT_MAIN_OPTIONS = [];
 let TRANSPORT_EXTRA_OPTIONS = [];
 
-const DEPTS = ['은장회','봉사회','어머니회','청년회','대학부','중고등부','초등부','유치부','미취학'];
+let DEPTS = ['은장회','봉사회','어머니회','청년회','대학부','중고등부','초등부','유치부','미취학'];
 const DEFAULT_FEES = {
   '은장회': 50000, '봉사회': 70000, '어머니회': 70000, '청년회': 70000,
   '대학부': 50000, '중고등부': 0, '초등부': 0, '유치부': 0, '미취학': 0,
@@ -415,7 +415,7 @@ function emptyMember(zone) {
   return {
     id: uid(), zone: zone || '', dept: '', name: '', session: '',
     transUp: '', transDown: '', privateUp: '', privateDown: '',
-    extraUp: {}, extraDown: {},
+    extraUp: {}, extraDown: {}, sessionTrans: {},
     leaderName: '', leaderRel: '', lodging: '', salvation: false, baptism: false, note: '', regType: '', status: ''
   };
 }
@@ -444,13 +444,15 @@ function newEventId() { return 'evt_' + Math.random().toString(36).slice(2,10) +
 function freshEvent(title) {
   return {
     id: newEventId(),
-    meta: { title: title || '새 수양회', session: '2차', upTime: '', downTime: '' },
+    meta: { title: title || '새 수양회', session: '2차', churchSession: '2차', upTime: '', downTime: '' },
     settings: { zones: ['11구역','12구역','13구역','14구역','21구역','22구역','23구역','24구역','31구역','32구역','33구역','34구역'],
                 sessions: ['1차','2차','3차','4차','5차','6차','7차','8차'],
+                sessionDefs: [{name:'1차',upDate:'',downDate:''},{name:'2차',upDate:'',downDate:''},{name:'3차',upDate:'',downDate:''},{name:'4차',upDate:'',downDate:''},{name:'5차',upDate:'',downDate:''},{name:'6차',upDate:'',downDate:''},{name:'7차',upDate:'',downDate:''},{name:'8차',upDate:'',downDate:''}],
                 buses: ['1호차','2호차','3호차','4호차','5호차'],
                 churchCars: ['교회차1','교회차2'],
                 otherTransports: ['타교회','대중교통'],
                 extraUps: ['금저'], extraDowns: ['토저'],
+                deptList: ['은장회','봉사회','어머니회','청년회','대학부','중고등부','초등부','유치부','미취학'],
                 privateCarList: [] },
     fees: { ...DEFAULT_FEES },
     members: [], evangelism: [], feeSupport: [], prayList: [],
@@ -512,6 +514,7 @@ function hydrateEvent(d) {
     if (d.settings.extraUps) EXTRA_UPS = d.settings.extraUps;
     if (d.settings.extraDowns) EXTRA_DOWNS = d.settings.extraDowns;
     if (d.settings.privateCarList) PRIVATE_CAR_LIST = d.settings.privateCarList;
+    if (d.settings.deptList && d.settings.deptList.length) DEPTS = d.settings.deptList;
   }
   if (d.members) {
     d.members.forEach(m => {
@@ -523,6 +526,8 @@ function hydrateEvent(d) {
   if (d.fees) { Object.keys(DEFAULT_FEES).forEach(k => { if (d.fees[k] === undefined) d.fees[k] = DEFAULT_FEES[k]; }); }
   else { d.fees = { ...DEFAULT_FEES }; }
   if (!d.meta) d.meta = {};
+  // sessionTrans 보정 (구버전 멤버)
+  if (d.members) d.members.forEach(m => { if (!m.sessionTrans) m.sessionTrans = {}; });
   if (!d.meta.title) d.meta.title = '새 수양회';
   if (!d.meta.session) d.meta.session = '2차';
   if (!d.members) d.members = [];
@@ -633,6 +638,64 @@ function confirmModal(title, msg, onOk, okLabel='확인') {
 function getYearPrefix() {
   const match = DB.meta.title.match(/^(\d{4})년/);
   return match ? match[1] + '년도' : '2026년도';
+}
+
+// 행사명에서 연도 추출 (달력 기본 연도)
+function getEventYear() {
+  const m = (DB.meta.title||'').match(/(\d{4})\s*년/);
+  return m ? parseInt(m[1],10) : new Date().getFullYear();
+}
+// ISO 날짜('2026-07-10') → '7/10(금)' 표시. 빈값이면 ''
+const WEEKDAY_KO = ['일','월','화','수','목','금','토'];
+function fmtDateKo(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d.getTime())) return iso;
+  return (d.getMonth()+1) + '/' + d.getDate() + '(' + WEEKDAY_KO[d.getDay()] + ')';
+}
+// 차수 정의 배열 가져오기 (settings.sessionDefs). 없으면 SESSIONS로 생성.
+function getSessionDefs() {
+  let defs = (DB.settings && DB.settings.sessionDefs) || null;
+  if (!defs || !defs.length) {
+    defs = (SESSIONS || []).map(n => ({ name: n, upDate: '', downDate: '' }));
+  }
+  return defs;
+}
+// 차수 이름으로 정의 찾기
+function sessionDefByName(name) {
+  return getSessionDefs().find(d => d.name === name) || null;
+}
+// 본 교회 차수 이름
+function churchSessionName() {
+  return (DB.meta && DB.meta.churchSession) || (DB.meta && DB.meta.session) || '';
+}
+
+// 멤버가 선택한 차수 목록 (배열)
+function memberSessions(m) {
+  return (m.session||'').split(',').map(x=>x.trim()).filter(Boolean);
+}
+// 대표 차수 결정: 본교회 차수가 선택돼 있으면 그것, 아니면 가장 빠른(정의 순서상 앞) 차수
+function representativeSession(m) {
+  const sess = memberSessions(m);
+  if (!sess.length) return '';
+  const ch = churchSessionName();
+  if (ch && sess.includes(ch)) return ch;
+  // 정의 순서(getSessionDefs 순)대로 가장 앞선 것
+  const order = getSessionDefs().map(d => d.name);
+  let best = sess[0], bestIdx = order.indexOf(sess[0]); if (bestIdx < 0) bestIdx = 9999;
+  sess.forEach(s => { const i = order.indexOf(s); const ii = i<0?9999:i; if (ii < bestIdx) { bestIdx = ii; best = s; } });
+  return best;
+}
+// 멤버의 대표 상/하행 정보 {upBus, upVehicle, upDate, downBus, downVehicle, downDate}
+function memberRepTrans(m) {
+  const rep = representativeSession(m);
+  const st = (m.sessionTrans && m.sessionTrans[rep]) || {};
+  const def = sessionDefByName(rep) || {};
+  return {
+    session: rep,
+    upBus: !!st.upBus, upVehicle: st.upVehicle || '', upDate: def.upDate || '',
+    downBus: !!st.downBus, downVehicle: st.downVehicle || '', downDate: def.downDate || '',
+  };
 }
 
 function getLodgings() {
@@ -1782,38 +1845,48 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       <div class="helper">현장 접수는 접수 현황에만 표시되며, 접수 현황에서 '등록'을 누르면 정식 등록됩니다.</div>
     </div>
     <div class="field">
-      <label>차수 <span style="font-weight:400;color:var(--ink-mute);font-size:11px">(복수 선택 가능)</span></label>
-      <div class="time-pill-row" id="mSessionRow">
-        ${SESSIONS.map(s => {
-          const selected = (m.session||'').split(',').map(x=>x.trim()).includes(s);
-          return `<label class="time-pill ${selected?'active':''}">
-            <input type="checkbox" name="mSession" value="${esc(s)}" ${selected?'checked':''}/>
-            <span>${esc(s)}</span>
-          </label>`;
+      <label>차수 · 상행/하행 <span style="font-weight:400;color:var(--ink-mute);font-size:11px">(참여할 차수를 체크하세요. 복수 가능)</span></label>
+      <div id="mSessionList">
+        ${getSessionDefs().map(def => {
+          const sname = def.name;
+          const checked = memberSessions(m).includes(sname);
+          const st = (m.sessionTrans && m.sessionTrans[sname]) || {};
+          const dateLabel = (def.upDate||def.downDate) ? (fmtDateKo(def.upDate)+' ~ '+fmtDateKo(def.downDate)) : '날짜 미설정';
+          const busOpts = ['', ...BUSES];
+          const etcOpts = ['', ...CHURCH_CARS, ...OTHER_TRANSPORTS, ...PRIVATE_CAR_LIST];
+          const upVehOpts = (st.upBus ? busOpts : etcOpts).map(o=>`<option value="${esc(o)}" ${st.upVehicle===o?'selected':''}>${esc(o||'─')}</option>`).join('');
+          const downVehOpts = (st.downBus ? busOpts : etcOpts).map(o=>`<option value="${esc(o)}" ${st.downVehicle===o?'selected':''}>${esc(o||'─')}</option>`).join('');
+          return `
+          <div class="sess-block" data-name="${esc(sname)}" style="border:1px solid var(--line-soft); border-radius:10px; margin-bottom:8px; overflow:hidden;">
+            <label class="sess-head" style="display:flex; align-items:center; gap:8px; padding:10px; cursor:pointer; background:${checked?'rgba(212,175,90,.10)':'transparent'};">
+              <input type="checkbox" class="sess-check" value="${esc(sname)}" ${checked?'checked':''}/>
+              <span style="font-weight:700;">${esc(sname)}</span>
+              <span style="font-size:12px; color:var(--ink-soft); margin-left:auto;">${dateLabel}</span>
+            </label>
+            <div class="sess-body" style="padding:${checked?'10px':'0'}; max-height:${checked?'400px':'0'}; overflow:hidden; transition:all .2s; border-top:${checked?'1px solid var(--line-soft)':'none'};">
+              <div style="display:flex; gap:10px;">
+                <div style="flex:1;">
+                  <div style="font-size:12px; font-weight:700; color:var(--gold-soft); margin-bottom:4px;">상행 ${def.upDate?'· '+fmtDateKo(def.upDate):''}</div>
+                  <label style="display:flex; align-items:center; gap:5px; font-size:12px; margin-bottom:5px; cursor:pointer;"><input type="checkbox" class="up-bus" ${st.upBus?'checked':''}/> 버스로 이동</label>
+                  <select class="up-veh" style="width:100%;">${upVehOpts}</select>
+                </div>
+                <div style="flex:1;">
+                  <div style="font-size:12px; font-weight:700; color:var(--gold-soft); margin-bottom:4px;">하행 ${def.downDate?'· '+fmtDateKo(def.downDate):''}</div>
+                  <label style="display:flex; align-items:center; gap:5px; font-size:12px; margin-bottom:5px; cursor:pointer;"><input type="checkbox" class="down-bus" ${st.downBus?'checked':''}/> 버스로 이동</label>
+                  <select class="down-veh" style="width:100%;">${downVehOpts}</select>
+                </div>
+              </div>
+            </div>
+          </div>`;
         }).join('')}
       </div>
+      <div class="helper">버스로 이동을 체크하면 호차 목록, 아니면 교회차·개인차·타교회·대중교통 목록이 나옵니다. 본 교회 차수가 아닌 분은 차편을 비워도 저장됩니다.</div>
     </div>
 
     <div class="section-title">추가 관리 항목</div>
     <div class="row-2" style="background:var(--bg-2); padding:10px; border-radius:10px; margin-bottom:12px;">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);cursor:pointer;margin:0;"><input type="checkbox" id="mEvCheck" ${existingEv ? 'checked':''} /> 전도대상자 명단</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);cursor:pointer;margin:0;"><input type="checkbox" id="mFsCheck" ${existingFs ? 'checked':''} /> 회비지원 명단</label>
-    </div>
-
-    <div class="section-title">상행 (참석 시점)</div>
-    <div class="time-pill-row" data-group="up">
-      ${radioPills('mUpTime', upTimeOptions, activeUpKey)}
-    </div>
-    <div class="field"><label>상행 차편</label>
-      <select id="mUpVehicle">${vehicleSelectHtml(activeUpKey, activeUpVehicle)}</select>
-    </div>
-
-    <div class="section-title">하행 (귀가 시점)</div>
-    <div class="time-pill-row" data-group="down">
-      ${radioPills('mDownTime', downTimeOptions, activeDownKey)}
-    </div>
-    <div class="field"><label>하행 차편</label>
-      <select id="mDownVehicle">${vehicleSelectHtml(activeDownKey, activeDownVehicle)}</select>
     </div>
 
     <div class="section-title">인도자 / 숙소 / 비고</div>
@@ -1838,20 +1911,27 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     ${!isNew ? `<button class="btn btn-danger btn-block" id="mDelete" style="margin-top:8px">삭제</button>` : ''}
   `;
   openSheet(isNew ? '인원 추가' : '인원 편집', html, () => {
-    // 라디오 선택값 + 차편 셀렉트값 읽기
-    const upTime = (document.querySelector('input[name="mUpTime"]:checked') || {}).value || '';
-    const upVehicle = $('#mUpVehicle').value;
-    const downTime = (document.querySelector('input[name="mDownTime"]:checked') || {}).value || '';
-    const downVehicle = $('#mDownVehicle').value;
-
-    // 차수 — 체크된 항목들을 콤마로 결합
-    const sessionValues = Array.from(document.querySelectorAll('input[name="mSession"]:checked')).map(el => el.value);
+    // 차수별 상하행 수집 (체크된 차수만)
+    const sessionValues = [];
+    const sessionTrans = {};
+    document.querySelectorAll('#mSessionList .sess-block').forEach(block => {
+      const nm = block.dataset.name;
+      const checked = block.querySelector('.sess-check').checked;
+      if (!checked) return;
+      sessionValues.push(nm);
+      sessionTrans[nm] = {
+        upBus: block.querySelector('.up-bus').checked,
+        upVehicle: block.querySelector('.up-veh').value || '',
+        downBus: block.querySelector('.down-bus').checked,
+        downVehicle: block.querySelector('.down-veh').value || '',
+      };
+    });
     const sessionStr = sessionValues.join(', ');
 
     const updated = {
       ...m, zone: $('#mZone').value, dept: $('#mDept').value, name: $('#mName').value.trim(), session: sessionStr,
       transUp: '', transDown: '',
-      extraUp: {}, extraDown: {},
+      extraUp: {}, extraDown: {}, sessionTrans: sessionTrans,
       leaderName: $('#mLeaderName').value.trim(), leaderRel: $('#mLeaderRel').value.trim(),
       lodging: $('#mLodging').value.trim(),
       salvation: $('#mSalvation').checked,
@@ -1860,32 +1940,42 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       regType: (document.querySelector('input[name="mRegType"]:checked')||{}).value || '',
     };
 
-    // 필수 입력 검증 (분기 전에 먼저 — 빈 시점 키 생성 방지)
+    // 필수 입력 검증 — 차수는 필수, 상하행 시점·차편은 선택(본교회 차수 아닌 사람 허용)
     if (!updated.zone) { toast('구역을 선택해 주세요', true); return false; }
     if (!updated.dept) { toast('회(부서)를 선택해 주세요', true); return false; }
     if (!updated.name) { toast('성명을 입력해 주세요', true); return false; }
     if (!updated.regType) { toast('접수 구분을 선택해 주세요', true); return false; }
-    if (!sessionStr) { toast('차수를 선택해 주세요', true); return false; }
-    if (!upTime) { toast('상행 (참석 시점)을 선택해 주세요', true); return false; }
-    if (!upVehicle) { toast('상행 차편을 선택해 주세요', true); return false; }
-    if (!downTime) { toast('하행 (귀가 시점)을 선택해 주세요', true); return false; }
-    if (!downVehicle) { toast('하행 차편을 선택해 주세요', true); return false; }
+    if (!sessionStr) { toast('차수를 1개 이상 선택해 주세요', true); return false; }
 
-    // 중복 경고: 같은 구역 + 같은 이름이 이미 등록돼 있으면 확인 (자기 자신 제외)
+    // 대표 차수의 상하행을 transUp/transDown(버스) 또는 extraUp/extraDown(기타)에 반영
+    // 시점 키 = 그 차수의 상/하행 날짜 표시("7/10(금)"). 버스면 transUp, 아니면 extraUp[날짜].
+    function applyRepTrans() {
+      updated.transUp = ''; updated.transDown = ''; updated.extraUp = {}; updated.extraDown = {};
+      const rep = representativeSession(updated);
+      const st = sessionTrans[rep];
+      const def = sessionDefByName(rep) || {};
+      if (st) {
+        const upLabel = fmtDateKo(def.upDate) || rep;
+        const downLabel = fmtDateKo(def.downDate) || rep;
+        if (st.upVehicle) {
+          if (st.upBus) updated.transUp = st.upVehicle;
+          else updated.extraUp[upLabel] = st.upVehicle;
+        }
+        if (st.downVehicle) {
+          if (st.downBus) updated.transDown = st.downVehicle;
+          else updated.extraDown[downLabel] = st.downVehicle;
+        }
+      }
+    }
+
+    // 중복 경고
     const dup = DB.members.find(x => x.id !== m.id
       && (x.zone||'').trim() === updated.zone.trim()
       && (x.name||'').trim() === updated.name.trim()
       && updated.name.trim() !== '');
 
-    // 실제 저장을 수행하는 내부 함수 (중복 확인 후 실행될 수 있도록 분리)
     function commitSave() {
-      // 상행 시점 분기
-      if (upTime === '본대') updated.transUp = upVehicle;
-      else updated.extraUp[upTime] = upVehicle;
-      // 하행 시점 분기
-      if (downTime === '본대') updated.transDown = downVehicle;
-      else updated.extraDown[downTime] = downVehicle;
-
+      applyRepTrans();
       if (isNew) DB.members.push(updated);
       else { const idx = DB.members.findIndex(x => x.id === m.id); if (idx >= 0) DB.members[idx] = updated; }
       finishSave();
@@ -1895,17 +1985,10 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       confirmModal('중복 확인',
         updated.zone + '의 \'' + updated.name + '\' 님은 이미 등록되어 있습니다. 그래도 저장할까요?',
         function () { commitSave(); }, '저장');
-      return false;  // 모달 응답을 기다림 (확인 시 commitSave 실행)
+      return false;
     }
-    // 중복 아니면 바로 저장
-    if (upTime === '본대') updated.transUp = upVehicle;
-    else updated.extraUp[upTime] = upVehicle;
-    if (downTime === '본대') updated.transDown = downVehicle;
-    else updated.extraDown[downTime] = downVehicle;
-    if (isNew) DB.members.push(updated);
-    else { const idx = DB.members.findIndex(x => x.id === m.id); if (idx >= 0) DB.members[idx] = updated; }
-
-    finishSave();
+    commitSave();
+    return false;
 
     function finishSave() {
     if ($('#mEvCheck') && $('#mEvCheck').checked) {
@@ -1932,27 +2015,42 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     }
   });
 
-  // 라디오/체크박스 pill 클릭 시 active 시각 토글 + (시점 그룹만) 셀렉트 옵션 재구성
+  // 접수 구분 라디오 active 토글
   setTimeout(() => {
-    document.querySelectorAll('.time-pill-row').forEach(group => {
-      group.addEventListener('change', (e) => {
-        if (e.target.type !== 'radio' && e.target.type !== 'checkbox') return;
-        // 모든 pill의 active 상태 재계산
-        group.querySelectorAll('.time-pill').forEach(p => {
-          p.classList.toggle('active', p.querySelector('input').checked);
-        });
-        // 시점(상행/하행) 라디오일 때만 차편 셀렉트 재구성
-        if (e.target.type === 'radio' && (group.dataset.group === 'up' || group.dataset.group === 'down')) {
-          const newTime = e.target.value;
-          const isUp = group.dataset.group === 'up';
-          const sel = document.getElementById(isUp ? 'mUpVehicle' : 'mDownVehicle');
-          if (sel) {
-            const prev = sel.value;
-            const opts = vehicleOptionsFor(newTime);
-            const keep = opts.includes(prev) ? prev : '';
-            sel.innerHTML = vehicleSelectHtml(newTime, keep);
-          }
+    document.querySelectorAll('#mRegTypeRow').forEach(group => {
+      group.addEventListener('change', () => {
+        group.querySelectorAll('.time-pill').forEach(p => p.classList.toggle('active', p.querySelector('input').checked));
+      });
+    });
+
+    // 차수별 블록: 체크 시 펼침/접힘 + 헤더 강조
+    const busOpts = ['', ...BUSES];
+    const etcOpts = ['', ...CHURCH_CARS, ...OTHER_TRANSPORTS, ...PRIVATE_CAR_LIST];
+    function vehHtml(opts, cur){ return opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${cur===o?'selected':''}>${(o||'─').replace(/</g,'&lt;')}</option>`).join(''); }
+    document.querySelectorAll('#mSessionList .sess-block').forEach(block => {
+      const chk = block.querySelector('.sess-check');
+      const body = block.querySelector('.sess-body');
+      const head = block.querySelector('.sess-head');
+      chk.addEventListener('change', () => {
+        if (chk.checked) {
+          body.style.maxHeight = '400px'; body.style.padding = '10px'; body.style.borderTop = '1px solid var(--line-soft)';
+          head.style.background = 'rgba(212,175,90,.10)';
+        } else {
+          body.style.maxHeight = '0'; body.style.padding = '0'; body.style.borderTop = 'none';
+          head.style.background = 'transparent';
         }
+      });
+      // 버스 체크 → 차편 목록 전환 (상행)
+      const upBus = block.querySelector('.up-bus'), upVeh = block.querySelector('.up-veh');
+      upBus.addEventListener('change', () => {
+        const prev = upVeh.value; const opts = upBus.checked ? busOpts : etcOpts;
+        upVeh.innerHTML = vehHtml(opts, opts.includes(prev)?prev:'');
+      });
+      // 하행
+      const downBus = block.querySelector('.down-bus'), downVeh = block.querySelector('.down-veh');
+      downBus.addEventListener('change', () => {
+        const prev = downVeh.value; const opts = downBus.checked ? busOpts : etcOpts;
+        downVeh.innerHTML = vehHtml(opts, opts.includes(prev)?prev:'');
       });
     });
   }, 30);
@@ -2093,30 +2191,54 @@ function openMetaEditSheet() {
       <input id="metaTitle" value="${esc(DB.meta.title)}" placeholder="예: 2026년 하계수양회"/>
     </div>
     <div class="field">
-      <label>차수 (홈 화면 요약용)</label>
-      <input id="metaSession" value="${esc(DB.meta.session||'2차')}" placeholder="예: 2차"/>
+      <label>본 교회 차수</label>
+      <select id="metaChurchSession">${getSessionDefs().map(d => `<option value="${esc(d.name)}" ${churchSessionName()===d.name?'selected':''}>${esc(d.name)}</option>`).join('')}</select>
+      <div class="helper">우리 교회가 참여하는 차수입니다. 홈 화면 요약과 엑셀의 본대/기타 일정 기준이 됩니다.</div>
     </div>
-    <div class="field">
-      <label>상행 일정</label>
-      <input id="metaUp" value="${esc(DB.meta.upTime)}" placeholder="예: 7월 17일(금) 오전 8시"/>
-    </div>
-    <div class="field">
-      <label>하행 일정</label>
-      <input id="metaDown" value="${esc(DB.meta.downTime)}" placeholder="예: 7월 19일(주일) 오전 10시"/>
+    <div style="height:1px;background:var(--line-soft);margin:14px 0"></div>
+    <div class="notice">차수별 상행·하행 날짜를 선택하세요. (요일은 자동 표시)</div>
+    <div id="sessionDateList">
+      ${getSessionDefs().map((d,i) => `
+        <div class="sess-date-row" data-name="${esc(d.name)}" style="margin-bottom:12px; padding:10px; background:var(--card-2,rgba(255,255,255,.03)); border-radius:10px;">
+          <div style="font-weight:700; margin-bottom:6px; color:var(--gold-soft);">${esc(d.name)}</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <div style="flex:1;"><label style="font-size:11px; color:var(--ink-mute);">상행</label><input type="date" class="sd-up" value="${esc(d.upDate||'')}" style="width:100%;"/></div>
+            <div style="flex:1;"><label style="font-size:11px; color:var(--ink-mute);">하행</label><input type="date" class="sd-down" value="${esc(d.downDate||'')}" style="width:100%;"/></div>
+          </div>
+          <div class="sd-preview" style="font-size:12px; color:var(--ink-soft); margin-top:5px;">${d.upDate||d.downDate ? (fmtDateKo(d.upDate)+' ~ '+fmtDateKo(d.downDate)) : ''}</div>
+        </div>
+      `).join('')}
     </div>
   `;
   openSheet('행사 정보 수정', html, () => {
     const t = $('#metaTitle').value.trim();
-    const s = $('#metaSession').value.trim();
-    const u = $('#metaUp').value.trim();
-    const d = $('#metaDown').value.trim();
     if (!t) { toast('행사명을 입력해 주세요', true); return false; }
     DB.meta.title = t;
-    DB.meta.session = s;
-    DB.meta.upTime = u;
-    DB.meta.downTime = d;
-    saveDB(); render(); toast('행사 정보가 수정됐어요');
+    DB.meta.churchSession = $('#metaChurchSession').value;
+    DB.meta.session = DB.meta.churchSession;  // 요약용도 본교회차수로 동기화
+    // 차수별 날짜 수집
+    const defs = [];
+    $$('#sessionDateList .sess-date-row').forEach(row => {
+      defs.push({ name: row.dataset.name, upDate: row.querySelector('.sd-up').value || '', downDate: row.querySelector('.sd-down').value || '' });
+    });
+    DB.settings = DB.settings || {};
+    DB.settings.sessionDefs = defs;
+    DB.settings.sessions = defs.map(d => d.name);
+    SESSIONS = defs.map(d => d.name);
+    // 본 교회 차수의 날짜를 홈 요약 상/하행에 반영
+    const ch = sessionDefByName(DB.meta.churchSession);
+    if (ch) { DB.meta.upTime = fmtDateKo(ch.upDate); DB.meta.downTime = fmtDateKo(ch.downDate); }
+    saveDB(); render(); toast('행사 정보가 저장됐어요');
   });
+
+  // 날짜 입력 시 미리보기 갱신
+  setTimeout(() => {
+    $$('#sessionDateList .sess-date-row').forEach(row => {
+      const up = row.querySelector('.sd-up'), down = row.querySelector('.sd-down'), pv = row.querySelector('.sd-preview');
+      const upd = () => { pv.textContent = (up.value||down.value) ? (fmtDateKo(up.value)+' ~ '+fmtDateKo(down.value)) : ''; };
+      up.addEventListener('change', upd); down.addEventListener('change', upd);
+    });
+  }, 60);
 
   // 행사 전환/추가/삭제 핸들러
   setTimeout(() => {
@@ -2177,14 +2299,76 @@ function openMetaEditSheet() {
 }
 
 function openFeeRateSheet() {
+  // 각 행: 회(부서) 이름(편집 가능) + 단가(편집 가능) + 삭제
+  function rowHTML(name, fee) {
+    return `<div class="field deptfee-row" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+      <input type="text" class="df-name" value="${esc(name)}" placeholder="회(부서)명" style="flex:1.4; min-width:0;"/>
+      <input type="number" class="df-fee" value="${fee||0}" placeholder="단가" style="flex:1; min-width:0;"/>
+      <button type="button" class="df-del" title="삭제" style="flex-shrink:0; width:34px; height:34px; border:none; border-radius:8px; background:rgba(255,90,90,.15); color:#ff7a7a; font-size:18px; cursor:pointer;">×</button>
+    </div>`;
+  }
+  const rows = DEPTS.map(d => rowHTML(d, DB.fees[d])).join('');
   const html = `
-    <div class="notice">부서별로 받을 회비 단가를 수정합니다.</div>
-    ${DEPTS.map(d => `<div class="field"><label>${esc(d)}</label><input type="number" class="fee-rate" data-dept="${esc(d)}" value="${DB.fees[d]||0}"/></div>`).join('')}
+    <div class="notice">회(부서)와 회비 단가를 수정·추가할 수 있습니다.</div>
+    <div id="dfList">${rows}</div>
+    <button type="button" id="dfAdd" class="btn btn-secondary" style="width:100%; margin-top:6px;">＋ 회(부서) 추가</button>
   `;
-  openSheet('회비 단가 수정', html, () => {
-    $$('.fee-rate').forEach(el => DB.fees[el.dataset.dept] = parseInt(el.value, 10) || 0);
-    saveDB(); render(); toast('단가가 수정됐어요');
+  openSheet('회(부서)별 회비 단가 설정', html, () => {
+    // 저장: 행들을 순서대로 읽어 새 DEPTS / fees 구성
+    const rowsEl = $$('#dfList .deptfee-row');
+    const newDepts = [];
+    const newFees = {};
+    const renameMap = {};  // 옛이름 → 새이름 (멤버 dept 갱신용)
+    const oldNames = DEPTS.slice();
+    rowsEl.forEach((row, i) => {
+      const nm = row.querySelector('.df-name').value.trim();
+      const fee = parseInt(row.querySelector('.df-fee').value, 10) || 0;
+      if (!nm) return;  // 빈 이름은 건너뜀(삭제 효과)
+      if (newDepts.includes(nm)) return;  // 중복 이름 방지
+      newDepts.push(nm);
+      newFees[nm] = fee;
+      // 같은 위치의 옛 이름이 다르면 rename으로 간주
+      const oldNm = oldNames[i];
+      if (oldNm && oldNm !== nm) renameMap[oldNm] = nm;
+    });
+    if (newDepts.length === 0) { toast('회(부서)를 최소 1개 입력해 주세요', true); return; }
+    // 멤버/전도/회비/기도의 dept를 rename 반영
+    const applyRename = (obj) => { if (obj && obj.dept && renameMap[obj.dept]) obj.dept = renameMap[obj.dept]; };
+    DB.members.forEach(applyRename);
+    DB.evangelism.forEach(applyRename);
+    DB.feeSupport.forEach(applyRename);
+    DB.prayList.forEach(applyRename);
+    // 전역 + 저장
+    DEPTS = newDepts;
+    DB.fees = newFees;
+    DB.settings = DB.settings || {};
+    DB.settings.deptList = newDepts.slice();
+    saveDB(); render(); toast('회(부서) 설정이 저장됐어요');
   });
+
+  // 추가 버튼 / 삭제 버튼 바인딩
+  setTimeout(() => {
+    const addBtn = document.getElementById('dfAdd');
+    const list = document.getElementById('dfList');
+    function bindDel(scope) {
+      (scope || list).querySelectorAll('.df-del').forEach(b => {
+        b.onclick = () => { b.closest('.deptfee-row').remove(); };
+      });
+    }
+    bindDel();
+    if (addBtn) addBtn.onclick = () => {
+      const div = document.createElement('div');
+      div.innerHTML = `<div class="field deptfee-row" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+        <input type="text" class="df-name" value="" placeholder="회(부서)명" style="flex:1.4; min-width:0;"/>
+        <input type="number" class="df-fee" value="0" placeholder="단가" style="flex:1; min-width:0;"/>
+        <button type="button" class="df-del" style="flex-shrink:0; width:34px; height:34px; border:none; border-radius:8px; background:rgba(255,90,90,.15); color:#ff7a7a; font-size:18px; cursor:pointer;">×</button>
+      </div>`;
+      const row = div.firstElementChild;
+      list.appendChild(row);
+      bindDel(row.parentElement);
+      row.querySelector('.df-name').focus();
+    };
+  }, 60);
 }
 
 function openFeeSupportSheetById(id) {
@@ -2838,7 +3022,7 @@ function renderMore() {
         </button>
         <button class="menu-item" onclick="openFeeRateSheet()">
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-          <div class="lb"><div class="t">부서별 회비 단가 설정</div><div class="d">각 부서의 회비 단가를 수정합니다.</div></div>
+          <div class="lb"><div class="t">회(부서)별 회비 단가 설정</div><div class="d">회(부서)와 회비 단가를 수정·추가합니다.</div></div>
         </button>
       </div>
     </div>
@@ -2883,9 +3067,7 @@ function openBaseSettingsSheet() {
     <div class="field"><label>본대 버스 목록</label><textarea id="sBuses" rows="2">${BUSES.join(', ')}</textarea><div class="helper">개수 제한은 없어요. 엑셀 내보내기에는 앞에서부터 10대까지 포함됩니다. 1호차, 2호차… 형식을 권장합니다.</div></div>
     <div class="field"><label>교회차 목록</label><textarea id="sChurch" rows="2">${CHURCH_CARS.join(', ')}</textarea><div class="helper">개수 제한은 없어요. 엑셀 내보내기에는 앞에서부터 5대까지 포함됩니다. 교회차1, 교회차2… 형식을 권장합니다.</div></div>
     <div class="field"><label>기타 차편 목록</label><textarea id="sOther" rows="2" placeholder="예: 타교회, 대중교통, 자전거">${OTHER_TRANSPORTS.join(', ')}</textarea><div class="helper">본대 외 차편의 옵션. 필요한 항목을 자유롭게 추가/수정하세요.</div></div>
-    <div class="field"><label>개인차 목록 (차주 이름)</label><textarea id="sPrivateCarList" rows="2" placeholder="예: 김장로, 박집사, 이형제">${PRIVATE_CAR_LIST.join(', ')}</textarea><div class="helper">여기 등록한 이름들이 기타 일정 교통편 옵션에 자동으로 추가됩니다.</div></div>
-    <div class="field"><label>기타 일정(상행) (기본: 금저)</label><textarea id="sExtraUps" rows="2">${EXTRA_UPS.join(', ')}</textarea></div>
-    <div class="field"><label>기타 일정(하행) (기본: 토저)</label><textarea id="sExtraDowns" rows="2">${EXTRA_DOWNS.join(', ')}</textarea></div>
+    <div class="field"><label>개인차 목록 (차주 이름)</label><textarea id="sPrivateCarList" rows="2" placeholder="예: 김장로, 박집사, 이형제">${PRIVATE_CAR_LIST.join(', ')}</textarea><div class="helper">여기 등록한 이름들이 인원 추가의 차편(개인차) 옵션에 자동으로 추가됩니다.</div></div>
   `;
   openSheet('기초 데이터 설정', html, () => {
     ZONES = $('#sZones').value.split(',').map(s=>s.trim()).filter(Boolean);
@@ -2894,8 +3076,6 @@ function openBaseSettingsSheet() {
     CHURCH_CARS = $('#sChurch').value.split(',').map(s=>s.trim()).filter(Boolean);
     OTHER_TRANSPORTS = $('#sOther').value.split(',').map(s=>s.trim()).filter(Boolean);
     PRIVATE_CAR_LIST = $('#sPrivateCarList').value.split(',').map(s=>s.trim()).filter(Boolean);
-    EXTRA_UPS = $('#sExtraUps').value.split(',').map(s=>s.trim()).filter(Boolean);
-    EXTRA_DOWNS = $('#sExtraDowns').value.split(',').map(s=>s.trim()).filter(Boolean);
     
     updateTransportOptions();
     DB.settings = { zones: ZONES, sessions: SESSIONS, buses: BUSES, churchCars: CHURCH_CARS, otherTransports: OTHER_TRANSPORTS, extraUps: EXTRA_UPS, extraDowns: EXTRA_DOWNS, privateCarList: PRIVATE_CAR_LIST };

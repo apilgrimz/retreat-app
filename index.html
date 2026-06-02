@@ -655,8 +655,7 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null) {
        if (aD && !bD) return -1;
        if (!aD && bD) return 1;
      }
-     const z = (a.zone||'').localeCompare(b.zone||'','ko');
-     return z !== 0 ? z : (a.name||'').localeCompare(b.name||'','ko');
+     return memberSortCmp(a, b);
    };
    const uSorted = uList.slice().sort(cmp);
    const dSorted = dList.slice().sort(cmp);
@@ -936,13 +935,13 @@ function openTransportFull() {
       if (!any) body += `<div class="empty-state">표시할 명단이 없습니다.</div>`;
     }
   } else if (BUSES.includes(type)) {
-    const u = registeredMembers().filter(m => m.transUp === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const d = registeredMembers().filter(m => m.transDown === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const u = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
+    const d = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
     if (u.length===0 && d.length===0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
     else body += buildSplitTable(null, u, d, false);
   } else {
-    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort(memberSortCmp);
+    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort(memberSortCmp);
     if (uList.length === 0 && dList.length === 0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
     else body += buildSplitTable(null, uList, dList, false);
   }
@@ -968,12 +967,12 @@ function execPrintTransport() {
       });
     }
   } else if (BUSES.includes(type)) {
-    const u = registeredMembers().filter(m => m.transUp === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const d = registeredMembers().filter(m => m.transDown === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const u = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
+    const d = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
     body += buildSplitTable(null, u, d, true);
   } else {
-    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort(memberSortCmp);
+    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort(memberSortCmp);
     if (uList.length === 0 && dList.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">해당 차편 등록자가 없습니다.</div>`;
     else body += buildSplitTable(`${esc(type)}`, uList, dList, true);
   }
@@ -981,7 +980,7 @@ function execPrintTransport() {
 }
 
 function execPrintSession(session) {
-  const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);
   const titleText = `${getYearPrefix()} 하계수양회 - ${session} 명단`;
   let trs = list.map((m, i) => {
     let up = m.transUp || ''; let down = m.transDown || '';
@@ -1012,7 +1011,7 @@ function execPrintSession(session) {
 }
 
 function execPrintDept(dept) {
-  const list = registeredMembers().filter(m => m.dept === dept).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const list = registeredMembers().filter(m => m.dept === dept).sort(memberSortCmp);
   const titleText = `${getYearPrefix()} 하계수양회 - ${dept} 명단`;
   const body = `<div class="print-title">${titleText}</div>
     ${rosterPrintRowsHtml(list, 1, 'dept')}`;
@@ -1102,7 +1101,7 @@ function execPrintLodging() {
   }
   
   keys.forEach(k => {
-    const list = lodgings[k].sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const list = lodgings[k].sort(memberSortCmp);
     const half = Math.ceil(list.length / 2);
     const left = list.slice(0, half);
     const right = list.slice(half);
@@ -1233,7 +1232,7 @@ $('#sheetCancel').onclick = () => closeSheet(); $('#sheetBackdrop').onclick = ()
 $('#sheetSave').onclick = () => { if (sheetHandlers.save) { if (sheetHandlers.save() !== false) closeSheet(); } else closeSheet(); };
 
 function openSessionSheet(session) {
-  const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary btn-block" onclick="execPrintSession('${esc(session)}')">인쇄</button>
@@ -1258,7 +1257,7 @@ function openSessionSheet(session) {
 }
 
 function openZoneSheet(zone) {
-  const list = membersByZone(zone).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
+  const list = membersByZone(zone).sort(memberSortCmp);
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary btn-block" onclick="execPrintZoneData('${esc(zone)}')">인쇄</button>
@@ -1283,7 +1282,7 @@ function openZoneSheet(zone) {
 }
 
 function openDeptSheet(dept) {
-  const list = registeredMembers().filter(m => m.dept === dept).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const list = registeredMembers().filter(m => m.dept === dept).sort(memberSortCmp);
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary btn-block" onclick="execPrintDept('${esc(dept)}')">인쇄</button>
@@ -1309,7 +1308,37 @@ function openDeptSheet(dept) {
 
 function isReg(m){ return m.regType !== 'onsite'; }
 function registeredMembers(){ return DB.members.filter(isReg); }
-function membersByZone(zone) { return registeredMembers().filter(m => m.zone === zone); }
+function membersByZone(zone) { return registeredMembers().filter(m => m.zone === zone).sort(memberSortCmp); }
+
+// ===== 통합 명단 정렬 =====
+// 우선순위: 1)구역순(ZONES 배열 순서) 2)회(부서)순(DEPTS 배열 순서) 3)이름 가나다순
+// 배열에 없는 값은 맨 뒤로.
+function zoneRank(z) { const i = ZONES.indexOf(z); return i === -1 ? 9999 : i; }
+function deptRank(d) { const i = DEPTS.indexOf(d); return i === -1 ? 9999 : i; }
+function memberSortCmp(a, b) {
+  const zr = zoneRank(a.zone) - zoneRank(b.zone);
+  if (zr !== 0) return zr;
+  // 같은 순위(둘 다 목록에 없음)면 문자열로 보조 비교
+  if (zoneRank(a.zone) === 9999) { const zc = (a.zone||'').localeCompare(b.zone||'','ko'); if (zc !== 0) return zc; }
+  const dr = deptRank(a.dept) - deptRank(b.dept);
+  if (dr !== 0) return dr;
+  if (deptRank(a.dept) === 9999) { const dc = (a.dept||'').localeCompare(b.dept||'','ko'); if (dc !== 0) return dc; }
+  return (a.name||'').localeCompare(b.name||'','ko');
+}
+// 명단 배열을 표준 순서로 정렬해 반환 (원본 불변)
+function sortMembers(list) { return list.slice().sort(memberSortCmp); }
+// 개인차 차주 우선 + 표준 정렬
+function sortMembersDriverFirst(list, driver) {
+  const drv = String(driver||'').trim();
+  return list.slice().sort((a,b) => {
+    if (drv) {
+      const aD = (a.name||'').trim() === drv, bD = (b.name||'').trim() === drv;
+      if (aD && !bD) return -1;
+      if (!aD && bD) return 1;
+    }
+    return memberSortCmp(a,b);
+  });
+}
 function totalRegistered() { return registeredMembers().length; }
 function sessionCounts() {
   const r = Object.fromEntries(SESSIONS.map(s => [s, 0]));
@@ -1448,7 +1477,7 @@ function renderHome() {
       </div>
     </div>`;
   lodgingKeys.forEach(lk => {
-    const lList = lodgings[lk].sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const lList = lodgings[lk].sort(memberSortCmp);
     lodgingHtml += `
       <div class="clickable" style="margin-top:12px; font-weight:700; color:var(--gold); font-size:13px; text-decoration:underline; text-decoration-style:dotted;" onclick="openSingleLodging('${esc(lk).replace(/'/g,"\\'")}')">${esc(lk)} (${lList.length}명)</div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:202px; margin-top:6px; min-width:0;">
@@ -1590,7 +1619,7 @@ function renderLodgingSheet() {
     <div style="overflow-x:auto;">
   `;
   lodgingKeys.forEach(lk => {
-    const lList = lodgings[lk].sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const lList = lodgings[lk].sort(memberSortCmp);
     html += `
       <div style="margin-top:12px; font-weight:700; color:var(--gold); font-size:13px;">${esc(lk)} (${lList.length}명)</div>
       <div class="roster-table" style="margin-bottom:0; min-width:400px; margin-top:6px;">
@@ -1606,7 +1635,7 @@ function renderLodgingSheet() {
 // 특정 숙소 1개만 전체 보기 (인쇄 없음)
 function openSingleLodging(lk) {
   const lodgings = getLodgings();
-  const lList = (lodgings[lk] || []).slice().sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+  const lList = (lodgings[lk] || []).slice().sort(memberSortCmp);
   let html = `<div style="overflow-x:auto;">
     <div class="roster-table" style="margin-bottom:0; min-width:400px;">
       <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div></div>
@@ -1916,13 +1945,7 @@ function driverList(driver, direction) {
 
 // 개인차 명단 정렬: 차주 본인(이름이 차주명과 동일)을 1번으로, 나머지는 구역순
 function sortDriverList(list, driver) {
-  return list.slice().sort((a,b) => {
-    const aIsDriver = (a.name||'').trim() === String(driver||'').trim();
-    const bIsDriver = (b.name||'').trim() === String(driver||'').trim();
-    if (aIsDriver && !bIsDriver) return -1;
-    if (!aIsDriver && bIsDriver) return 1;
-    return (a.zone||'').localeCompare(b.zone||'','ko');
-  });
+  return sortMembersDriverFirst(list, driver);
 }
 
 function allPrivateDrivers() {
@@ -1965,12 +1988,12 @@ function renderTransport() {
       if (!anyShown) html += `<div class="empty-state">표시할 명단이 없습니다.</div>`;
     }
   } else if (BUSES.includes(type)) {
-    const uList = registeredMembers().filter(m => m.transUp === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const dList = registeredMembers().filter(m => m.transDown === type).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const uList = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
+    const dList = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
     html += buildSplitTable(null, uList, dList, false);
   } else {
-    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
-    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko'));
+    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort(memberSortCmp);
+    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort(memberSortCmp);
     if (uList.length === 0 && dList.length === 0) html += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
     else html += buildSplitTable(null, uList, dList, false);
   }
@@ -2216,7 +2239,7 @@ function intakeGroups() {
     const t = m.regType || 'pre1';
     (g[t] || g.pre1).push(m);
   });
-  const byZone = function (a, b) { return (a.zone || '').localeCompare(b.zone || '', 'ko') || (a.name || '').localeCompare(b.name || '', 'ko'); };
+  const byZone = memberSortCmp;
   g.pre1.sort(byZone); g.pre2.sort(byZone); g.onsite.sort(byZone);
   return g;
 }
@@ -2274,9 +2297,7 @@ function intakeRegister(id) {
 
 /* ===== 전도대상자 기도 명단 (evangelism과 완전 분리) ===== */
 function openPrayList() {
-  const list = (DB.prayList || []).slice().sort(function (a, b) {
-    return (a.zone || '').localeCompare(b.zone || '', 'ko') || (a.name || '').localeCompare(b.name || '', 'ko');
-  });
+  const list = (DB.prayList || []).slice().sort(memberSortCmp);
   const cols = '24px 40px 1fr 56px 56px 44px 1fr 38px 44px';
   let head = '<div class="roster-row head" style="grid-template-columns:' + cols + '"><div class="no">번호</div><div>구역</div><div>성명</div><div>회</div><div>인도자</div><div>관계</div><div>비고</div><div style="text-align:center">상태</div><div style="text-align:center">등록</div></div>';
   let rows = list.map(function (p, i) {
@@ -2364,7 +2385,7 @@ function prayRegister(id) {
 
 function execPrintPrayList() {
   const titleText = getYearPrefix() + ' 하계수양회 - 전도대상자 기도 명단';
-  const list = (DB.prayList || []).slice().sort(function (a, b) { return (a.zone || '').localeCompare(b.zone || '', 'ko'); });
+  const list = (DB.prayList || []).slice().sort(memberSortCmp);
   let trs = list.map(function (p, i) {
     return '<tr><td>' + (i + 1) + '</td><td style="white-space:nowrap">' + esc(p.zone) + '</td><td class="print-name">' + esc(p.name) + '</td><td style="white-space:nowrap">' + esc(p.dept) + '</td><td style="white-space:nowrap">' + esc(p.leader) + '</td><td style="white-space:nowrap">' + esc(p.relation) + '</td><td class="tl">' + esc(p.note) + '</td></tr>';
   }).join('');
@@ -3262,7 +3283,7 @@ async function exportToExcel() {
       const v=firstExtraDown(m); if(v && classifyExtra(v)==='교회차') return normChurchCar(v);
       return '';
     }
-    const regs = registeredMembers().slice().sort((a,b)=>(a.zone||'').localeCompare(b.zone||'','ko')||(a.name||'').localeCompare(b.name||'','ko'));
+    const regs = registeredMembers().slice().sort(memberSortCmp);
     const Z=m=>m.zone||'', D=m=>m.dept||'', NM=m=>m.name||'', NT=m=>m.note||'';
 
     // (A) 호차 시트: 상행 A~F(NO,구역,회,성명,확인,비고), 하행 H~M

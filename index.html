@@ -2351,8 +2351,8 @@ function openMetaEditSheet() {
     <div class="notice">차수 날짜와 본 교회 차수를 설정합니다. (행사명·행사 전환은 더보기 상단의 '행사' 영역에서)</div>
     <div class="field">
       <label>행사명 (년도 포함)</label>
-      <input id="metaTitle" value="${esc(DB.meta.title)}" placeholder="예: 2026년 하계수양회"/>
-      <div class="helper">연도는 차수 날짜 달력의 기본 연도로 쓰입니다.</div>
+      <div style="padding:11px 12px; background:var(--bg-2); border:1px solid var(--line-soft); border-radius:10px; color:var(--ink-soft); font-size:14px;">${esc(DB.meta.title)}</div>
+      <div class="helper">행사명은 더보기 상단의 '행사명 수정'에서 변경합니다. 연도는 차수 날짜 달력의 기본 연도로 쓰입니다.</div>
     </div>
     <div class="field">
       <label>본 교회 차수</label>
@@ -2375,9 +2375,7 @@ function openMetaEditSheet() {
     </div>
   `;
   openSheet('행사 정보 수정', html, () => {
-    const t = $('#metaTitle').value.trim();
-    if (!t) { toast('행사명을 입력해 주세요', true); return false; }
-    DB.meta.title = t;
+    // 행사명은 여기서 수정하지 않음 (더보기 상단 '행사명 수정'에서)
     DB.meta.churchSession = $('#metaChurchSession').value;
     DB.meta.session = DB.meta.churchSession;  // 요약용도 본교회차수로 동기화
     // 차수별 날짜 수집 — 두 날짜 중 빠른 날을 상행, 늦은 날을 하행으로 자동 정렬
@@ -3149,6 +3147,14 @@ function renderMore() {
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
           <div class="lb"><div class="t">행사 정보 수정</div><div class="d">차수 날짜, 본 교회 차수, 상·하행 일정</div></div>
         </button>
+        <button class="menu-item" data-action="base-settings">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+          <div class="lb"><div class="t">구역, 차수, 차량, 추가 일정 목록 수정</div><div class="d">선택 가능한 데이터 목록을 변경합니다.</div></div>
+        </button>
+        <button class="menu-item" onclick="openFeeRateSheet()">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+          <div class="lb"><div class="t">회(부서)별 회비 단가 설정</div><div class="d">회(부서)와 회비 단가를 수정·추가합니다.</div></div>
+        </button>
       </div>
     </div>
     <div class="card">
@@ -3176,17 +3182,6 @@ function renderMore() {
           <div class="lb"><div class="t">행사 코드로 참여하기</div><div class="d">다른 사람이 만든 코드로 같은 행사에 연결합니다</div></div>
         </button>
         `}
-      </div>
-    </div>
-      <div class="menu-list">
-        <button class="menu-item" data-action="base-settings">
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-          <div class="lb"><div class="t">구역, 차수, 차량, 추가 일정 목록 수정</div><div class="d">선택 가능한 데이터 목록을 변경합니다.</div></div>
-        </button>
-        <button class="menu-item" onclick="openFeeRateSheet()">
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-          <div class="lb"><div class="t">회(부서)별 회비 단가 설정</div><div class="d">회(부서)와 회비 단가를 수정·추가합니다.</div></div>
-        </button>
       </div>
     </div>
     <div class="card">

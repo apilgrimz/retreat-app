@@ -262,6 +262,7 @@ nav.tabbar {
 /* 대형 모달 */
 .modal { position: fixed; inset: 0; z-index: 150; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; padding: 20px; }
 .modal.show { display: flex; }
+#dateRangeModal { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; padding: 20px; }
 .modal .box { background: var(--bg-1); border: 1px solid var(--line); border-radius: 16px; padding: 20px; max-width: 380px; width: 100%; }
 .modal h3 { margin: 0 0 8px; font-size: 16px; font-weight: 700; }
 .modal p { margin: 0 0 16px; color: var(--ink-soft); font-size: 14px; }
@@ -730,6 +731,103 @@ function toast(msg, isError=false) {
   el.textContent = msg; el.className = 'toast show' + (isError ? ' error' : '');
   clearTimeout(toast._t); toast._t = setTimeout(() => el.className = 'toast' + (isError ? ' error' : ''), 2200);
 }
+// === 기간 선택 달력 모달 (두 날짜 토글 → 빠른 날=시작, 늦은 날=끝) ===
+let _dateRangePicker = { year: 0, month: 0, selected: [], onSave: null };
+function openDateRangePicker(opts) {
+  // opts: { year, startDate, endDate, title, onSave(start,end) }
+  const init = [];
+  if (opts.startDate) init.push(opts.startDate);
+  if (opts.endDate && opts.endDate !== opts.startDate) init.push(opts.endDate);
+  let baseY = opts.year || new Date().getFullYear();
+  let baseM; // 0-indexed month
+  if (init.length) { const d = new Date(init[0]+'T00:00:00'); baseY = d.getFullYear(); baseM = d.getMonth(); }
+  else { baseM = 6; } // 기본 7월(여름수양회)
+  _dateRangePicker = { year: baseY, month: baseM, selected: init.slice(), onSave: opts.onSave, title: opts.title || '기간 선택' };
+  let host = document.getElementById('dateRangeModal');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'dateRangeModal';
+    document.body.appendChild(host);
+  }
+  renderDateRangePicker();
+  host.style.display = 'flex';
+}
+function closeDateRangePicker() {
+  const host = document.getElementById('dateRangeModal');
+  if (host) host.style.display = 'none';
+}
+function renderDateRangePicker() {
+  const host = document.getElementById('dateRangeModal');
+  if (!host) return;
+  const P = _dateRangePicker;
+  const y = P.year, m = P.month;
+  const first = new Date(y, m, 1);
+  const startDow = first.getDay(); // 0=일
+  const daysInMonth = new Date(y, m+1, 0).getDate();
+  const WD = ['일','월','화','수','목','금','토'];
+  const sortedSel = P.selected.slice().sort();
+  const rangeText = sortedSel.length ? sortedSel.map(fmtDateKo).join(' ~ ') : '날짜를 선택하세요';
+  // 날짜 셀
+  let cells = '';
+  for (let i=0;i<startDow;i++) cells += '<div></div>';
+  for (let day=1; day<=daysInMonth; day++) {
+    const iso = y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    const isSel = P.selected.includes(iso);
+    const inRange = sortedSel.length===2 && iso>sortedSel[0] && iso<sortedSel[1];
+    const dow = (startDow+day-1)%7;
+    let col = 'var(--ink)';
+    if (dow===0) col = '#ff8a8a'; else if (dow===6) col = '#8fb0ff';
+    cells += `<div class="cal-day" data-iso="${iso}" style="
+      aspect-ratio:1; display:flex; align-items:center; justify-content:center; cursor:pointer;
+      border-radius:8px; font-size:14px; font-weight:${isSel?'700':'400'};
+      background:${isSel?'var(--gold)':(inRange?'rgba(255,200,87,.15)':'transparent')};
+      color:${isSel?'#1a1a1a':col};
+    ">${day}</div>`;
+  }
+  host.innerHTML = `
+    <div class="modal-card" style="background:var(--bg-1); border-radius:16px; padding:18px; width:min(92vw,360px); max-height:90vh; overflow:auto;">
+      <div style="font-weight:700; font-size:15px; margin-bottom:4px;">${esc(P.title)}</div>
+      <div style="font-size:13px; color:var(--gold-soft); margin-bottom:12px;">${rangeText}</div>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <button type="button" id="calPrev" style="width:34px; height:34px; border:none; border-radius:8px; background:var(--bg-2); color:var(--ink); font-size:18px; cursor:pointer;">‹</button>
+        <div style="font-weight:700; font-size:15px;">${y}년 ${m+1}월</div>
+        <button type="button" id="calNext" style="width:34px; height:34px; border:none; border-radius:8px; background:var(--bg-2); color:var(--ink); font-size:18px; cursor:pointer;">›</button>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-bottom:6px;">
+        ${WD.map((w,i)=>`<div style="text-align:center; font-size:11px; font-weight:700; color:${i===0?'#ff8a8a':(i===6?'#8fb0ff':'var(--ink-mute)')};">${w}</div>`).join('')}
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:3px;">${cells}</div>
+      <div class="helper" style="margin:10px 0;">날짜를 누르면 선택, 다시 누르면 해제됩니다. 두 날짜를 고르면 빠른 날이 시작, 늦은 날이 끝이 됩니다.</div>
+      <div style="display:flex; gap:8px; margin-top:6px;">
+        <button type="button" class="btn btn-secondary" id="calCancel" style="flex:1;">취소</button>
+        <button type="button" class="btn btn-primary" id="calSave" style="flex:1;">저장</button>
+      </div>
+    </div>`;
+  // 바인딩
+  host.querySelector('#calPrev').onclick = () => { P.month--; if (P.month<0){P.month=11;P.year--;} renderDateRangePicker(); };
+  host.querySelector('#calNext').onclick = () => { P.month++; if (P.month>11){P.month=0;P.year++;} renderDateRangePicker(); };
+  host.querySelectorAll('.cal-day').forEach(c => {
+    c.onclick = () => {
+      const iso = c.dataset.iso;
+      const idx = P.selected.indexOf(iso);
+      if (idx >= 0) { P.selected.splice(idx,1); }       // 선택돼 있으면 해제
+      else {
+        if (P.selected.length >= 2) P.selected.shift();  // 2개 초과면 가장 오래된 것 제거
+        P.selected.push(iso);
+      }
+      renderDateRangePicker();
+    };
+  });
+  host.querySelector('#calCancel').onclick = closeDateRangePicker;
+  host.querySelector('#calSave').onclick = () => {
+    const sorted = P.selected.slice().sort();
+    const start = sorted[0] || '';
+    const end = sorted.length>=2 ? sorted[1] : (sorted[0] || '');
+    if (P.onSave) P.onSave(start, end);
+    closeDateRangePicker();
+  };
+}
+
 function confirmModal(title, msg, onOk, okLabel='확인') {
   $('#modalTitle').textContent = title; $('#modalMsg').textContent = msg; $('#modalOk').textContent = okLabel;
   $('#modal').classList.add('show');
@@ -2360,16 +2458,13 @@ function openMetaEditSheet() {
       <div class="helper">우리 교회가 참여하는 차수입니다. 홈 화면 요약과 엑셀의 본대/기타 일정 기준이 됩니다.</div>
     </div>
     <div style="height:1px;background:var(--line-soft);margin:14px 0"></div>
-    <div class="notice">차수별로 두 날짜를 선택하세요. 빠른 날이 상행, 늦은 날이 하행이 됩니다. (요일 자동)</div>
+    <div class="notice">각 차수의 '날짜 선택'을 눌러 달력에서 두 날짜를 고르세요. 빠른 날이 시작, 늦은 날이 끝이 됩니다.</div>
     <div id="sessionDateList">
       ${getSessionDefs().map((d,i) => `
-        <div class="sess-date-row" data-name="${esc(d.name)}" style="margin-bottom:12px; padding:10px; background:var(--card-2,rgba(255,255,255,.03)); border-radius:10px;">
-          <div style="font-weight:700; margin-bottom:6px; color:var(--gold-soft);">${esc(d.name)}</div>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <div style="flex:1;"><label style="font-size:11px; color:var(--ink-mute);">상행</label><input type="date" class="sd-up" value="${esc(d.upDate||'')}" style="width:100%;"/></div>
-            <div style="flex:1;"><label style="font-size:11px; color:var(--ink-mute);">하행</label><input type="date" class="sd-down" value="${esc(d.downDate||'')}" style="width:100%;"/></div>
-          </div>
-          <div class="sd-preview" style="font-size:12px; color:var(--ink-soft); margin-top:5px;">${d.upDate||d.downDate ? (fmtDateKo(d.upDate)+' ~ '+fmtDateKo(d.downDate)) : ''}</div>
+        <div class="sess-date-row" data-name="${esc(d.name)}" data-up="${esc(d.upDate||'')}" data-down="${esc(d.downDate||'')}" style="margin-bottom:10px; padding:10px; background:var(--bg-2); border-radius:10px; display:flex; align-items:center; gap:10px;">
+          <div style="font-weight:700; color:var(--gold-soft); flex-shrink:0; min-width:30px;">${esc(d.name)}</div>
+          <div class="sd-preview" style="flex:1; font-size:13px; color:var(--ink-soft);">${d.upDate||d.downDate ? (fmtDateKo(d.upDate)+' ~ '+fmtDateKo(d.downDate)) : '<span style=\'color:var(--ink-mute)\'>기간 미설정</span>'}</div>
+          <button type="button" class="btn btn-secondary sd-pick" style="flex-shrink:0; padding:8px 12px; font-size:13px; white-space:nowrap;">날짜 선택</button>
         </div>
       `).join('')}
     </div>
@@ -2378,12 +2473,12 @@ function openMetaEditSheet() {
     // 행사명은 여기서 수정하지 않음 (더보기 상단 '행사명 수정'에서)
     DB.meta.churchSession = $('#metaChurchSession').value;
     DB.meta.session = DB.meta.churchSession;  // 요약용도 본교회차수로 동기화
-    // 차수별 날짜 수집 — 두 날짜 중 빠른 날을 상행, 늦은 날을 하행으로 자동 정렬
+    // 차수별 날짜 수집 — row의 data-up/data-down (달력에서 이미 빠른 날=시작 정렬됨)
     const defs = [];
     $$('#sessionDateList .sess-date-row').forEach(row => {
-      let up = row.querySelector('.sd-up').value || '';
-      let down = row.querySelector('.sd-down').value || '';
-      if (up && down && down < up) { const t = up; up = down; down = t; }  // 자동 교정
+      let up = row.dataset.up || '';
+      let down = row.dataset.down || '';
+      if (up && down && down < up) { const t = up; up = down; down = t; }
       defs.push({ name: row.dataset.name, upDate: up, downDate: down });
     });
     DB.settings = DB.settings || {};
@@ -2398,12 +2493,24 @@ function openMetaEditSheet() {
     saveDB(); render(); toast('행사 정보가 저장됐어요');
   });
 
-  // 날짜 입력 시 미리보기 갱신
+  // 날짜 선택 버튼 → 달력 모달
   setTimeout(() => {
     $$('#sessionDateList .sess-date-row').forEach(row => {
-      const up = row.querySelector('.sd-up'), down = row.querySelector('.sd-down'), pv = row.querySelector('.sd-preview');
-      const upd = () => { pv.textContent = (up.value||down.value) ? (fmtDateKo(up.value)+' ~ '+fmtDateKo(down.value)) : ''; };
-      up.addEventListener('change', upd); down.addEventListener('change', upd);
+      const btn = row.querySelector('.sd-pick');
+      const pv = row.querySelector('.sd-preview');
+      btn.onclick = () => {
+        openDateRangePicker({
+          year: getEventYear(),
+          startDate: row.dataset.up || '',
+          endDate: row.dataset.down || '',
+          title: row.dataset.name + ' 기간 선택',
+          onSave: (start, end) => {
+            row.dataset.up = start || '';
+            row.dataset.down = end || '';
+            pv.innerHTML = (start || end) ? (fmtDateKo(start) + ' ~ ' + fmtDateKo(end)) : '<span style="color:var(--ink-mute)">기간 미설정</span>';
+          }
+        });
+      };
     });
   }, 60);
 }

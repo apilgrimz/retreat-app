@@ -4111,7 +4111,14 @@ function bindViewHandlers() {
   $$('[data-action="goto-evangelism"]').forEach(b => b.onclick = renderEvangelismSheet);
   $$('[data-action="goto-lodging"]').forEach(b => b.onclick = renderLodgingSheet);
   $$('[data-action="goto-fee-sheet"]').forEach(b => b.onclick = renderFeeSupportSheet);
-  $$('#zoneScroll .zone-pill').forEach(p => p.onclick = () => { rosterFilter.zone = p.dataset.zone; render(); });
+  $$('#zoneScroll .zone-pill').forEach(p => p.onclick = () => {
+    rosterFilter.zone = p.dataset.zone;
+    const sc = document.getElementById('zoneScroll');
+    const sl = sc ? sc.scrollLeft : 0;
+    render();
+    const sc2 = document.getElementById('zoneScroll');
+    if (sc2) sc2.scrollLeft = sl;  // 가로 스크롤 위치 복원 (선택 칩이 맨 왼쪽으로 튀지 않게)
+  });
   
   const search = $('#rosterSearch');
   if (search) {
@@ -4130,7 +4137,14 @@ function bindViewHandlers() {
     const startZone = (rosterFilter.zone === ALL_ZONES) ? '' : rosterFilter.zone;
     openMemberSheet(emptyMember(startZone), true);
   };
-  $$('#ttTabs .tt-pill').forEach(b => b.onclick = () => { transportTab.type = b.dataset.t; render(); });
+  $$('#ttTabs .tt-pill').forEach(b => b.onclick = () => {
+    transportTab.type = b.dataset.t;
+    const tt = document.getElementById('ttTabs');
+    const sl = tt ? tt.scrollLeft : 0;
+    render();
+    const tt2 = document.getElementById('ttTabs');
+    if (tt2) tt2.scrollLeft = sl;  // 가로 스크롤 위치 복원
+  });
   // 차편 날짜·시각 입력 저장 (change 시 transportInfo에 기록)
   function saveTransInfoField(el) {
     const key = el.dataset.key, dir = el.dataset.dir;

@@ -553,6 +553,107 @@ function saveDB() {
 
 /* 행사 관리 API */
 function listEvents() { return VAULT ? VAULT.events : []; }
+// === 행사 드롭다운 / 이름수정 / 추가 / 삭제 ===
+function toggleEventDropdown() {
+  const dd = document.getElementById('evDropdown');
+  if (!dd) return;
+  if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
+  renderEventDropdown();
+  dd.style.display = 'block';
+}
+function renderEventDropdown() {
+  const dd = document.getElementById('evDropdown');
+  if (!dd) return;
+  const events = listEvents();
+  const activeId = VAULT.activeId;
+  let html = '';
+  // 새 행사 추가
+  html += `<div class="evdd-row evdd-add" style="padding:11px 12px; cursor:pointer; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--line-soft); color:var(--gold-soft); font-weight:700;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    새 행사 추가</div>`;
+  // 활성 행사 먼저, 그 다음 나머지
+  const sorted = [events.find(e=>e.id===activeId), ...events.filter(e=>e.id!==activeId)].filter(Boolean);
+  sorted.forEach(e => {
+    const isActive = e.id === activeId;
+    html += `<div class="evdd-row" data-id="${esc(e.id)}" style="padding:10px 12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--line-soft); ${isActive?'background:rgba(212,175,90,.10);':''}">
+      <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; ${isActive?'font-weight:700; color:var(--gold-soft);':''}">${esc(e.meta.title)}${isActive?' <span style=\'font-size:11px; color:var(--ink-mute); font-weight:400;\'>(현재)</span>':''}</span>
+      ${isActive ? '' : `<button class="evdd-select" data-id="${esc(e.id)}" style="flex-shrink:0; padding:5px 10px; font-size:12px; border:none; border-radius:7px; background:rgba(108,140,210,.20); color:#8fb0ff; cursor:pointer;">선택</button>`}
+      ${events.length>1 ? `<button class="evdd-del" data-id="${esc(e.id)}" style="flex-shrink:0; width:28px; height:28px; border:none; border-radius:7px; background:rgba(255,90,90,.15); color:#ff7a7a; font-size:16px; cursor:pointer;">×</button>` : ''}
+    </div>`;
+  });
+  dd.innerHTML = html;
+  // 바인딩
+  const addRow = dd.querySelector('.evdd-add');
+  if (addRow) addRow.onclick = openNewEventInput;
+  dd.querySelectorAll('.evdd-select').forEach(b => b.onclick = () => { switchEvent(b.dataset.id); toast('행사를 전환했어요'); });
+  dd.querySelectorAll('.evdd-del').forEach(b => b.onclick = () => {
+    const ev = listEvents().find(x => x.id === b.dataset.id);
+    confirmModal('행사 삭제', `'${ev ? ev.meta.title : ''}' 행사를 삭제합니다. 이 행사의 모든 데이터가 사라지며 되돌릴 수 없습니다. 정말 삭제하시겠습니까?`, () => {
+      deleteEvent(b.dataset.id);
+      renderEventDropdown();
+      toast('행사를 삭제했어요');
+    }, '삭제');
+  });
+}
+function openNewEventInput() {
+  const dd = document.getElementById('evDropdown');
+  if (!dd) return;
+  dd.innerHTML = `<div style="padding:12px;">
+    <label style="font-size:12px; color:var(--ink-mute); display:block; margin-bottom:5px;">새 행사명</label>
+    <input id="newEvInput" type="text" placeholder="예: 2027년 하계수양회" style="width:100%; margin-bottom:8px;"/>
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-primary" id="newEvSave" style="flex:1;">저장</button>
+      <button class="btn btn-secondary" id="newEvCancel" style="flex:1;">취소</button>
+    </div>
+    <div class="helper" style="margin-top:6px;">저장하면 빈 데이터로 새 행사가 시작됩니다. 현재 행사는 목록에 보존됩니다.</div>
+  </div>`;
+  setTimeout(() => {
+    const inp = document.getElementById('newEvInput');
+    if (inp) inp.focus();
+    const save = document.getElementById('newEvSave');
+    const cancel = document.getElementById('newEvCancel');
+    if (save) save.onclick = () => {
+      const title = (inp.value || '').trim() || '새 수양회';
+      const e = createEvent(title);
+      VAULT.activeId = e.id;
+      DB = e;
+      hydrateEvent(DB);
+      saveVault();
+      try { if (typeof syncAttachActive === 'function') syncAttachActive(); } catch(err){}
+      render();
+      toast('새 행사가 시작됐어요');
+    };
+    if (cancel) cancel.onclick = () => { renderEventDropdown(); };
+  }, 50);
+}
+// 단순 행사명 변경 (데이터 영향 없음)
+function openEventRename() {
+  const cur = DB.meta.title || '';
+  const html = `
+    <div class="notice">행사명만 변경합니다. 차수·인원 등 데이터에는 영향을 주지 않습니다.</div>
+    <div class="field"><label>행사명</label><input id="renameInput" type="text" value="${esc(cur)}" placeholder="예: 2026년 하계수양회"/></div>
+  `;
+  openSheet('행사명 수정', html, () => {
+    const t = ($('#renameInput').value || '').trim();
+    if (!t) { toast('행사명을 입력해 주세요', true); return false; }
+    DB.meta.title = t;
+    saveDB(); render(); toast('행사명을 변경했어요');
+  });
+}
+function deleteEvent(id) {
+  if (!VAULT || VAULT.events.length <= 1) { toast('마지막 행사는 삭제할 수 없어요', true); return; }
+  const wasActive = (VAULT.activeId === id);
+  VAULT.events = VAULT.events.filter(e => e.id !== id);
+  if (wasActive) {
+    VAULT.activeId = VAULT.events[0].id;
+    DB = VAULT.events[0];
+    hydrateEvent(DB);
+    try { if (typeof syncAttachActive === 'function') syncAttachActive(); } catch(e){}
+  }
+  saveVault();
+  render();
+}
+
 function switchEvent(id) {
   if (!VAULT) return;
   const e = VAULT.events.find(x => x.id === id);
@@ -2246,26 +2347,12 @@ function renderFeeSupportSheet() {
 }
 
 function openMetaEditSheet() {
-  const events = listEvents();
   const html = `
-    <div class="notice">현재 활성 행사를 수정하거나, 새 행사를 추가하고 전환할 수 있습니다.</div>
-    <div class="field">
-      <label>행사 선택 (현재 활성 행사)</label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <select id="evSwitch" style="flex:1">
-          ${events.map(e => `<option value="${esc(e.id)}" ${e.id===VAULT.activeId?'selected':''}>${esc(e.meta.title)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="helper">드롭다운에서 과거 행사를 선택하면 그 데이터로 전환됩니다.</div>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <button class="btn btn-secondary" id="btnEvNew" style="flex:1;min-width:90px">새 행사 추가</button>
-      <button class="btn btn-danger" id="btnEvDelete" style="flex:1;min-width:90px">행사 삭제</button>
-    </div>
-    <div style="height:1px;background:var(--line-soft);margin:14px 0"></div>
+    <div class="notice">차수 날짜와 본 교회 차수를 설정합니다. (행사명·행사 전환은 더보기 상단의 '행사' 영역에서)</div>
     <div class="field">
       <label>행사명 (년도 포함)</label>
       <input id="metaTitle" value="${esc(DB.meta.title)}" placeholder="예: 2026년 하계수양회"/>
+      <div class="helper">연도는 차수 날짜 달력의 기본 연도로 쓰입니다.</div>
     </div>
     <div class="field">
       <label>본 교회 차수</label>
@@ -2321,63 +2408,6 @@ function openMetaEditSheet() {
       up.addEventListener('change', upd); down.addEventListener('change', upd);
     });
   }, 60);
-
-  // 행사 전환/추가/삭제 핸들러
-  setTimeout(() => {
-    const sel = $('#evSwitch');
-    if (sel) {
-      sel.onchange = (e) => {
-        const newId = e.target.value;
-        if (newId === VAULT.activeId) return;
-        // 현재 화면의 메타 입력값을 먼저 저장
-        const t = $('#metaTitle').value.trim();
-        if (t) {
-          DB.meta.title = t;
-          DB.meta.session = $('#metaSession').value.trim();
-          DB.meta.upTime = $('#metaUp').value.trim();
-          DB.meta.downTime = $('#metaDown').value.trim();
-          saveVault();
-        }
-        closeSheet(true);
-        switchEvent(newId);
-        setTimeout(() => { openMetaEditSheet(); toast('행사가 전환되었습니다'); }, 250);
-      };
-    }
-    const btnNew = $('#btnEvNew');
-    if (btnNew) {
-      btnNew.onclick = () => {
-        confirmModal('새 행사 추가', '새 행사를 만들고 빈 데이터로 시작합니다. 현재 행사는 그대로 보존됩니다.', () => {
-          // 현재 메타 저장
-          const t = $('#metaTitle').value.trim();
-          if (t) {
-            DB.meta.title = t;
-            DB.meta.session = $('#metaSession').value.trim();
-            DB.meta.upTime = $('#metaUp').value.trim();
-            DB.meta.downTime = $('#metaDown').value.trim();
-            saveVault();
-          }
-          closeSheet(true);
-          // 기본 행사명 — 현재 년도 + 1로 추정
-          const yearMatch = (DB.meta.title || '').match(/(\d{4})/);
-          const nextYear = yearMatch ? (parseInt(yearMatch[1], 10) + 1) : new Date().getFullYear();
-          createEvent(`${nextYear}년 하계수양회`);
-          setTimeout(() => { openMetaEditSheet(); toast('새 행사가 추가되었습니다'); }, 250);
-        }, '추가');
-      };
-    }
-    const btnDel = $('#btnEvDelete');
-    if (btnDel) {
-      btnDel.onclick = () => {
-        if (listEvents().length <= 1) { toast('마지막 남은 행사는 삭제할 수 없습니다', true); return; }
-        confirmModal('행사 삭제', `"${DB.meta.title}" 행사를 완전히 삭제합니다. 등록된 모든 인원·차편·회비 데이터가 함께 사라집니다. 되돌릴 수 없습니다.`, () => {
-          const idToDelete = VAULT.activeId;
-          closeSheet(true);
-          deleteEvent(idToDelete);
-          setTimeout(() => { openMetaEditSheet(); toast('행사가 삭제되었습니다'); }, 250);
-        }, '삭제');
-      };
-    }
-  }, 80);
 }
 
 function openFeeRateSheet() {
@@ -2717,7 +2747,7 @@ const FIREBASE_CONFIG = {
 };
 
 let fb = { app: null, db: null, ready: false };
-let sync = { code: null, unsub: [], mirror: null, applyingRemote: false, pushTimer: null, status: 'off', renderPending: false };
+let sync = { code: null, unsub: [], mirror: null, applyingRemote: false, pushTimer: null, status: 'off', renderPending: false, firstSnap: {} };
 
 function fbInit() {
   if (fb.ready) return;
@@ -2782,6 +2812,8 @@ function syncAttachActive() {
   const code = DB.roomCode;
   sync.code = code;
   sync.mirror = snapOf(DB);
+  // 재연결 시: 첫 스냅샷에서 서버 데이터로 완전히 덮어쓰기 위한 플래그
+  sync.firstSnap = { meta: true, members: true, evangelism: true, feeSupport: true, prayList: true };
   setSyncStatus('connecting');
   sync.unsub.push(roomRef(code).onSnapshot(function (d) { onRoomMeta(d); }, function (err) { onSyncErr(err); }));
   ['members', 'evangelism', 'feeSupport', 'prayList'].forEach(function (sub) {
@@ -2800,9 +2832,20 @@ function onRoomMeta(doc) {
   if (!DB || DB.roomCode !== sync.code) return;
   const data = doc.data() || {};
   sync.applyingRemote = true;
-  if (data.meta) DB.meta = Object.assign({}, DB.meta, data.meta);
-  if (data.settings) DB.settings = Object.assign({}, DB.settings, data.settings);
-  if (data.fees) DB.fees = Object.assign({}, DB.fees, data.fees);
+  const firstMeta = sync.firstSnap && sync.firstSnap.meta;
+  if (firstMeta) {
+    // 재연결 첫 스냅샷: 서버 값으로 완전히 교체 (roomCode는 보존)
+    sync.firstSnap.meta = false;
+    const keepRoom = DB.roomCode;
+    if (data.meta) DB.meta = Object.assign({}, data.meta);
+    if (data.settings) DB.settings = Object.assign({}, data.settings);
+    if (data.fees) DB.fees = Object.assign({}, data.fees);
+    DB.roomCode = keepRoom;
+  } else {
+    if (data.meta) DB.meta = Object.assign({}, DB.meta, data.meta);
+    if (data.settings) DB.settings = Object.assign({}, DB.settings, data.settings);
+    if (data.fees) DB.fees = Object.assign({}, DB.fees, data.fees);
+  }
   hydrateEvent(DB);
   if (sync.mirror) sync.mirror.meta = stableStr(roomMetaOf(DB));
   sync.applyingRemote = false;
@@ -2815,6 +2858,28 @@ function onSubSnap(sub, qs) {
   if (!DB || DB.roomCode !== sync.code) return;
   if (!DB[sub]) DB[sub] = [];
   if (!sync.mirror) sync.mirror = snapOf(DB);
+
+  // 재연결 후 첫 스냅샷: 서버의 전체 목록으로 로컬을 완전히 덮어쓰기 (로컬 전용 항목 폐기)
+  if (sync.firstSnap && sync.firstSnap[sub]) {
+    sync.firstSnap[sub] = false;
+    const serverList = [];
+    if (!sync.mirror[sub]) sync.mirror[sub] = {};
+    else Object.keys(sync.mirror[sub]).forEach(function(k){ delete sync.mirror[sub][k]; });
+    qs.docs.forEach(function (doc) {
+      const data = doc.data() || {};
+      data.id = data.id || doc.id;
+      serverList.push(data);
+      sync.mirror[sub][doc.id] = stableStr(data);
+    });
+    DB[sub] = serverList;  // 완전 교체
+    sync.applyingRemote = true;
+    saveVault();
+    sync.applyingRemote = false;
+    setSyncStatus(navigator.onLine ? 'live' : 'offline');
+    safeRender();
+    return;
+  }
+
   const byId = {};
   DB[sub].forEach(function (x) { byId[String(x.id)] = x; });
   let changed = false;
@@ -3067,6 +3132,26 @@ function shareDataFile() {
 function renderMore() {
   return `
     <div class="card">
+      <div class="card-head"><div class="card-title">행사</div></div>
+      <div class="field" style="margin-bottom:10px;">
+        <label>행사명 (현재 활성 행사)</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="evname-btn" id="evNameBtn" style="flex:1; text-align:left; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:11px 12px; background:var(--bg-1); border:1px solid var(--line-soft); border-radius:10px; color:var(--ink); font-size:14px; cursor:pointer;">
+            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(DB.meta.title||'행사')}</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <button class="btn btn-secondary" id="evRenameBtn" style="flex-shrink:0; white-space:nowrap; padding:11px 12px;">행사명 수정</button>
+        </div>
+        <div id="evDropdown" style="display:none; margin-top:6px; border:1px solid var(--line-soft); border-radius:10px; overflow:hidden; background:var(--bg-1);"></div>
+      </div>
+      <div class="menu-list">
+        <button class="menu-item" data-action="edit-meta">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+          <div class="lb"><div class="t">행사 정보 수정</div><div class="d">차수 날짜, 본 교회 차수, 상·하행 일정</div></div>
+        </button>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-head"><div class="card-title">실시간 동기화 (행사 코드)</div></div>
       <div style="padding:2px 4px 10px;font-size:12px;font-weight:700;">
         <span id="syncStatusText" style="color:var(--ink-mute)">○ 동기화 꺼짐</span>${DB.roomCode ? ` · 코드 <b id="syncCardCode" style="font-family:monospace;color:var(--gold-soft);letter-spacing:1px">${esc(DB.roomCode)}</b>` : ''}
@@ -3094,10 +3179,6 @@ function renderMore() {
       </div>
     </div>
       <div class="menu-list">
-        <button class="menu-item" data-action="edit-meta">
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-          <div class="lb"><div class="t">행사 정보 수정</div><div class="d">행사명, 년도, 차수, 상·하행 일정</div></div>
-        </button>
         <button class="menu-item" data-action="base-settings">
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
           <div class="lb"><div class="t">구역, 차수, 차량, 추가 일정 목록 수정</div><div class="d">선택 가능한 데이터 목록을 변경합니다.</div></div>
@@ -3826,6 +3907,8 @@ function bindViewHandlers() {
   $$('#ttTabs .tt-pill').forEach(b => b.onclick = () => { transportTab.type = b.dataset.t; render(); });
   $$('[data-action="base-settings"]').forEach(b => b.onclick = openBaseSettingsSheet);
   $$('[data-action="edit-meta"]').forEach(b => b.onclick = (e) => { e.stopPropagation(); openMetaEditSheet(); });
+  { const nb = document.getElementById('evNameBtn'); if (nb) nb.onclick = toggleEventDropdown; }
+  { const rb = document.getElementById('evRenameBtn'); if (rb) rb.onclick = openEventRename; }
   $$('[data-action="import"]').forEach(b => b.onclick = () => $('#fileInput').click());
   $$('[data-action="export"]').forEach(b => b.onclick = exportToExcel);
   

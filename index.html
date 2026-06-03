@@ -75,8 +75,7 @@ header.topbar {
   align-self: flex-start; margin-top: -3px;
 }
 .brand .badge svg { width: 18px; height: 18px; }
-#syncChip { margin-left: 8px; flex-shrink: 0; font-size: 11px; font-weight: 700; white-space: nowrap; padding: 5px 10px; border-radius: 999px; background: var(--bg-1); border: 1px solid var(--line); cursor: pointer; }
-#syncChip:active { background: var(--bg-2); }
+#syncChip:active { opacity: .7; }
 .brand h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
 .brand .sub { color: var(--ink-mute); font-size: 11px; margin-top: 1px; }
 .topbar .iconbtn {
@@ -340,8 +339,10 @@ nav.tabbar {
         <div class="sub" id="topbarSub">등록 관리</div>
       </div>
     </div>
-    <div id="topbarChurch" style="margin-left:auto; flex-shrink:0; align-self:flex-start; font-size:16px; font-weight:700; letter-spacing:-.02em; color:var(--gold-soft); white-space:nowrap; max-width:45vw; overflow:hidden; text-overflow:ellipsis;"></div>
-    <div id="syncChip" style="display:none"></div>
+    <div id="topbarRight" style="margin-left:auto; flex-shrink:0; display:flex; flex-direction:column; align-items:flex-end; max-width:55vw;">
+      <div id="topbarChurch" style="font-size:16px; font-weight:700; letter-spacing:-.02em; color:var(--gold-soft); white-space:nowrap; max-width:55vw; overflow:hidden; text-overflow:ellipsis; line-height:1.2;"></div>
+      <div id="syncChip" style="display:none; font-size:11px; font-weight:700; white-space:nowrap; cursor:pointer; margin-top:2px;"></div>
+    </div>
   </header>
 
   <main class="content" id="view"></main>
@@ -1016,15 +1017,16 @@ function transInfoEditor(type, driver) {
     const autoDate = dir==='up' ? dates.upDate : dates.downDate;
     const time = dir==='up' ? (info.upTime||'') : (info.downTime||'');
     const dateField = needDate
-      ? `<input type="date" class="ti-date" data-key="${esc(key)}" data-dir="${dir}" value="${esc(dir==='up'?(info.upDate||''):(info.downDate||''))}" style="font-size:12px; padding:5px 7px; flex:1; min-width:0;"/>`
-      : `<span style="font-size:12px; color:var(--ink-soft); flex:1;">${autoDate?fmtDateKo(autoDate):'<span style=\'color:var(--ink-mute)\'>날짜 미설정</span>'}</span>`;
-    return `<div style="display:flex; align-items:center; gap:6px; flex:1; min-width:0;">
-      <span style="font-size:11px; font-weight:700; color:var(--gold-soft); flex-shrink:0; width:26px;">${label}</span>
+      ? `<input type="date" class="ti-date" data-key="${esc(key)}" data-dir="${dir}" value="${esc(dir==='up'?(info.upDate||''):(info.downDate||''))}" style="font-size:12px; padding:6px 8px; flex-shrink:0; width:140px;"/>`
+      : `<span style="font-size:12px; color:var(--ink-soft); flex-shrink:0; min-width:80px;">${autoDate?fmtDateKo(autoDate):'<span style=\'color:var(--ink-mute)\'>날짜 미설정</span>'}</span>`;
+    // 상행/하행을 각각 한 줄로 (세로로 쌓음). 줄 내부는 넉넉히 간격을 두고 넘치면 가로 스크롤.
+    return `<div style="display:flex; align-items:center; gap:10px; overflow-x:auto; padding:2px 0; -webkit-overflow-scrolling:touch;">
+      <span style="font-size:12px; font-weight:700; color:var(--gold-soft); flex-shrink:0; width:32px;">${label}</span>
       ${dateField}
-      <input type="time" class="ti-time" data-key="${esc(key)}" data-dir="${dir}" value="${esc(time)}" style="font-size:12px; padding:5px 7px; width:96px; flex-shrink:0;"/>
+      <input type="time" class="ti-time" data-key="${esc(key)}" data-dir="${dir}" value="${esc(time)}" style="font-size:12px; padding:6px 8px; width:120px; flex-shrink:0;"/>
     </div>`;
   }
-  return `<div class="trans-info-box" style="display:flex; flex-wrap:wrap; gap:8px; padding:8px 10px; margin-bottom:8px; background:var(--bg-2); border-radius:8px;">
+  return `<div class="trans-info-box" style="display:flex; flex-direction:column; gap:8px; padding:9px 11px; margin-bottom:8px; background:var(--bg-2); border-radius:8px;">
     ${side('up','상행')}
     ${side('down','하행')}
   </div>`;
@@ -3307,7 +3309,17 @@ function updateSyncChip() {
   if (!DB || !DB.roomCode) { chip.style.display = 'none'; chip.textContent = ''; return; }
   const lc = syncStatusLabel();
   chip.style.display = '';
-  chip.textContent = (sync.status === 'live' ? '● 동기화' : lc[0].split(' ')[0] + ' 동기화');
+  // 짧은 상태 라벨 (교회명 아래 줄에 표시)
+  let label;
+  switch (sync.status) {
+    case 'live': label = '● 실시간 연결됨'; break;
+    case 'syncing': label = '↻ 동기화 중'; break;
+    case 'offline': label = '● 오프라인'; break;
+    case 'connecting': label = '↻ 연결 중'; break;
+    case 'error': label = '● 동기화 오류'; break;
+    default: label = '○ 동기화 꺼짐'; break;
+  }
+  chip.textContent = label;
   chip.style.color = lc[1];
   chip.onclick = function () { setTab('more'); };
 }

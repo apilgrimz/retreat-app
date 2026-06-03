@@ -75,7 +75,7 @@ header.topbar {
   align-self: flex-start; margin-top: -3px;
 }
 .brand .badge svg { width: 18px; height: 18px; }
-#syncChip { margin-left: auto; flex-shrink: 0; font-size: 11px; font-weight: 700; white-space: nowrap; padding: 5px 10px; border-radius: 999px; background: var(--bg-1); border: 1px solid var(--line); cursor: pointer; }
+#syncChip { margin-left: 8px; flex-shrink: 0; font-size: 11px; font-weight: 700; white-space: nowrap; padding: 5px 10px; border-radius: 999px; background: var(--bg-1); border: 1px solid var(--line); cursor: pointer; }
 #syncChip:active { background: var(--bg-2); }
 .brand h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
 .brand .sub { color: var(--ink-mute); font-size: 11px; margin-top: 1px; }
@@ -340,6 +340,7 @@ nav.tabbar {
         <div class="sub" id="topbarSub">등록 관리</div>
       </div>
     </div>
+    <div id="topbarChurch" style="margin-left:auto; flex-shrink:0; font-size:14px; font-weight:700; color:var(--gold-soft); white-space:nowrap; max-width:45vw; overflow:hidden; text-overflow:ellipsis;"></div>
     <div id="syncChip" style="display:none"></div>
   </header>
 
@@ -445,7 +446,7 @@ function newEventId() { return 'evt_' + Math.random().toString(36).slice(2,10) +
 function freshEvent(title) {
   return {
     id: newEventId(),
-    meta: { title: title || '새 수양회', session: '2차', churchSession: '2차', upTime: '', downTime: '' },
+    meta: { title: title || '새 수양회', churchName: '', session: '2차', churchSession: '2차', upTime: '', downTime: '' },
     settings: { zones: ['11구역','12구역','13구역','14구역','21구역','22구역','23구역','24구역','31구역','32구역','33구역','34구역'],
                 sessions: ['1차','2차','3차','4차','5차','6차','7차','8차'],
                 sessionDefs: [{name:'1차',upDate:'',downDate:''},{name:'2차',upDate:'',downDate:''},{name:'3차',upDate:'',downDate:''},{name:'4차',upDate:'',downDate:''},{name:'5차',upDate:'',downDate:''},{name:'6차',upDate:'',downDate:''},{name:'7차',upDate:'',downDate:''},{name:'8차',upDate:'',downDate:''}],
@@ -619,10 +620,29 @@ function openNewEventInput() {
       VAULT.activeId = e.id;
       DB = e;
       hydrateEvent(DB);
+      // hydrate 후 초기화 (hydrate가 DEFAULT_FEES 등으로 덮어쓰지 못하도록 이 순서로)
+      // 구역만 유지, 나머지(차수 날짜·차량·기타 일정·회비 단가)는 초기화
+      const keepZones = (DB.settings && DB.settings.zones) ? DB.settings.zones.slice() : ['11구역','12구역','13구역','14구역','21구역','22구역','23구역','24구역','31구역','32구역','33구역','34구역'];
+      DB.settings.zones = keepZones; ZONES = keepZones;
+      DB.settings.sessions = ['1차','2차','3차','4차','5차','6차','7차','8차']; SESSIONS = DB.settings.sessions.slice();
+      DB.settings.sessionDefs = DB.settings.sessions.map(n => ({ name: n, upDate: '', downDate: '' }));
+      DB.settings.buses = []; BUSES = [];
+      DB.settings.churchCars = []; CHURCH_CARS = [];
+      DB.settings.otherTransports = []; OTHER_TRANSPORTS = [];
+      DB.settings.privateCarList = []; PRIVATE_CAR_LIST = [];
+      DB.settings.extraUps = []; EXTRA_UPS = [];
+      DB.settings.extraDowns = []; EXTRA_DOWNS = [];
+      // 회(부서)는 기본 목록 유지하되 단가는 모두 0
+      const depts = (DB.settings.deptList && DB.settings.deptList.length) ? DB.settings.deptList.slice() : ['은장회','봉사회','어머니회','청년회','대학부','중고등부','초등부','유치부','미취학'];
+      DB.settings.deptList = depts; DEPTS = depts;
+      DB.fees = {}; depts.forEach(d => { DB.fees[d] = 0; });
+      DB.meta.churchSession = '1차';
+      DB.meta.session = '1차';
+      DB.meta.upTime = ''; DB.meta.downTime = '';
       saveVault();
       try { if (typeof syncAttachActive === 'function') syncAttachActive(); } catch(err){}
       render();
-      toast('새 행사가 시작됐어요');
+      toast('새 행사가 시작됐어요 (구역만 유지, 나머지는 초기화)');
     };
     if (cancel) cancel.onclick = () => { renderEventDropdown(); };
   }, 50);
@@ -1742,6 +1762,10 @@ function updateTopbarHeight() {
   const tb = document.querySelector('.topbar');
   if (tb) document.documentElement.style.setProperty('--topbar-h', Math.round(tb.getBoundingClientRect().height) + 'px');
 }
+function updateTopbarChurch() {
+  const el = document.getElementById('topbarChurch');
+  if (el) el.textContent = (DB && DB.meta && DB.meta.churchName) ? DB.meta.churchName : '';
+}
 function render() {
   const v = $('#view'); v.innerHTML = '';
   if (currentTab === 'home')      v.innerHTML = renderHome();
@@ -1750,6 +1774,7 @@ function render() {
   else if (currentTab === 'more')      v.innerHTML = renderMore();
   bindViewHandlers();
   updateTopbarHeight();
+  updateTopbarChurch();
   try{ if(typeof refreshSyncUI==='function') refreshSyncUI(); }catch(e){}
 }
 
@@ -2453,6 +2478,11 @@ function openMetaEditSheet() {
       <div class="helper">행사명은 더보기 상단의 '행사명 수정'에서 변경합니다. 연도는 차수 날짜 달력의 기본 연도로 쓰입니다.</div>
     </div>
     <div class="field">
+      <label>교회명</label>
+      <input id="metaChurchName" value="${esc(DB.meta.churchName||'')}" placeholder="예: 생명의말씀선교회"/>
+      <div class="helper">입력하면 앱 화면 오른쪽 위에 표시됩니다.</div>
+    </div>
+    <div class="field">
       <label>본 교회 차수</label>
       <select id="metaChurchSession">${getSessionDefs().map(d => `<option value="${esc(d.name)}" ${churchSessionName()===d.name?'selected':''}>${esc(d.name)}</option>`).join('')}</select>
       <div class="helper">우리 교회가 참여하는 차수입니다. 홈 화면 요약과 엑셀의 본대/기타 일정 기준이 됩니다.</div>
@@ -2471,6 +2501,7 @@ function openMetaEditSheet() {
   `;
   openSheet('행사 정보 수정', html, () => {
     // 행사명은 여기서 수정하지 않음 (더보기 상단 '행사명 수정'에서)
+    DB.meta.churchName = ($('#metaChurchName').value || '').trim();
     DB.meta.churchSession = $('#metaChurchSession').value;
     DB.meta.session = DB.meta.churchSession;  // 요약용도 본교회차수로 동기화
     // 차수별 날짜 수집 — row의 data-up/data-down (달력에서 이미 빠른 날=시작 정렬됨)

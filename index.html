@@ -1019,6 +1019,18 @@ function recalcAllMembers() {
   (DB.members || []).forEach(recalcMemberRepTrans);
 }
 
+// 탑승 확인 체크 토글: 저장 + 화면(차편 탭 본문 + 전체보기 시트)의 동일 체크박스 즉시 동기화
+function setBoardCheck(id, dir, checked) {
+  const m = DB.members.find(x => x.id === id);
+  if (!m) return;
+  m[dir] = checked;
+  saveDB();
+  // 같은 멤버·같은 방향의 모든 체크박스(본문/전체보기 양쪽)를 동기화
+  document.querySelectorAll(`.board-check[data-id="${id}"][data-dir="${dir}"]`).forEach(other => {
+    if (other.checked !== checked) other.checked = checked;
+  });
+}
+
 // 차편 정보(날짜·시각) 저장 키
 function transInfoKey(type, driver) {
   return driver ? ('개인차:' + driver) : type;
@@ -1439,10 +1451,7 @@ function openTransportFull() {
   // 탑승 확인 체크박스 — 클릭 시 멤버에 저장 (상행=boardUp, 하행=boardDown)
   setTimeout(() => {
     document.querySelectorAll('#sheetBody .board-check').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const m = DB.members.find(x => x.id === cb.dataset.id);
-        if (m) { m[cb.dataset.dir] = cb.checked; saveDB(); }
-      });
+      cb.addEventListener('change', () => setBoardCheck(cb.dataset.id, cb.dataset.dir, cb.checked));
     });
   }, 50);
 }
@@ -4254,10 +4263,7 @@ function bindViewHandlers() {
   });
   // 차편 탭 명단의 탑승 확인 체크박스
   $$('#view .board-check').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const m = DB.members.find(x => x.id === cb.dataset.id);
-      if (m) { m[cb.dataset.dir] = cb.checked; saveDB(); }
-    });
+    cb.addEventListener('change', () => setBoardCheck(cb.dataset.id, cb.dataset.dir, cb.checked));
   });
   $$('[data-action="base-settings"]').forEach(b => b.onclick = openBaseSettingsSheet);
   $$('[data-action="edit-meta"]').forEach(b => b.onclick = (e) => { e.stopPropagation(); openMetaEditSheet(); });

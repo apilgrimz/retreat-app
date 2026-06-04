@@ -380,7 +380,6 @@ nav.tabbar {
 </div>
 
 <div class="toast" id="toast"></div>
-<input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none"/>
 <input type="file" id="jsonInput" accept=".json" style="display:none"/>
 
 <script>
@@ -2629,6 +2628,25 @@ function openMetaEditSheet() {
   }, 60);
 }
 
+function openManualSheet() {
+  const sec = (title, body) => `<div style="margin-bottom:16px;">
+    <div style="font-weight:800; color:var(--gold-soft); font-size:14px; margin-bottom:6px;">${title}</div>
+    <div style="font-size:13px; color:var(--ink-soft); line-height:1.7;">${body}</div>
+  </div>`;
+  const html = `
+    <div class="notice">앱 사용 방법을 간단히 안내합니다.</div>
+    ${sec('화면 구성', '아래 네 개의 탭으로 이루어져 있습니다.<br>• <b>홈</b> — 전체 현황 한눈에 보기<br>• <b>명단</b> — 인원 추가·수정, 전체 명단<br>• <b>차편</b> — 차편별 탑승 명단과 출발 정보<br>• <b>더보기</b> — 행사 설정, 동기화, 엑셀, 도움말')}
+    ${sec('1. 행사 준비', '더보기 맨 위 <b>행사</b> 칸에서 설정합니다.<br>• <b>행사 정보 수정</b>: 교회명, 본 교회 차수, 차수별 날짜(달력에서 두 날짜를 고르면 빠른 날=시작, 늦은 날=끝)<br>• <b>구역·차수·차량 목록</b>: 구역, 호차, 교회차, 개인차 차주 이름 등<br>• <b>회(부서)별 회비 단가</b>: 부서 이름·단가 수정/추가')}
+    ${sec('2. 인원 등록', '명단 탭의 <b>＋ 버튼</b>으로 추가합니다.<br>• 필수: 구역, 회(부서), 성명, 접수 구분, 차수(1개 이상)<br>• 차수를 체크하면 상행(참석)·하행(귀가) 입력칸이 열립니다. 날짜를 고르고 차편 종류(버스·개인차·기타)를 선택하면 구체 차편이 나옵니다.<br>• 본 교회 차수가 아닌 분은 차편을 비워도 저장됩니다.<br>• 같은 구역+이름이 이미 있으면 확인 후 저장합니다.')}
+    ${sec('3. 명단·차편 보기', '• 위쪽 <b>구역/차편 칩</b>을 누르면 해당 구역·차편만 보입니다(스크롤해도 고정).<br>• 차편 탭에서는 상행·하행 <b>출발 날짜·시각</b>을 입력할 수 있습니다(버스·개인차는 시각만, 교회차·타교회는 날짜+시각). 전체보기·인쇄에 표시됩니다.')}
+    ${sec('4. 실시간 동기화', '여러 사람이 함께 접수할 때 사용합니다.<br>• 한 사람이 더보기에서 동기화를 시작하면 <b>행사 코드</b>가 만들어집니다.<br>• 다른 사람은 그 코드로 참여하면 같은 화면을 함께 봅니다.<br>⚠️ <b>함께 접수하는 동안은 동기화를 계속 켜두세요.</b> 껐다가 다시 켜면 클라우드 데이터로 맞춰지고, 끈 동안 혼자 입력한 내용은 사라집니다.')}
+    ${sec('5. 여러 행사 관리', '더보기 맨 위 <b>행사명</b>을 누르면 드롭다운이 열립니다.<br>• <b>＋ 새 행사 추가</b>: 빈 상태로 시작(구역·부서 목록은 유지, 나머지 초기화). 이전 행사는 보존됩니다.<br>• 누적 행사를 선택해 전환하거나 삭제할 수 있습니다.')}
+    ${sec('6. 엑셀·백업', '• <b>엑셀로 내보내기</b>: 교회 서식 엑셀로 저장(통계 교통편은 본 교회 차수만 집계).<br>• <b>데이터 백업/복원</b>: 모든 정보를 파일로 보관/복원. 접수가 한창인 날은 하루 한 번 백업을 권합니다.')}
+    <div style="font-size:12px; color:var(--ink-mute); margin-top:10px; padding-top:10px; border-top:1px solid var(--line-soft);">더 자세한 내용이나 문의는 담당자에게 말씀해 주세요.</div>
+  `;
+  openSheet('사용 설명서', html, null, { hideSave: true });
+}
+
 function openFeeRateSheet() {
   // 각 행: 회(부서) 이름(편집 가능) + 단가(편집 가능) + 삭제
   function rowHTML(name, fee) {
@@ -3416,19 +3434,6 @@ function renderMore() {
       </div>
     </div>
     <div class="card">
-      <div class="card-head"><div class="card-title">엑셀 변환 작업</div></div>
-      <div class="menu-list">
-        <button class="menu-item" data-action="import">
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
-          <div class="lb"><div class="t">엑셀 가져오기</div><div class="d">기존 수양회 서식 xlsx 불러오기</div></div>
-        </button>
-        <button class="menu-item" data-action="export">
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
-          <div class="lb"><div class="t">엑셀로 내보내기</div><div class="d">모든 데이터를 파일로 저장합니다.</div></div>
-        </button>
-      </div>
-    </div>
-    <div class="card">
       <div class="card-head"><div class="card-title">데이터 통합 공유</div></div>
       <div class="menu-list">
         <button class="menu-item" onclick="shareApp()">
@@ -3442,6 +3447,24 @@ function renderMore() {
         <button class="menu-item" onclick="$('#jsonInput').click()">
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
           <div class="lb"><div class="t">데이터 복원하기</div><div class="d">공유받은 백업 파일(.json) 불러오기</div></div>
+        </button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">엑셀</div></div>
+      <div class="menu-list">
+        <button class="menu-item" data-action="export">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          <div class="lb"><div class="t">엑셀로 내보내기</div><div class="d">모든 데이터를 수양회 서식 엑셀로 저장합니다.</div></div>
+        </button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">도움말</div></div>
+      <div class="menu-list">
+        <button class="menu-item" data-action="manual">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+          <div class="lb"><div class="t">사용 설명서</div><div class="d">앱 사용 방법을 안내합니다.</div></div>
         </button>
       </div>
     </div>
@@ -3520,19 +3543,6 @@ function openEvangelismEdit(e, isNew) {
   if (!isNew) { setTimeout(() => { $('#eDelete').onclick = () => { DB.evangelism = DB.evangelism.filter(x => x.id !== e.id); saveDB(); closeSheet(true); setTimeout(renderEvangelismSheet, 300); }; }, 50); }
 }
 
-$('#fileInput').onchange = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    importFromWorkbook(wb);
-    toast('가져오기 완료');
-    render();
-  } catch (err) { console.error(err); toast('가져오기 실패: ' + err.message, true); }
-  e.target.value = '';
-};
-
 $('#jsonInput').onchange = (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -3550,68 +3560,6 @@ $('#jsonInput').onchange = (e) => {
   e.target.value = '';
 };
 
-function importFromWorkbook(wb) {
-  const newMembers = [];
-  ZONES.forEach(z => {
-    const ws = wb.Sheets[z];
-    if (!ws) return;
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
-    for (let i = 3; i < rows.length; i++) {
-      const r = rows[i];
-      const name = (r[3] || '').toString().trim();
-      if (!name) continue;
-      
-      const extraUp = {}; const extraDown = {};
-      if (r[7]) extraUp[EXTRA_UPS[0] || '금저'] = r[7].toString().trim();
-      if (r[8]) extraDown[EXTRA_DOWNS[0] || '토저'] = r[8].toString().trim();
-
-      newMembers.push({
-        id: uid(), zone: z, dept: (r[2]||'').toString().trim(), name, session: (r[4]||'').toString().trim(),
-        transUp: (r[5]||'').toString().trim(), transDown: (r[6]||'').toString().trim(),
-        privateUp: (r[9]||'').toString().trim(), privateDown: (r[10]||'').toString().trim(),
-        leaderName: (r[11]||'').toString().trim(), leaderRel: (r[12]||'').toString().trim(), note: (r[13]||'').toString().trim(),
-        extraUp, extraDown
-      });
-    }
-  });
-
-  const newEv = [];
-  const evWs = wb.Sheets['전도대상자'];
-  if (evWs) {
-    const rows = XLSX.utils.sheet_to_json(evWs, { header: 1, blankrows: false, defval: '' });
-    for (let i = 2; i < rows.length; i++) {
-      const r = rows[i];
-      const name = (r[3]||'').toString().trim();
-      if (!name) continue;
-      newEv.push({
-        id: uid(), memberId: '', zone: (r[1]||'').toString().trim(), dept: (r[2]||'').toString().trim(), name,
-        relation: (r[4]||'').toString().trim(), leader: (r[5]||'').toString().trim(), lodging: (r[6]||'').toString().trim(),
-        salvation: '', baptism: '', note: (r[8]||'').toString().trim(),
-      });
-    }
-  }
-
-  const newFS = [];
-  const fsWs = wb.Sheets['회비지원'];
-  if (fsWs) {
-    const rows = XLSX.utils.sheet_to_json(fsWs, { header: 1, blankrows: false, defval: '' });
-    for (let i = 2; i < rows.length; i++) {
-      const r = rows[i];
-      const name = (r[3]||'').toString().trim();
-      if (!name) continue;
-      newFS.push({
-        id: uid(), memberId: '', zone: (r[1]||'').toString().trim(), dept: (r[2]||'').toString().trim(), name,
-        amount: parseInt((r[4]||0).toString().replace(/[^0-9-]/g,''), 10) || 0, note: (r[5]||'').toString().trim(),
-      });
-    }
-  }
-
-  if (newMembers.length > 0) DB.members = newMembers;
-  if (newEv.length > 0) DB.evangelism = newEv;
-  if (newFS.length > 0) DB.feeSupport = newFS;
-  syncEvFsLinks();
-  saveDB();
-}
 
 /* ===== 엑셀 내보내기 — 템플릿 ZIP을 직접 패치 (스타일·공식 100% 보존) =====
    원리: xlsx는 ZIP. 각 sheet은 xl/worksheets/sheetN.xml에 들어 있고
@@ -4164,8 +4112,8 @@ function bindViewHandlers() {
   $$('[data-action="edit-meta"]').forEach(b => b.onclick = (e) => { e.stopPropagation(); openMetaEditSheet(); });
   { const nb = document.getElementById('evNameBtn'); if (nb) nb.onclick = toggleEventDropdown; }
   { const rb = document.getElementById('evRenameBtn'); if (rb) rb.onclick = openEventRename; }
-  $$('[data-action="import"]').forEach(b => b.onclick = () => $('#fileInput').click());
   $$('[data-action="export"]').forEach(b => b.onclick = exportToExcel);
+  $$('[data-action="manual"]').forEach(b => b.onclick = openManualSheet);
   
 }
 

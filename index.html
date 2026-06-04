@@ -945,6 +945,80 @@ function memberRepTrans(m) {
   };
 }
 
+// ===== 차편 탭: 차수별 (차편+차수+방향) 탑승자 추출 =====
+// type: 호차명 | 교회차명 | 타교회 | 대중교통 | '개인차'
+// driver: 개인차일 때 차주명 (그 외 null)
+// 한 멤버의 sessionTrans[차수]를 보고, 해당 방향(dir)의 차편이 type/driver와 일치하면 포함
+function transMatchesType(vehicle, kind, type, driver) {
+  if (!vehicle) return false;
+  if (driver) {  // 개인차: 차주명과 일치
+    return kind === 'private' && vehicle === driver;
+  }
+  if (BUSES.includes(type)) return vehicle === type;          // 호차
+  if (CHURCH_CARS.includes(type)) return vehicle === type;    // 교회차N
+  // 타교회/대중교통 등 기타
+  return vehicle === type;
+}
+// 특정 차편이 사용되는 (차수, 방향, 날짜) 조합 목록 — 차수 정의 순서대로
+function transSessionGroups(type, driver) {
+  const defs = getSessionDefs();
+  const groups = [];  // {session, upDate, downDate, uList, dList}
+  defs.forEach(def => {
+    const sname = def.name;
+    const uList = [], dList = [];
+    registeredMembers().forEach(m => {
+      const st = (m.sessionTrans && m.sessionTrans[sname]) || null;
+      if (!st) return;
+      const upKindV = st.upKind || kindOfVehicle(st.upVehicle);
+      const downKindV = st.downKind || kindOfVehicle(st.downVehicle);
+      if (transMatchesType(st.upVehicle, upKindV, type, driver)) uList.push(m);
+      if (transMatchesType(st.downVehicle, downKindV, type, driver)) dList.push(m);
+    });
+    if (uList.length || dList.length) {
+      groups.push({
+        session: sname,
+        upDate: def.upDate || '', downDate: def.downDate || '',
+        uList: uList.sort(memberSortCmp), dList: dList.sort(memberSortCmp),
+      });
+    }
+  });
+  return groups;
+}
+// 개인차 차주 목록 중 실제로 어느 차수든 탑승자가 있는 차주만 (차주명 정렬)
+function privateDriversWithGroups() {
+  const result = [];
+  (PRIVATE_CAR_LIST || []).forEach(drv => {
+    const groups = transSessionGroups('개인차', drv);
+    if (groups.length) result.push({ driver: drv, groups });
+  });
+  return result;
+}
+
+// 멤버의 대표 상하행(transUp/transDown/extraUp/extraDown)을 sessionTrans로부터 재계산.
+// 통계/엑셀·본대버스 명단은 본 교회 차수만 집계하므로, 대표 차수가 본 교회 차수가 아니면 비움.
+function recalcMemberRepTrans(m) {
+  m.transUp = ''; m.transDown = ''; m.extraUp = {}; m.extraDown = {};
+  const rep = representativeSession(m);
+  const ch = churchSessionName();
+  if (rep !== ch) return;
+  const st = (m.sessionTrans && m.sessionTrans[rep]) || null;
+  if (!st) return;
+  const upLabel = fmtDateKo(st.upDate) || rep;
+  const downLabel = fmtDateKo(st.downDate) || rep;
+  if (st.upVehicle) {
+    if (st.upKind === 'bus') m.transUp = st.upVehicle;
+    else m.extraUp[upLabel] = st.upVehicle;
+  }
+  if (st.downVehicle) {
+    if (st.downKind === 'bus') m.transDown = st.downVehicle;
+    else m.extraDown[downLabel] = st.downVehicle;
+  }
+}
+// 본 교회 차수 변경 등으로 전체 멤버의 대표 상하행을 다시 계산
+function recalcAllMembers() {
+  (DB.members || []).forEach(recalcMemberRepTrans);
+}
+
 // 차편 정보(날짜·시각) 저장 키
 function transInfoKey(type, driver) {
   return driver ? ('개인차:' + driver) : type;
@@ -1039,7 +1113,7 @@ function transInfoEditor(type, driver) {
   </div>`;
 }
 
-function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=null) {
+function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=null, group=null) {
    // 상행/하행을 각자 위에서부터 채움. 외곽선이 깨지는 문제를 막기 위해
    // 두 개의 독립된 <table>을 좌우로 나란히 배치 (각자 닫힌 외곽선을 가짐)
    // driver(개인차 차주명)가 주어지면 그 사람을 1번으로
@@ -1090,8 +1164,17 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
    }
 
    // 좌우 배치 — 인쇄는 wrapper <table>로(어떤 인쇄 엔진에서도 안정), 화면은 flex
-   const upInfo = type ? transHeadInfo(type, driver, 'up') : '';
-   const downInfo = type ? transHeadInfo(type, driver, 'down') : '';
+   let upInfo, downInfo;
+   if (group) {
+     // 차수별 블록: 그 차수의 날짜를 헤더에 표시 (+ 버스 선탑자 등 시각정보는 차편 단위라 합침)
+     const baseUp = group.upDate ? fmtDateKo(group.upDate) : '';
+     const baseDown = group.downDate ? fmtDateKo(group.downDate) : '';
+     upInfo = baseUp;
+     downInfo = baseDown;
+   } else {
+     upInfo = type ? transHeadInfo(type, driver, 'up') : '';
+     downInfo = type ? transHeadInfo(type, driver, 'down') : '';
+   }
    const sideUp = buildSide('상행', uSorted, '상행', upInfo);
    const sideDown = buildSide('하행', dSorted, '하행', downInfo);
    const titleHtml = title ? `<div class="${isPrint ? 'print-title' : 'card-title'}" style="${isPrint? 'font-size:16px;margin:20px 0 10px;text-align:left;border:none;' : 'margin:14px 0 8px;font-weight:700;color:var(--gold);'}">${title}</div>` : '';
@@ -1326,28 +1409,30 @@ function execResetZone() {
 function openTransportFull() {
   const type = transportTab.type;
   let body = '';
-  if (type === '개인차') {
-    const drivers = allPrivateDrivers();
-    if (drivers.length === 0) body += `<div class="empty-state">등록된 개인차 차주가 없습니다.</div>`;
-    else {
-      let any=false;
-      drivers.forEach(drv => {
-        const uList = sortDriverList(driverList(drv, 'up'), drv);
-        const dList = sortDriverList(driverList(drv, 'down'), drv);
-        if (uList.length > 0 || dList.length > 0) { any=true; body += buildSplitTable(`🚗 ${esc(drv)}`, uList, dList, false, drv, '개인차'); }
-      });
-      if (!any) body += `<div class="empty-state">표시할 명단이 없습니다.</div>`;
-    }
-  } else if (BUSES.includes(type)) {
+  if (BUSES.includes(type)) {
+    // 본대 버스: 본 교회 차수 탑승자만
     const u = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
     const d = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
+    const churchN = churchSessionName();
+    if (churchN) body += `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     if (u.length===0 && d.length===0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
     else body += buildSplitTable(null, u, d, false, null, type);
+  } else if (type === '개인차') {
+    const drv2 = privateDriversWithGroups();
+    if (drv2.length === 0) body += `<div class="empty-state">개인차로 가는 사람이 없습니다.</div>`;
+    else drv2.forEach(({driver, groups}) => {
+      groups.forEach(g => {
+        body += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">🚗 ${esc(driver)} · ${esc(g.session)}</div>`;
+        body += buildSplitTable(null, g.uList, g.dList, false, driver, '개인차', g);
+      });
+    });
   } else {
-    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort(memberSortCmp);
-    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort(memberSortCmp);
-    if (uList.length === 0 && dList.length === 0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
-    else body += buildSplitTable(null, uList, dList, false, null, type);
+    const groups = transSessionGroups(type, null);
+    if (groups.length === 0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
+    else groups.forEach(g => {
+      body += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(g.session)}</div>`;
+      body += buildSplitTable(null, g.uList, g.dList, false, null, type, g);
+    });
   }
   const printBar = `<div style="display:flex; justify-content:flex-end; margin-bottom:10px;"><button class="card-action" onclick="execPrintTransport()">인쇄</button></div>`;
   openSheet(`${esc(type)} 탑승 명단 전체`, printBar + body, null, { hideSave:true });
@@ -1367,27 +1452,26 @@ function execPrintTransport() {
   const titleText = `${getYearPrefix()} 하계수양회 - ${esc(type)} 탑승 명단`;
   let body = `<div class="print-title">${titleText}</div>`;
 
-  if (type === '개인차') {
-    const drivers = allPrivateDrivers();
-    if (drivers.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">등록된 개인차 차주가 없습니다.</div>`;
-    else {
-      drivers.forEach(drv => {
-        const uList = sortDriverList(driverList(drv, 'up'), drv);
-        const dList = sortDriverList(driverList(drv, 'down'), drv);
-        if (uList.length > 0 || dList.length > 0) {
-          body += buildSplitTable(`🚗 ${esc(drv)}`, uList, dList, true, drv, '개인차');
-        }
-      });
-    }
-  } else if (BUSES.includes(type)) {
+  if (BUSES.includes(type)) {
     const u = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
     const d = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
+    const churchN = churchSessionName();
+    if (churchN) body += `<div style="font-size:12px; color:#555; margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     body += buildSplitTable(null, u, d, true, null, type);
+  } else if (type === '개인차') {
+    const drv2 = privateDriversWithGroups();
+    if (drv2.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">개인차로 가는 사람이 없습니다.</div>`;
+    else drv2.forEach(({driver, groups}) => {
+      groups.forEach(g => {
+        body += buildSplitTable(`🚗 ${esc(driver)} · ${esc(g.session)}`, g.uList, g.dList, true, driver, '개인차', g);
+      });
+    });
   } else {
-    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort(memberSortCmp);
-    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort(memberSortCmp);
-    if (uList.length === 0 && dList.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">해당 차편 등록자가 없습니다.</div>`;
-    else body += buildSplitTable(`${esc(type)}`, uList, dList, true, null, type);
+    const groups = transSessionGroups(type, null);
+    if (groups.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">해당 차편 등록자가 없습니다.</div>`;
+    else groups.forEach(g => {
+      body += buildSplitTable(`${esc(type)} · ${esc(g.session)}`, g.uList, g.dList, true, null, type, g);
+    });
   }
   doPrint(titleText, body);
 }
@@ -2328,28 +2412,8 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     if (!updated.regType) { toast('접수 구분을 선택해 주세요', true); return false; }
     if (!sessionStr) { toast('차수를 1개 이상 선택해 주세요', true); return false; }
 
-    // 대표 차수의 상하행을 transUp/transDown(버스) 또는 extraUp/extraDown(기타)에 반영
-    // 시점 키 = 그 차수의 상/하행 날짜 표시("7/10(금)"). 버스면 transUp, 아니면 extraUp[날짜].
-    function applyRepTrans() {
-      updated.transUp = ''; updated.transDown = ''; updated.extraUp = {}; updated.extraDown = {};
-      const rep = representativeSession(updated);
-      // 통계 교통편은 본 교회 차수만 집계 — 대표 차수가 본 교회 차수가 아니면 상하행 비움
-      const ch = churchSessionName();
-      if (rep !== ch) return;
-      const st = sessionTrans[rep];
-      if (st) {
-        const upLabel = fmtDateKo(st.upDate) || rep;
-        const downLabel = fmtDateKo(st.downDate) || rep;
-        if (st.upVehicle) {
-          if (st.upKind === 'bus') updated.transUp = st.upVehicle;
-          else updated.extraUp[upLabel] = st.upVehicle;
-        }
-        if (st.downVehicle) {
-          if (st.downKind === 'bus') updated.transDown = st.downVehicle;
-          else updated.extraDown[downLabel] = st.downVehicle;
-        }
-      }
-    }
+    // 대표 상하행 재계산은 전역 recalcMemberRepTrans 사용 (updated의 sessionTrans 기준)
+    function applyRepTrans() { recalcMemberRepTrans(updated); }
 
     // 중복 경고
     const dup = DB.members.find(x => x.id !== m.id
@@ -2429,29 +2493,54 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           head.style.background = 'transparent';
         }
       });
-      // 날짜 라디오: 클릭 시 활성 스타일 갱신
+      // 날짜: 한 번 누르면 선택, 같은 것 다시 누르면 해제 (토글)
+      function refreshDatePills(dir) {
+        block.querySelectorAll(`input[name="${dir}date-${nm}"]`).forEach(r => {
+          const pill = r.closest('.mini-pill');
+          if (r.checked) { pill.style.background='rgba(212,175,90,.18)'; pill.style.borderColor='var(--gold-soft)'; }
+          else { pill.style.background=''; pill.style.borderColor='var(--line-soft)'; }
+        });
+      }
+      function refreshKindPills(dir) {
+        block.querySelectorAll(`input[name="${dir}kind-${nm}"]`).forEach(r => {
+          const pill = r.closest('.mini-pill');
+          if (r.checked) { pill.style.background='rgba(108,140,210,.22)'; pill.style.borderColor='#6c8cd2'; }
+          else { pill.style.background=''; pill.style.borderColor='var(--line-soft)'; }
+        });
+      }
       ['up','down'].forEach(dir => {
         block.querySelectorAll(`input[name="${dir}date-${nm}"]`).forEach(radio => {
-          radio.addEventListener('change', () => {
-            block.querySelectorAll(`input[name="${dir}date-${nm}"]`).forEach(r => {
-              const pill = r.closest('.mini-pill');
-              if (r.checked) { pill.style.background='rgba(212,175,90,.18)'; pill.style.borderColor='var(--gold-soft)'; }
-              else { pill.style.background=''; pill.style.borderColor='var(--line-soft)'; }
-            });
+          radio.dataset.wasChecked = radio.checked ? '1' : '';
+          radio.addEventListener('click', () => {
+            if (radio.dataset.wasChecked === '1') {
+              // 이미 선택돼 있던 걸 다시 클릭 → 해제
+              radio.checked = false;
+              radio.dataset.wasChecked = '';
+            } else {
+              // 새로 선택 → 이 그룹에서 이것만 checked 표시 추적
+              block.querySelectorAll(`input[name="${dir}date-${nm}"]`).forEach(r => { r.dataset.wasChecked = ''; });
+              radio.dataset.wasChecked = '1';
+            }
+            refreshDatePills(dir);
           });
         });
-        // 차편종류 라디오: 선택 시 구체 차편 select 갱신 + 활성 스타일
+        // 차편종류: 토글 + 구체 차편 select 갱신 (해제 시 select 비움)
         block.querySelectorAll(`input[name="${dir}kind-${nm}"]`).forEach(radio => {
-          radio.addEventListener('change', () => {
-            block.querySelectorAll(`input[name="${dir}kind-${nm}"]`).forEach(r => {
-              const pill = r.closest('.mini-pill');
-              if (r.checked) { pill.style.background='rgba(108,140,210,.22)'; pill.style.borderColor='#6c8cd2'; }
-              else { pill.style.background=''; pill.style.borderColor='var(--line-soft)'; }
-            });
+          radio.dataset.wasChecked = radio.checked ? '1' : '';
+          radio.addEventListener('click', () => {
             const vehBox = block.querySelector(`.${dir}-vehbox`);
             const prevSel = vehBox.querySelector('select');
             const prev = prevSel ? prevSel.value : '';
-            vehBox.innerHTML = `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${vehHtmlFor(radio.value, prev)}</select>`;
+            if (radio.dataset.wasChecked === '1') {
+              radio.checked = false;
+              radio.dataset.wasChecked = '';
+              vehBox.innerHTML = '';  // 차편 종류 해제 → 구체 차편도 비움
+            } else {
+              block.querySelectorAll(`input[name="${dir}kind-${nm}"]`).forEach(r => { r.dataset.wasChecked = ''; });
+              radio.dataset.wasChecked = '1';
+              vehBox.innerHTML = `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${vehHtmlFor(radio.value, prev)}</select>`;
+            }
+            refreshKindPills(dir);
           });
         });
       });
@@ -2507,35 +2596,39 @@ function renderTransport() {
       <div class="card-head"><div class="card-title">${esc(type)} 탑승 명단</div><div style="display:flex;gap:6px;"><button class="card-action" onclick="openTransportFull()">전체보기</button><button class="card-action" onclick="execPrintTransport()">인쇄</button></div></div>
   `;
 
-  if (type === '개인차') {
-    const drivers = allPrivateDrivers();
-    if (drivers.length === 0) {
-      html += `<div class="empty-state">등록된 개인차 차주가 없습니다.<br/><span style="font-size:12px">더보기 → 기초 데이터 설정 → '개인차 목록'에서 차주 이름을 등록하세요.</span></div>`;
-    } else {
-      let anyShown = false;
-      drivers.forEach(drv => {
-        const uList = driverList(drv, 'up');
-        const dList = driverList(drv, 'down');
-        if (uList.length > 0 || dList.length > 0) {
-          anyShown = true;
-          html += `<div style="font-weight:700; margin:6px 0 6px; color:var(--gold-soft);">🚗 ${esc(drv)}</div>`;
-          html += transInfoEditor('개인차', drv);
-          html += buildSplitTable(null, uList, dList, false, drv);
-        }
-      });
-      if (!anyShown) html += `<div class="empty-state">표시할 명단이 없습니다.</div>`;
-    }
-  } else if (BUSES.includes(type)) {
+  if (BUSES.includes(type)) {
+    // 본대 버스: 본 교회 차수에 버스로 가는 사람만 (대표 상하행 = applyRepTrans가 본교회차수만 채움)
     const uList = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
     const dList = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
     html += transInfoEditor(type, null);
-    html += buildSplitTable(null, uList, dList, false);
+    const churchN = churchSessionName();
+    if (churchN) html += `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
+    html += buildSplitTable(null, uList, dList, false, null, type);
+  } else if (type === '개인차') {
+    const drv2 = privateDriversWithGroups();
+    if (drv2.length === 0) {
+      html += `<div class="empty-state">개인차로 가는 사람이 없습니다.<br/><span style="font-size:12px">더보기 → 기초 데이터 설정 → '개인차 목록'에서 차주를 등록하고, 인원 추가에서 개인차를 선택하세요.</span></div>`;
+    } else {
+      // 차주별 → 차수별 블록 (차수 순서대로)
+      drv2.forEach(({driver, groups}) => {
+        groups.forEach(g => {
+          const label = `🚗 ${esc(driver)} · ${esc(g.session)}`;
+          html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${label}</div>`;
+          html += buildSplitTable(null, g.uList, g.dList, false, driver, '개인차', g);
+        });
+      });
+    }
   } else {
-    const uList = registeredMembers().filter(m => m.transUp === type || Object.values(m.extraUp||{}).includes(type)).sort(memberSortCmp);
-    const dList = registeredMembers().filter(m => m.transDown === type || Object.values(m.extraDown||{}).includes(type)).sort(memberSortCmp);
-    html += transInfoEditor(type, null);
-    if (uList.length === 0 && dList.length === 0) html += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
-    else html += buildSplitTable(null, uList, dList, false);
+    // 교회차 / 타교회 / 대중교통: 차수별 블록 (헤더에 그 차수 날짜 표시)
+    const groups = transSessionGroups(type, null);
+    if (groups.length === 0) {
+      html += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
+    } else {
+      groups.forEach(g => {
+        html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(g.session)}</div>`;
+        html += buildSplitTable(null, g.uList, g.dList, false, null, type, g);
+      });
+    }
   }
 
   html += `</div>`;
@@ -2610,6 +2703,7 @@ function openMetaEditSheet() {
     DB.meta.churchName = ($('#metaChurchName').value || '').trim();
     DB.meta.churchSession = $('#metaChurchSession').value;
     DB.meta.session = DB.meta.churchSession;  // 요약용도 본교회차수로 동기화
+    recalcAllMembers();  // 본 교회 차수 변경 → 전체 멤버 대표 상하행(본대버스 명단 등) 재계산
     // 차수별 날짜 수집 — row의 data-up/data-down (달력에서 이미 빠른 날=시작 정렬됨)
     const defs = [];
     $$('#sessionDateList .sess-date-row').forEach(row => {
@@ -3526,6 +3620,7 @@ function openBaseSettingsSheet() {
       DB.meta.churchSession = SESSIONS[0] || '';
       DB.meta.session = DB.meta.churchSession;
     }
+    recalcAllMembers();  // 차수 목록/본교회차수 변경 → 전체 멤버 재계산
     // 나머지 설정 항목은 보존하면서 갱신 (sessionDefs/deptList/transportInfo/fees 등 유지)
     DB.settings.zones = ZONES;
     DB.settings.sessions = SESSIONS;

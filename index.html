@@ -417,7 +417,7 @@ function emptyMember(zone) {
   return {
     id: uid(), zone: zone || '', dept: '', name: '', session: '',
     transUp: '', transDown: '', privateUp: '', privateDown: '',
-    extraUp: {}, extraDown: {}, sessionTrans: {},
+    extraUp: {}, extraDown: {}, sessionTrans: {}, boardUp: false, boardDown: false,
     leaderName: '', leaderRel: '', lodging: '', salvation: false, baptism: false, note: '', regType: '', status: ''
   };
 }
@@ -530,7 +530,7 @@ function hydrateEvent(d) {
   else { d.fees = { ...DEFAULT_FEES }; }
   if (!d.meta) d.meta = {};
   // sessionTrans 보정 (구버전 멤버)
-  if (d.members) d.members.forEach(m => { if (!m.sessionTrans) m.sessionTrans = {}; });
+  if (d.members) d.members.forEach(m => { if (!m.sessionTrans) m.sessionTrans = {}; if (m.boardUp===undefined) m.boardUp=false; if (m.boardDown===undefined) m.boardDown=false; });
   if (!d.meta.title) d.meta.title = '새 수양회';
   if (!d.meta.session) d.meta.session = '2차';
   if (!d.members) d.members = [];
@@ -980,9 +980,11 @@ function transHeadInfo(type, driver, dir) {
   const info = getTransInfo(type, driver);
   const date = dir === 'up' ? dates.upDate : dates.downDate;
   const time = dir === 'up' ? (info.upTime || '') : (info.downTime || '');
+  const leader = dir === 'up' ? (info.upLeader || '') : (info.downLeader || '');
   const parts = [];
   if (date) parts.push(fmtDateKo(date));
   if (time) parts.push(time + ' 출발');
+  if (leader && BUSES.includes(type)) parts.push('선탑자 ' + leader);
   return parts.join(' · ');
 }
 // 날짜 직접 입력이 필요한 차편인가 (교회차, 타교회)
@@ -1012,17 +1014,23 @@ function transInfoEditor(type, driver) {
   const dates = transDatesFor(type, driver);
   const needDate = transNeedsDateInput(type);
   const key = transInfoKey(type, driver);
+  const isBus = BUSES.includes(type);  // 선탑자 입력은 호차(버스)만
   function side(dir, label) {
     const autoDate = dir==='up' ? dates.upDate : dates.downDate;
     const time = dir==='up' ? (info.upTime||'') : (info.downTime||'');
+    const leader = dir==='up' ? (info.upLeader||'') : (info.downLeader||'');
     const dateField = needDate
       ? `<input type="date" class="ti-date" data-key="${esc(key)}" data-dir="${dir}" value="${esc(dir==='up'?(info.upDate||''):(info.downDate||''))}" style="font-size:12px; padding:6px 8px; flex-shrink:0; width:140px;"/>`
       : `<span style="font-size:12px; color:var(--ink-soft); flex-shrink:0; min-width:80px;">${autoDate?fmtDateKo(autoDate):'<span style=\'color:var(--ink-mute)\'>날짜 미설정</span>'}</span>`;
+    const leaderField = isBus
+      ? `<span style="font-size:11px; color:var(--ink-mute); flex-shrink:0;">선탑자</span><input type="text" class="ti-leader" data-key="${esc(key)}" data-dir="${dir}" value="${esc(leader)}" placeholder="이름" style="font-size:12px; padding:6px 8px; width:110px; flex-shrink:0;"/>`
+      : '';
     // 상행/하행을 각각 한 줄로 (세로로 쌓음). 줄 내부는 넉넉히 간격을 두고 넘치면 가로 스크롤.
     return `<div style="display:flex; align-items:center; gap:10px; overflow-x:auto; padding:2px 0; -webkit-overflow-scrolling:touch;">
       <span style="font-size:12px; font-weight:700; color:var(--gold-soft); flex-shrink:0; width:32px;">${label}</span>
       ${dateField}
       <input type="time" class="ti-time" data-key="${esc(key)}" data-dir="${dir}" value="${esc(time)}" style="font-size:12px; padding:6px 8px; width:120px; flex-shrink:0;"/>
+      ${leaderField}
     </div>`;
   }
   return `<div class="trans-info-box" style="display:flex; flex-direction:column; gap:8px; padding:9px 11px; margin-bottom:8px; background:var(--bg-2); border-radius:8px;">
@@ -1050,15 +1058,22 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
    const tableClass = isPrint ? 'split-print-table' : 'split-ui-table';
 
    function buildSide(label, list, headLabel, dirInfo) {
+     const dirField = (label === '상행') ? 'boardUp' : 'boardDown';
      const rows = list.length === 0
        ? `<tr><td colspan="5" style="padding:14px;text-align:center;color:#888;">데이터가 없습니다.</td></tr>`
-       : list.map((m, i) => `<tr>
+       : list.map((m, i) => {
+           const checked = !!m[dirField];
+           const checkCell = isPrint
+             ? `<td class="check-cell">${checked ? '✓' : ''}</td>`
+             : `<td class="check-cell"><input type="checkbox" class="board-check" data-id="${esc(m.id)}" data-dir="${dirField}" ${checked?'checked':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--gold);"/></td>`;
+           return `<tr>
            <td>${i+1}</td>
            <td>${esc(m.zone)}</td>
            <td class="nm print-name">${esc(m.name)}</td>
            <td>${esc(m.dept)}</td>
-           <td class="check-cell"></td>
-         </tr>`).join('');
+           ${checkCell}
+         </tr>`;
+         }).join('');
      return `<table class="${tableClass}">
        <thead>
          <tr><th colspan="5" class="side-head ${label==='상행'?'up-head':'down-head'}">${label} (${list.length}명)${dirInfo?` <span style="font-weight:400; font-size:11px; opacity:.9;">· ${esc(dirInfo)}</span>`:''}</th></tr>
@@ -1336,6 +1351,15 @@ function openTransportFull() {
   }
   const printBar = `<div style="display:flex; justify-content:flex-end; margin-bottom:10px;"><button class="card-action" onclick="execPrintTransport()">인쇄</button></div>`;
   openSheet(`${esc(type)} 탑승 명단 전체`, printBar + body, null, { hideSave:true });
+  // 탑승 확인 체크박스 — 클릭 시 멤버에 저장 (상행=boardUp, 하행=boardDown)
+  setTimeout(() => {
+    document.querySelectorAll('#sheetBody .board-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const m = DB.members.find(x => x.id === cb.dataset.id);
+        if (m) { m[cb.dataset.dir] = cb.checked; saveDB(); }
+      });
+    });
+  }, 50);
 }
 
 function execPrintTransport() {
@@ -3488,9 +3512,29 @@ function openBaseSettingsSheet() {
     CHURCH_CARS = $('#sChurch').value.split(',').map(s=>s.trim()).filter(Boolean);
     OTHER_TRANSPORTS = $('#sOther').value.split(',').map(s=>s.trim()).filter(Boolean);
     PRIVATE_CAR_LIST = $('#sPrivateCarList').value.split(',').map(s=>s.trim()).filter(Boolean);
-    
+
     updateTransportOptions();
-    DB.settings = { zones: ZONES, sessions: SESSIONS, buses: BUSES, churchCars: CHURCH_CARS, otherTransports: OTHER_TRANSPORTS, extraUps: EXTRA_UPS, extraDowns: EXTRA_DOWNS, privateCarList: PRIVATE_CAR_LIST };
+    // 차수 목록 변경을 sessionDefs에 동기화 (기존 날짜는 보존, 새 차수는 빈 날짜로 추가, 빠진 차수는 제거)
+    const prevDefs = (DB.settings && DB.settings.sessionDefs) || [];
+    const newDefs = SESSIONS.map(name => {
+      const found = prevDefs.find(d => d.name === name);
+      return found ? found : { name, upDate: '', downDate: '' };
+    });
+    DB.settings.sessionDefs = newDefs;
+    // 본 교회 차수가 더 이상 목록에 없으면 첫 차수로
+    if (DB.meta && DB.meta.churchSession && !SESSIONS.includes(DB.meta.churchSession)) {
+      DB.meta.churchSession = SESSIONS[0] || '';
+      DB.meta.session = DB.meta.churchSession;
+    }
+    // 나머지 설정 항목은 보존하면서 갱신 (sessionDefs/deptList/transportInfo/fees 등 유지)
+    DB.settings.zones = ZONES;
+    DB.settings.sessions = SESSIONS;
+    DB.settings.buses = BUSES;
+    DB.settings.churchCars = CHURCH_CARS;
+    DB.settings.otherTransports = OTHER_TRANSPORTS;
+    DB.settings.privateCarList = PRIVATE_CAR_LIST;
+    DB.settings.extraUps = EXTRA_UPS;
+    DB.settings.extraDowns = EXTRA_DOWNS;
     saveDB(); render(); toast('기초 설정이 반영되었습니다.');
   });
 }
@@ -3737,7 +3781,7 @@ async function exportToExcel() {
     const edits = {};
     // A1 제목을 해당 구역명으로 (시트 탭 이름과 일치시킴)
     edits['A1'] = `${getYearPrefix()} 하계수양회  ─  ${z}`;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 70; i++) {
       const m = ms[i];
       const row = 4 + i;
       edits[`A${row}`] = i + 1;
@@ -3845,8 +3889,12 @@ async function exportToExcel() {
       if (!nameToFile[bus]) continue;
       const up=regs.filter(m=>upKind(m)===bus), dn=regs.filter(m=>downKind(m)===bus);
       const ed={};
-      // 호차 시트 데이터행은 4~46 (43명). 잔존 번호(41~43)를 데이터/빈값으로 덮어씀.
-      for(let i=0;i<43;i++){ const r=4+i;
+      // 선탑자: 상행 라벨 A2:B2 "선탑자:" 다음 C2, 하행 라벨 H2:I2 다음 J2
+      const busInfo = (DB.settings && DB.settings.transportInfo && DB.settings.transportInfo[bus]) || {};
+      ed['C2'] = busInfo.upLeader || '';
+      ed['J2'] = busInfo.downLeader || '';
+      // 호차 시트 데이터행은 4~48 (45명). 잔존 번호를 데이터/빈값으로 덮어씀.
+      for(let i=0;i<45;i++){ const r=4+i;
         const u=up[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`F${r}`]=u?NT(u):'';
         const d=dn[i]; ed[`H${r}`]=d?i+1:''; ed[`I${r}`]=d?Z(d):''; ed[`J${r}`]=d?D(d):''; ed[`K${r}`]=d?NM(d):''; ed[`M${r}`]=d?NT(d):'';
       }
@@ -4102,11 +4150,19 @@ function bindViewHandlers() {
     const info = DB.settings.transportInfo[key] || {};
     if (el.classList.contains('ti-time')) info[dir==='up'?'upTime':'downTime'] = el.value || '';
     else if (el.classList.contains('ti-date')) info[dir==='up'?'upDate':'downDate'] = el.value || '';
+    else if (el.classList.contains('ti-leader')) info[dir==='up'?'upLeader':'downLeader'] = el.value || '';
     DB.settings.transportInfo[key] = info;
     saveDB();
   }
-  $$('.trans-info-box .ti-time, .trans-info-box .ti-date').forEach(el => {
+  $$('.trans-info-box .ti-time, .trans-info-box .ti-date, .trans-info-box .ti-leader').forEach(el => {
     el.addEventListener('change', () => saveTransInfoField(el));
+  });
+  // 차편 탭 명단의 탑승 확인 체크박스
+  $$('#view .board-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const m = DB.members.find(x => x.id === cb.dataset.id);
+      if (m) { m[cb.dataset.dir] = cb.checked; saveDB(); }
+    });
   });
   $$('[data-action="base-settings"]').forEach(b => b.onclick = openBaseSettingsSheet);
   $$('[data-action="edit-meta"]').forEach(b => b.onclick = (e) => { e.stopPropagation(); openMetaEditSheet(); });

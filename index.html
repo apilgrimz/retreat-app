@@ -3920,7 +3920,7 @@ async function exportToExcel() {
   {
     const edits = {};
     const evSorted = sortMembers(DB.evangelism);
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 200; i++) {
       const e = evSorted[i];
       const row = 3 + i;
       edits[`A${row}`] = e ? i + 1 : '';
@@ -3940,7 +3940,7 @@ async function exportToExcel() {
   {
     const edits = {};
     const fsSorted = sortMembers(DB.feeSupport);
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 150; i++) {
       const fs = fsSorted[i];
       const row = 3 + i;
       edits[`A${row}`] = i + 1;
@@ -3999,8 +3999,8 @@ async function exportToExcel() {
       ed['J2'] = busInfo.downLeader || '';
       // 호차 시트 데이터행은 4~48 (45명). 잔존 번호를 데이터/빈값으로 덮어씀.
       for(let i=0;i<45;i++){ const r=4+i;
-        const u=up[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`F${r}`]=u?NT(u):'';
-        const d=dn[i]; ed[`H${r}`]=d?i+1:''; ed[`I${r}`]=d?Z(d):''; ed[`J${r}`]=d?D(d):''; ed[`K${r}`]=d?NM(d):''; ed[`M${r}`]=d?NT(d):'';
+        const u=up[i]; ed[`A${r}`]=i+1; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`F${r}`]=u?NT(u):'';
+        const d=dn[i]; ed[`H${r}`]=i+1; ed[`I${r}`]=d?Z(d):''; ed[`J${r}`]=d?D(d):''; ed[`K${r}`]=d?NM(d):''; ed[`M${r}`]=d?NT(d):'';
       }
       await patchSheetFile(bus, ed);
     }
@@ -4011,8 +4011,8 @@ async function exportToExcel() {
       function fillChurch(baseRow, carName){
         const up=regs.filter(m=>churchCarUp(m)===carName), dn=regs.filter(m=>churchCarDown(m)===carName);
         for(let i=0;i<40;i++){ const r=baseRow+i;
-          const u=up[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`E${r}`]=u?NT(u):'';
-          const d=dn[i]; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?Z(d):''; ed[`I${r}`]=d?D(d):''; ed[`J${r}`]=d?NM(d):''; ed[`K${r}`]=d?NT(d):'';
+          const u=up[i]; ed[`A${r}`]=i+1; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`E${r}`]=u?NT(u):'';
+          const d=dn[i]; ed[`G${r}`]=i+1; ed[`H${r}`]=d?Z(d):''; ed[`I${r}`]=d?D(d):''; ed[`J${r}`]=d?NM(d):''; ed[`K${r}`]=d?NT(d):'';
         }
       }
       // 교회차1~5 (블록당 44행, 데이터 시작행 = 4 + (N-1)*44)
@@ -4027,8 +4027,8 @@ async function exportToExcel() {
       const ed={};
       function fillBlock(baseRow, upList, dnList){
         for(let i=0;i<40;i++){ const r=baseRow+i;
-          const u=upList[i]; ed[`A${r}`]=u?i+1:''; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`E${r}`]=u?NT(u):'';
-          const d=dnList[i]; ed[`G${r}`]=d?i+1:''; ed[`H${r}`]=d?Z(d):''; ed[`I${r}`]=d?D(d):''; ed[`J${r}`]=d?NM(d):''; ed[`K${r}`]=d?NT(d):'';
+          const u=upList[i]; ed[`A${r}`]=i+1; ed[`B${r}`]=u?Z(u):''; ed[`C${r}`]=u?D(u):''; ed[`D${r}`]=u?NM(u):''; ed[`E${r}`]=u?NT(u):'';
+          const d=dnList[i]; ed[`G${r}`]=i+1; ed[`H${r}`]=d?Z(d):''; ed[`I${r}`]=d?D(d):''; ed[`J${r}`]=d?NM(d):''; ed[`K${r}`]=d?NT(d):'';
         }
       }
       // 타교회: 4~43

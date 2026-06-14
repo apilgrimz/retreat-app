@@ -1151,6 +1151,13 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
 
    function buildSide(label, list, headLabel, dirInfo) {
      const dirField = (label === '상행') ? 'boardUp' : 'boardDown';
+     const dateKey = (label === '상행') ? 'upDate' : 'downDate';
+     // 차수별 블록(group)일 때, 각 멤버가 그 차수에서 실제 고른 날짜를 성명 옆에 표시
+     const memberDate = (m) => {
+       if (!group || !group.session) return '';
+       const st = (m.sessionTrans && m.sessionTrans[group.session]) || {};
+       return st[dateKey] || '';
+     };
      const rows = list.length === 0
        ? `<tr><td colspan="5" style="padding:14px;text-align:center;color:#888;">데이터가 없습니다.</td></tr>`
        : list.map((m, i) => {
@@ -1158,10 +1165,12 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
            const checkCell = isPrint
              ? `<td class="check-cell">${checked ? '✓' : ''}</td>`
              : `<td class="check-cell"><input type="checkbox" class="board-check" data-id="${esc(m.id)}" data-dir="${dirField}" ${checked?'checked':''}${isViewOnly()?' disabled':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--gold);"/></td>`;
+           const md = memberDate(m);
+           const dateTag = md ? `<div style="font-size:10px; color:var(--ink-mute); margin-top:1px; white-space:nowrap;">${fmtDateKo(md)}</div>` : '';
            return `<tr>
            <td>${i+1}</td>
            <td>${esc(m.zone)}</td>
-           <td class="nm print-name">${esc(m.name)}</td>
+           <td class="nm print-name">${esc(m.name)}${dateTag}</td>
            <td>${esc(m.dept)}</td>
            ${checkCell}
          </tr>`;
@@ -1184,11 +1193,16 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
    // 좌우 배치 — 인쇄는 wrapper <table>로(어떤 인쇄 엔진에서도 안정), 화면은 flex
    let upInfo, downInfo;
    if (group) {
-     // 차수별 블록: 그 차수의 날짜를 헤더에 표시 (+ 버스 선탑자 등 시각정보는 차편 단위라 합침)
-     const baseUp = group.upDate ? fmtDateKo(group.upDate) : '';
-     const baseDown = group.downDate ? fmtDateKo(group.downDate) : '';
-     upInfo = baseUp;
-     downInfo = baseDown;
+     // 차수별 블록: 헤더 날짜는 그 명단 멤버들이 실제 고른 날짜로 계산
+     // (모두 같으면 그 날짜, 여러 날짜면 표시 생략 — 각 행에 개별 날짜가 표시됨)
+     const commonDate = (list, key) => {
+       const ds = list.map(m => { const st = (m.sessionTrans && m.sessionTrans[group.session]) || {}; return st[key] || ''; }).filter(Boolean);
+       if (!ds.length) return '';
+       const uniq = Array.from(new Set(ds));
+       return uniq.length === 1 ? fmtDateKo(uniq[0]) : '';
+     };
+     upInfo = commonDate(uSorted, 'upDate');
+     downInfo = commonDate(dSorted, 'downDate');
    } else {
      upInfo = type ? transHeadInfo(type, driver, 'up') : '';
      downInfo = type ? transHeadInfo(type, driver, 'down') : '';

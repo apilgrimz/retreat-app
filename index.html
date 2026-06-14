@@ -1149,15 +1149,35 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
 
    const tableClass = isPrint ? 'split-print-table' : 'split-ui-table';
 
+   // 차수별 블록에서 방향별 "기준 날짜" 계산
+   // 1) 개인차이고 차주가 명단에 있으면 차주 날짜가 기준
+   // 2) 아니면(교회차/타교회 또는 차주 없음) 다수 날짜가 기준(동수면 빠른 날짜)
+   const memberDateOf = (m, dateKey) => {
+     if (!group || !group.session) return '';
+     const st = (m.sessionTrans && m.sessionTrans[group.session]) || {};
+     return st[dateKey] || '';
+   };
+   const baseDateOf = (list, dateKey) => {
+     if (!group || !group.session || !list.length) return '';
+     // 차주 기준
+     if (drvName) {
+       const drv = list.find(m => (m.name||'').trim() === drvName);
+       const dd = drv ? memberDateOf(drv, dateKey) : '';
+       if (dd) return dd;
+     }
+     // 다수 기준 (동수면 빠른 날짜)
+     const counts = {};
+     list.forEach(m => { const d = memberDateOf(m, dateKey); if (d) counts[d] = (counts[d]||0)+1; });
+     const keys = Object.keys(counts);
+     if (!keys.length) return '';
+     keys.sort((a,b) => (counts[b]-counts[a]) || (a < b ? -1 : 1)); // 많은 순, 같으면 빠른 날
+     return keys[0];
+   };
+
    function buildSide(label, list, headLabel, dirInfo) {
      const dirField = (label === '상행') ? 'boardUp' : 'boardDown';
      const dateKey = (label === '상행') ? 'upDate' : 'downDate';
-     // 차수별 블록(group)일 때, 각 멤버가 그 차수에서 실제 고른 날짜를 성명 옆에 표시
-     const memberDate = (m) => {
-       if (!group || !group.session) return '';
-       const st = (m.sessionTrans && m.sessionTrans[group.session]) || {};
-       return st[dateKey] || '';
-     };
+     const baseDate = baseDateOf(list, dateKey);
      const rows = list.length === 0
        ? `<tr><td colspan="5" style="padding:14px;text-align:center;color:#888;">데이터가 없습니다.</td></tr>`
        : list.map((m, i) => {
@@ -1165,8 +1185,10 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
            const checkCell = isPrint
              ? `<td class="check-cell">${checked ? '✓' : ''}</td>`
              : `<td class="check-cell"><input type="checkbox" class="board-check" data-id="${esc(m.id)}" data-dir="${dirField}" ${checked?'checked':''}${isViewOnly()?' disabled':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--gold);"/></td>`;
-           const md = memberDate(m);
-           const dateTag = md ? `<div style="font-size:10px; color:var(--ink-mute); margin-top:1px; white-space:nowrap;">${fmtDateKo(md)}</div>` : '';
+           // 기준 날짜와 다른 사람만 성명 아래에 본인 날짜 표시
+           const md = memberDateOf(m, dateKey);
+           const showTag = group && md && baseDate && md !== baseDate;
+           const dateTag = showTag ? `<div style="font-size:10px; color:var(--rose); margin-top:1px; white-space:nowrap;">${fmtDateKo(md)}</div>` : '';
            return `<tr>
            <td>${i+1}</td>
            <td>${esc(m.zone)}</td>
@@ -1193,16 +1215,15 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
    // 좌우 배치 — 인쇄는 wrapper <table>로(어떤 인쇄 엔진에서도 안정), 화면은 flex
    let upInfo, downInfo;
    if (group) {
-     // 차수별 블록: 헤더 날짜는 그 명단 멤버들이 실제 고른 날짜로 계산
-     // (모두 같으면 그 날짜, 여러 날짜면 표시 생략 — 각 행에 개별 날짜가 표시됨)
-     const commonDate = (list, key) => {
-       const ds = list.map(m => { const st = (m.sessionTrans && m.sessionTrans[group.session]) || {}; return st[key] || ''; }).filter(Boolean);
-       if (!ds.length) return '';
-       const uniq = Array.from(new Set(ds));
-       return uniq.length === 1 ? fmtDateKo(uniq[0]) : '';
+     // 차수별 블록: 헤더는 기준 날짜 표시. 기준과 다른 사람이 있으면 "(일부 다름)" 덧붙임.
+     const headDate = (list, key) => {
+       const base = baseDateOf(list, key);
+       if (!base) return '';
+       const anyDiff = list.some(m => { const d = memberDateOf(m, key); return d && d !== base; });
+       return fmtDateKo(base) + (anyDiff ? ' (일부 다름)' : '');
      };
-     upInfo = commonDate(uSorted, 'upDate');
-     downInfo = commonDate(dSorted, 'downDate');
+     upInfo = headDate(uSorted, 'upDate');
+     downInfo = headDate(dSorted, 'downDate');
    } else {
      upInfo = type ? transHeadInfo(type, driver, 'up') : '';
      downInfo = type ? transHeadInfo(type, driver, 'down') : '';

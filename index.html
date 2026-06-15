@@ -375,6 +375,7 @@ nav.tabbar {
 <div class="modal" id="modal">
   <div class="box">
     <h3 id="modalTitle"></h3><p id="modalMsg"></p>
+    <input id="modalInput" type="text" style="display:none; width:100%; margin:4px 0 10px; padding:10px; border:1px solid var(--line-soft); border-radius:8px; background:var(--bg-1); color:var(--ink); font-size:15px;"/>
     <div class="actions"><button class="btn btn-secondary" id="modalCancel">취소</button><button class="btn btn-danger" id="modalOk">확인</button></div>
   </div>
 </div>
@@ -851,9 +852,23 @@ function renderDateRangePicker() {
 
 function confirmModal(title, msg, onOk, okLabel='확인') {
   $('#modalTitle').textContent = title; $('#modalMsg').textContent = msg; $('#modalOk').textContent = okLabel;
+  const inp = $('#modalInput'); if (inp) inp.style.display = 'none';
+  $('#modalOk').className = 'btn btn-danger';
   $('#modal').classList.add('show');
   $('#modalOk').onclick = () => { $('#modal').classList.remove('show'); onOk(); };
   $('#modalCancel').onclick = () => $('#modal').classList.remove('show');
+}
+function promptModal(title, msg, defVal, onOk, okLabel='추가') {
+  $('#modalTitle').textContent = title; $('#modalMsg').textContent = msg || ''; $('#modalOk').textContent = okLabel;
+  const inp = $('#modalInput');
+  inp.style.display = 'block'; inp.value = defVal || '';
+  $('#modalOk').className = 'btn btn-primary';
+  $('#modal').classList.add('show');
+  setTimeout(() => { inp.focus(); inp.select(); }, 50);
+  const done = () => { const v = inp.value; $('#modal').classList.remove('show'); inp.style.display = 'none'; onOk(v); };
+  $('#modalOk').onclick = done;
+  $('#modalCancel').onclick = () => { $('#modal').classList.remove('show'); inp.style.display = 'none'; };
+  inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } };
 }
 function getYearPrefix() {
   const match = DB.meta.title.match(/^(\d{4})년/);
@@ -1925,74 +1940,7 @@ function setTab(tab, skipHistory=false) {
 }
 $$('.tabbar button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 
-/* ---------- 좌우 스와이프로 탭 이동 ---------- */
-(function setupSwipe() {
-  const order = ['home', 'roster', 'transport', 'more'];
-  let touchStartX = 0, touchStartY = 0, touchStartT = 0, touchActive = false;
-  let hScrollEl = null, hScrollStartLeft = 0, hScrollMax = 0;
-
-  // 터치 지점에서 가로 스크롤 가능한 가장 가까운 조상 찾기 (없으면 null)
-  function findHorizontalScrollAncestor(el) {
-    let node = el;
-    while (node && node !== document.body) {
-      if (node.scrollWidth > node.clientWidth + 2) {
-        const ox = getComputedStyle(node).overflowX;
-        if (ox === 'auto' || ox === 'scroll') return node;
-      }
-      node = node.parentElement;
-    }
-    return null;
-  }
-
-  document.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) { touchActive = false; return; }
-    if ($('#sheet') && $('#sheet').classList.contains('show')) { touchActive = false; return; }
-    if ($('#modal') && $('#modal').classList.contains('show')) { touchActive = false; return; }
-    const t = e.target;
-    // 입력류/특정 컨테이너 위에선 스와이프 무시
-    if (t.closest('input,select,textarea,.zone-scroll,.transport-tabs')) { touchActive = false; return; }
-    // 가로 스크롤 가능한 표 위인지 기록 (스크롤 끝 판정에 사용)
-    hScrollEl = findHorizontalScrollAncestor(t);
-    if (hScrollEl) {
-      hScrollStartLeft = hScrollEl.scrollLeft;
-      hScrollMax = hScrollEl.scrollWidth - hScrollEl.clientWidth;
-    } else {
-      hScrollStartLeft = 0; hScrollMax = 0;
-    }
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    touchStartT = Date.now();
-    touchActive = true;
-  }, { passive: true });
-
-  document.addEventListener('touchend', (e) => {
-    if (!touchActive) return;
-    touchActive = false;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - touchStartX;
-    const dy = t.clientY - touchStartY;
-    const dt = Date.now() - touchStartT;
-    // 가로 동작이 아니면 무시 (세로 스크롤 의도)
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-
-    // 가로 스크롤 표 위에서 시작했다면:
-    if (hScrollEl) {
-      const speed = Math.abs(dx) / Math.max(1, dt);   // px/ms (플릭 감지)
-      const FLICK = speed > 0.9;                        // 빠른 스와이프 기준
-      const atLeftEnd = hScrollStartLeft <= 0;
-      const atRightEnd = hScrollStartLeft >= hScrollMax - 1;
-      // 왼쪽으로 스와이프(dx<0, 다음 탭): 표가 오른쪽 끝이었거나 빠른 플릭일 때만 탭 전환
-      // 오른쪽으로 스와이프(dx>0, 이전 탭): 표가 왼쪽 끝이었거나 빠른 플릭일 때만 탭 전환
-      if (dx < 0 && !(atRightEnd || FLICK)) return;   // 아직 표를 더 스크롤할 여지 → 탭 전환 안 함
-      if (dx > 0 && !(atLeftEnd || FLICK)) return;
-    }
-
-    const idx = order.indexOf(currentTab);
-    if (idx < 0) return;
-    if (dx < 0 && idx < order.length - 1) setTab(order[idx + 1]);
-    else if (dx > 0 && idx > 0) setTab(order[idx - 1]);
-  }, { passive: true });
-})();
+/* 좌우 스와이프 탭 이동 기능은 제거됨 (탭은 하단 탭바로만 이동) */
 
 function updateTopbarHeight() {
   const tb = document.querySelector('.topbar');
@@ -2271,6 +2219,37 @@ function memberItemHTML(m, no) {
   `;
 }
 
+// 인원 추가 화면의 개인차 "+ 차주 추가" 버튼 바인딩 (설정 잠금과 무관 — 참여자도 가능)
+function bindAddDriverBtns(scope) {
+  (scope || document).querySelectorAll('.add-driver-btn').forEach(btn => {
+    if (btn._bound) return; btn._bound = true;
+    btn.onclick = function () {
+      const dir = btn.dataset.dir;
+      const block = btn.closest('.sess-block');
+      promptModal('개인차 차주 추가', '차주(개인차 제공자)의 이름을 입력하세요.', '', function (name) {
+        const nm = (name || '').trim();
+        if (!nm) return;
+        if (!Array.isArray(PRIVATE_CAR_LIST)) PRIVATE_CAR_LIST = [];
+        if (PRIVATE_CAR_LIST.includes(nm)) { toast('이미 있는 차주예요. 목록에서 선택하세요.'); }
+        else {
+          PRIVATE_CAR_LIST.push(nm);
+          DB.settings = DB.settings || {};
+          DB.settings.privateCarList = PRIVATE_CAR_LIST.slice();
+          if (typeof updateTransportOptions === 'function') updateTransportOptions();
+          saveDB();
+          toast('차주를 추가했어요: ' + nm);
+        }
+        const sel = block ? block.querySelector('.' + dir + '-veh') : null;
+        if (sel) {
+          const opts = ['', ...vehiclesByKind('private')];
+          sel.innerHTML = opts.map(o => `<option value="${esc(o)}" ${o===nm?'selected':''}>${esc(o||'─ 선택 ─')}</option>`).join('');
+          sel.value = nm;
+        }
+      });
+    };
+  });
+}
+
 function openMemberSheet(m, isNew=false, afterSave=null) {
   if (guardViewOnly()) return;
   const existingEv = DB.evangelism.find(e => e.memberId === m.id || (e.name === m.name && e.name !== '' && e.zone === m.zone));
@@ -2360,7 +2339,11 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           // 구체 차편 select
           function vehSelect(dir, kind, cur) {
             const opts = ['', ...vehiclesByKind(kind)];
-            return `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${opts.map(o=>`<option value="${esc(o)}" ${cur===o?'selected':''}>${esc(o||'─ 선택 ─')}</option>`).join('')}</select>`;
+            const sel = `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${opts.map(o=>`<option value="${esc(o)}" ${cur===o?'selected':''}>${esc(o||'─ 선택 ─')}</option>`).join('')}</select>`;
+            const addBtn = (kind === 'private')
+              ? `<button type="button" class="add-driver-btn" data-dir="${dir}" style="width:100%; margin-top:4px; padding:5px; font-size:11px; border:1px dashed var(--gold-soft); border-radius:6px; background:transparent; color:var(--gold-soft); cursor:pointer;">+ 차주 추가</button>`
+              : '';
+            return sel + addBtn;
           }
           return `
           <div class="sess-block" data-name="${esc(sname)}" style="border:1px solid var(--line-soft); border-radius:10px; margin-bottom:8px; overflow:hidden;">
@@ -2589,11 +2572,16 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
             } else {
               block.querySelectorAll(`input[name="${dir}kind-${nm}"]`).forEach(r => { r.dataset.wasChecked = ''; });
               radio.dataset.wasChecked = '1';
-              vehBox.innerHTML = `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${vehHtmlFor(radio.value, prev)}</select>`;
+              const addBtn2 = (radio.value === 'private')
+                ? `<button type="button" class="add-driver-btn" data-dir="${dir}" style="width:100%; margin-top:4px; padding:5px; font-size:11px; border:1px dashed var(--gold-soft); border-radius:6px; background:transparent; color:var(--gold-soft); cursor:pointer;">+ 차주 추가</button>`
+                : '';
+              vehBox.innerHTML = `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${vehHtmlFor(radio.value, prev)}</select>` + addBtn2;
+              bindAddDriverBtns(block);
             }
             refreshKindPills(dir);
           });
         });
+        bindAddDriverBtns(block);
       });
     });
   }, 30);
@@ -2720,7 +2708,7 @@ function renderFeeSupportSheet() {
 }
 
 function openMetaEditSheet() {
-  if (guardViewOnly()) return;
+  if (guardSettings()) return;
   const html = `
     <div class="notice">차수 날짜와 본 교회 차수를 설정합니다. (행사명·행사 전환은 더보기 상단의 '행사' 영역에서)</div>
     <div class="field">
@@ -2833,14 +2821,11 @@ function openInputCheckSheet() {
     });
   });
 
-  // 4) 접수 구분 빠짐
-  const noReg = regs.filter(m => !m.regType).map(m => ({ m: m, what: '접수 구분 없음' }));
-
   // 미입력 목록 정렬: 구역 → 회(부서) → 가나다 (다른 명단과 동일 기준)
+  // (접수 구분은 인원 추가 시 필수 입력이라 점검 대상에서 제외)
   const byMember = (a, b) => memberSortCmp(a.m, b.m);
   noTrans.sort(byMember);
   noDate.sort(byMember);
-  noReg.sort(byMember);
 
   function nameBtn(it) {
     return '<button class="chk-name" data-mid="' + esc(it.m.id) + '" style="display:flex; justify-content:space-between; align-items:center; width:100%; text-align:left; padding:9px 12px; border:1px solid var(--line-soft); border-radius:9px; background:var(--bg-1); color:var(--ink); margin-bottom:6px;">' +
@@ -2860,8 +2845,7 @@ function openInputCheckSheet() {
   if (church) html += section('본 교회 차수(' + esc(church) + ') 차편 미선택', noTrans, '모두 차편이 선택되어 있어요.');
   else html += '<div style="font-size:12px; color:var(--ink-mute); margin:10px 0;">본 교회 차수가 설정되지 않아 차편 점검을 건너뛰었어요.</div>';
   html += section('차수 날짜 미선택', noDate, '모두 날짜가 선택되어 있어요.');
-  html += section('접수 구분 미입력', noReg, '모두 입력되어 있어요.');
-  const total = noTrans.length + noDate.length + noReg.length;
+  const total = noTrans.length + noDate.length;
   if (!total && !noDateDefs.length) html += '<div style="text-align:center; padding:14px; color:var(--green); font-weight:800;">✓ 점검 완료 — 빠진 입력이 없습니다.</div>';
 
   openSheet('입력 점검', html, null, { hideSave: true });
@@ -2907,7 +2891,7 @@ function restoreAutoBackup(idx) {
   if (!b || !b.data) { toast('백업을 찾을 수 없어요', true); return; }
   const ev = JSON.parse(JSON.stringify(b.data));
   ev.id = 'ev' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  delete ev.roomCode; delete ev.viewCode; ev.viewOnly = false;
+  delete ev.roomCode; delete ev.viewCode; ev.viewOnly = false; ev.isHost = true;
   ev.meta = ev.meta || {};
   ev.meta.title = ((ev.meta.title || b.title || '행사') + ' (백업 복원)');
   VAULT.events.push(ev);
@@ -2937,7 +2921,7 @@ function openManualSheet() {
 }
 
 function openFeeRateSheet() {
-  if (guardViewOnly()) return;
+  if (guardSettings()) return;
   // 각 행: 회(부서) 이름(편집 가능) + 단가(편집 가능) + 삭제
   function rowHTML(name, fee) {
     return `<div class="field deptfee-row" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
@@ -3340,6 +3324,19 @@ function guardViewOnly() {
   if (isViewOnly()) { toast('보기 전용으로 참여 중이라 수정할 수 없어요.', true); return true; }
   return false;
 }
+// 설정(행사정보·기초데이터·회비단가) 수정 권한:
+// 동기화 안 함(코드 없음)→허용, 방장(코드 발행 기기)→허용, 코드로 참여→잠금
+function canEditSettings() {
+  if (!DB) return false;
+  if (isViewOnly()) return false;
+  if (!DB.roomCode) return true;
+  return !!DB.isHost;
+}
+function guardSettings() {
+  if (isViewOnly()) { toast('보기 전용으로 참여 중이라 수정할 수 없어요.', true); return true; }
+  if (!canEditSettings()) { toast('행사 설정은 코드를 발행한 기기에서만 바꿀 수 있어요. (개인차 차주는 인원 추가에서 추가할 수 있어요)', true); return true; }
+  return false;
+}
 
 /* ---------- 자동 백업 (동기화 덮어쓰기 대비) ---------- */
 const AUTO_BACKUP_KEY = 'retreat-autobackup-v1';
@@ -3561,6 +3558,7 @@ async function syncStart() {
     const code = genRoomCode();
     await pushFullEvent(code, DB);
     DB.roomCode = code;
+    DB.isHost = true;
     try {
       const vcode = genRoomCode();
       await viewRef(vcode).set({ room: code, createdAt: Date.now() });
@@ -3602,6 +3600,7 @@ async function syncJoin() {
     const ev = freshEvent(title);
     ev.roomCode = code;
     ev.viewOnly = viewOnly;
+    ev.isHost = false;
     if (viewCodeUsed) ev.viewCode = viewCodeUsed;
     if (d.settings) ev.settings = Object.assign(ev.settings, d.settings);
     if (d.fees) ev.fees = Object.assign(ev.fees, d.fees);
@@ -3782,19 +3781,19 @@ function renderMore() {
       <div class="menu-list">
         <button class="menu-item" data-action="edit-meta">
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-          <div class="lb"><div class="t">행사 정보 수정</div><div class="d">차수 날짜, 본 교회 차수, 상·하행 일정</div></div>
+          <div class="lb"><div class="t">행사 정보 수정${canEditSettings()?'':' 🔒'}</div><div class="d">${canEditSettings()?'차수 날짜, 본 교회 차수, 상·하행 일정':'코드 발행 기기에서만 수정 가능'}</div></div>
         </button>
         <button class="menu-item" data-action="base-settings">
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-          <div class="lb"><div class="t">구역, 차수, 차량, 추가 일정 목록 수정</div><div class="d">선택 가능한 데이터 목록을 변경합니다.</div></div>
+          <div class="lb"><div class="t">구역, 차수, 차량, 추가 일정 목록 수정${canEditSettings()?'':' 🔒'}</div><div class="d">${canEditSettings()?'선택 가능한 데이터 목록을 변경합니다.':'코드 발행 기기에서만 수정 가능 (개인차 차주는 인원 추가에서)'}</div></div>
         </button>
         <button class="menu-item" onclick="openFeeRateSheet()">
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-          <div class="lb"><div class="t">회(부서)별 회비 단가 설정</div><div class="d">회(부서)와 회비 단가를 수정·추가합니다.</div></div>
+          <div class="lb"><div class="t">회(부서)별 회비 단가 설정${canEditSettings()?'':' 🔒'}</div><div class="d">${canEditSettings()?'회(부서)와 회비 단가를 수정·추가합니다.':'코드 발행 기기에서만 수정 가능'}</div></div>
         </button>
         <button class="menu-item" onclick="openInputCheckSheet()">
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
-          <div class="lb"><div class="t">입력 점검</div><div class="d">차편·날짜·접수구분이 빠진 인원을 확인합니다.</div></div>
+          <div class="lb"><div class="t">입력 점검</div><div class="d">차편·날짜가 빠진 인원을 확인합니다.</div></div>
         </button>
       </div>
     </div>
@@ -3868,7 +3867,7 @@ function renderMore() {
 }
 
 function openBaseSettingsSheet() {
-  if (guardViewOnly()) return;
+  if (guardSettings()) return;
   const html = `
     <div class="notice">목록은 콤마(,)로 구분하여 입력해주세요.</div>
     <div class="field"><label>구역 목록</label><textarea id="sZones" rows="2">${ZONES.join(', ')}</textarea><div class="helper">구역 수에 제한은 없어요. 단, 엑셀 내보내기에는 앞에서부터 20개 구역까지만 포함됩니다. 이름은 자유롭게(예: 1구역, 가나구역, 타교회) 쓸 수 있어요.</div></div>

@@ -651,6 +651,7 @@ function openNewEventInput() {
 }
 // 단순 행사명 변경 (데이터 영향 없음)
 function openEventRename() {
+  if (guardSettings()) return;
   const cur = DB.meta.title || '';
   const html = `
     <div class="notice">행사명만 변경합니다. 차수·인원 등 데이터에는 영향을 주지 않습니다.</div>
@@ -3863,7 +3864,7 @@ function renderMore() {
             <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(DB.meta.title||'행사')}</span>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
-          <button class="btn btn-secondary" id="evRenameBtn" style="flex-shrink:0; white-space:nowrap; padding:11px 12px;">행사명 수정</button>
+          <button class="btn btn-secondary" id="evRenameBtn" style="flex-shrink:0; white-space:nowrap; padding:11px 12px;">행사명 수정${canEditSettings()?'':' 🔒'}</button>
         </div>
         <div id="evDropdown" style="display:none; margin-top:6px; border:1px solid var(--line-soft); border-radius:10px; overflow:hidden; background:var(--bg-1);"></div>
       </div>

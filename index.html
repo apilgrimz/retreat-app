@@ -2220,6 +2220,28 @@ function memberItemHTML(m, no) {
 }
 
 // 인원 추가 화면의 개인차 "+ 차주 추가" 버튼 바인딩 (설정 잠금과 무관 — 참여자도 가능)
+// 현재 열린 인원 폼의 모든 개인차 select(.up-veh/.down-veh 중 개인차 종류인 것)를 새 목록으로 갱신
+// selectName이 주어지면 그 차주를 선택 상태로 둠
+function refreshAllPrivateSelects(selectName) {
+  const opts = ['', ...vehiclesByKind('private')];
+  document.querySelectorAll('#mSessionList .sess-block').forEach(block => {
+    ['up','down'].forEach(dir => {
+      const sel = block.querySelector('.' + dir + '-veh');
+      if (!sel) return;
+      // 이 select가 개인차 종류일 때만 (해당 방향 kind 라디오가 private이고 체크됨)
+      const nm = block.dataset.name;
+      const kindChecked = block.querySelector('input[name="' + dir + 'kind-' + nm + '"][value="private"]:checked');
+      if (!kindChecked) return;
+      const cur = sel.value;
+      const keep = (selectName !== undefined && sel === document.activeElement) ? selectName : cur;
+      const finalVal = (selectName !== undefined && PRIVATE_CAR_LIST.includes(selectName) && cur === '') ? selectName : keep;
+      sel.innerHTML = opts.map(o => `<option value="${esc(o)}" ${o===finalVal?'selected':''}>${esc(o||'─ 선택 ─')}</option>`).join('');
+      // 삭제 등으로 현재 값이 사라졌으면 빈칸으로
+      if (!PRIVATE_CAR_LIST.includes(sel.value) && sel.value !== '') sel.value = '';
+    });
+  });
+}
+
 function bindAddDriverBtns(scope) {
   (scope || document).querySelectorAll('.add-driver-btn').forEach(btn => {
     if (btn._bound) return; btn._bound = true;
@@ -2239,15 +2261,70 @@ function bindAddDriverBtns(scope) {
           saveDB();
           toast('차주를 추가했어요: ' + nm);
         }
+        // 누른 칸에 새 차주 선택 + 상·하행 모든 개인차 select 동시 갱신
         const sel = block ? block.querySelector('.' + dir + '-veh') : null;
-        if (sel) {
-          const opts = ['', ...vehiclesByKind('private')];
-          sel.innerHTML = opts.map(o => `<option value="${esc(o)}" ${o===nm?'selected':''}>${esc(o||'─ 선택 ─')}</option>`).join('');
-          sel.value = nm;
-        }
+        if (sel) sel.value = nm;
+        refreshAllPrivateSelects();
+        if (sel) sel.value = nm;
       });
     };
   });
+  // 차주 삭제 버튼
+  (scope || document).querySelectorAll('.del-driver-btn').forEach(btn => {
+    if (btn._bound) return; btn._bound = true;
+    btn.onclick = function () {
+      if (!Array.isArray(PRIVATE_CAR_LIST) || !PRIVATE_CAR_LIST.length) { toast('등록된 차주가 없어요.'); return; }
+      openDriverDeleteSheet();
+    };
+  });
+}
+
+// 차주 삭제 시트: 목록에서 골라 삭제 (사용 중이면 확인)
+function openDriverDeleteSheet() {
+  const rows = PRIVATE_CAR_LIST.map(function (nm) {
+    const users = registeredMembers().filter(function (m) {
+      return Object.values(m.sessionTrans || {}).some(function (st) { return st && (st.upVehicle === nm || st.downVehicle === nm); });
+    });
+    const cnt = users.length;
+    return '<div style="display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border:1px solid var(--line-soft); border-radius:9px; margin-bottom:6px;">' +
+      '<div><b>' + esc(nm) + '</b>' + (cnt ? ' <span style="font-size:11px; color:var(--rose);">· ' + cnt + '명 사용 중</span>' : ' <span style="font-size:11px; color:var(--ink-mute);">· 사용 안 함</span>') + '</div>' +
+      '<button class="btn btn-danger" style="padding:5px 12px; font-size:12px;" data-del-driver="' + esc(nm) + '">삭제</button></div>';
+  }).join('');
+  openSheet('개인차 차주 삭제', '<div class="notice">삭제할 차주의 삭제 버튼을 누르세요. 사용 중인 차주를 지우면 해당 인원의 개인차 선택이 비워집니다.</div>' + rows, null, { hideSave: true });
+  setTimeout(function () {
+    document.querySelectorAll('#sheetBody [data-del-driver]').forEach(function (b) {
+      b.onclick = function () {
+        const nm = b.dataset.delDriver;
+        const users = registeredMembers().filter(function (m) {
+          return Object.values(m.sessionTrans || {}).some(function (st) { return st && (st.upVehicle === nm || st.downVehicle === nm); });
+        });
+        const doDelete = function () {
+          PRIVATE_CAR_LIST = PRIVATE_CAR_LIST.filter(function (x) { return x !== nm; });
+          DB.settings = DB.settings || {};
+          DB.settings.privateCarList = PRIVATE_CAR_LIST.slice();
+          // 사용 중이던 멤버의 해당 차편 비우기
+          DB.members.forEach(function (m) {
+            Object.keys(m.sessionTrans || {}).forEach(function (k) {
+              const st = m.sessionTrans[k];
+              if (st && st.upVehicle === nm) { st.upVehicle = ''; st.upKind = ''; }
+              if (st && st.downVehicle === nm) { st.downVehicle = ''; st.downKind = ''; }
+            });
+            if (typeof recalcMemberRepTrans === 'function') recalcMemberRepTrans(m);
+          });
+          if (typeof updateTransportOptions === 'function') updateTransportOptions();
+          saveDB();
+          closeSheet(true);
+          refreshAllPrivateSelects();  // 인원 폼의 select도 갱신
+          toast('차주를 삭제했어요: ' + nm);
+        };
+        if (users.length) {
+          confirmModal('차주 삭제', users.length + '명이 "' + nm + '" 차주를 쓰고 있어요. 삭제하면 그 인원의 개인차 선택이 비워집니다. 계속할까요?', doDelete, '삭제');
+        } else {
+          doDelete();
+        }
+      };
+    });
+  }, 50);
 }
 
 function openMemberSheet(m, isNew=false, afterSave=null) {
@@ -2340,9 +2417,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           function vehSelect(dir, kind, cur) {
             const opts = ['', ...vehiclesByKind(kind)];
             const sel = `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${opts.map(o=>`<option value="${esc(o)}" ${cur===o?'selected':''}>${esc(o||'─ 선택 ─')}</option>`).join('')}</select>`;
-            const addBtn = (kind === 'private')
-              ? `<button type="button" class="add-driver-btn" data-dir="${dir}" style="width:100%; margin-top:4px; padding:5px; font-size:11px; border:1px dashed var(--gold-soft); border-radius:6px; background:transparent; color:var(--gold-soft); cursor:pointer;">+ 차주 추가</button>`
-              : '';
+            const addBtn = (kind === 'private') ? `<div style="display:flex; gap:5px; margin-top:4px;"><button type="button" class="add-driver-btn" data-dir="${dir}" style="flex:1; padding:5px; font-size:11px; border:1px dashed var(--gold-soft); border-radius:6px; background:transparent; color:var(--gold-soft); cursor:pointer;">+ 차주 추가</button><button type="button" class="del-driver-btn" data-dir="${dir}" style="flex:1; padding:5px; font-size:11px; border:1px dashed var(--rose); border-radius:6px; background:transparent; color:var(--rose); cursor:pointer;">차주 삭제</button></div>` : '';
             return sel + addBtn;
           }
           return `
@@ -2572,9 +2647,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
             } else {
               block.querySelectorAll(`input[name="${dir}kind-${nm}"]`).forEach(r => { r.dataset.wasChecked = ''; });
               radio.dataset.wasChecked = '1';
-              const addBtn2 = (radio.value === 'private')
-                ? `<button type="button" class="add-driver-btn" data-dir="${dir}" style="width:100%; margin-top:4px; padding:5px; font-size:11px; border:1px dashed var(--gold-soft); border-radius:6px; background:transparent; color:var(--gold-soft); cursor:pointer;">+ 차주 추가</button>`
-                : '';
+              const addBtn2 = (radio.value === 'private') ? `<div style="display:flex; gap:5px; margin-top:4px;"><button type="button" class="add-driver-btn" data-dir="${dir}" style="flex:1; padding:5px; font-size:11px; border:1px dashed var(--gold-soft); border-radius:6px; background:transparent; color:var(--gold-soft); cursor:pointer;">+ 차주 추가</button><button type="button" class="del-driver-btn" data-dir="${dir}" style="flex:1; padding:5px; font-size:11px; border:1px dashed var(--rose); border-radius:6px; background:transparent; color:var(--rose); cursor:pointer;">차주 삭제</button></div>` : '';
               vehBox.innerHTML = `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${vehHtmlFor(radio.value, prev)}</select>` + addBtn2;
               bindAddDriverBtns(block);
             }
@@ -2909,7 +2982,7 @@ function openManualSheet() {
   const html = `
     <div class="notice">앱 사용 방법을 간단히 안내합니다.</div>
     ${sec('화면 구성', '아래 네 개의 탭으로 이루어져 있습니다.<br>• <b>홈</b> — 전체 현황 한눈에 보기<br>• <b>명단</b> — 인원 추가·수정, 전체 명단<br>• <b>차편</b> — 차편별 탑승 명단과 출발 정보<br>• <b>더보기</b> — 행사 설정, 동기화, 엑셀, 도움말')}
-    ${sec('1. 행사 준비', '더보기 맨 위 <b>행사</b> 칸에서 설정합니다.<br>• <b>행사 정보 수정</b>: 교회명, 본 교회 차수, 차수별 날짜(달력에서 두 날짜를 고르면 빠른 날=시작, 늦은 날=끝)<br>• <b>구역·차수·차량 목록</b>: 구역, 호차, 교회차, 개인차 차주 이름 등<br>• <b>회(부서)별 회비 단가</b>: 부서 이름·단가 수정/추가')}
+    ${sec('1. 행사 준비', '더보기 맨 위 <b>행사</b> 칸에서 설정합니다.<br>• <b>행사 정보 수정</b>: 교회명, 본 교회 차수, 차수별 날짜(달력에서 두 날짜를 고르면 빠른 날=시작, 늦은 날=끝)<br>• <b>구역·차수·차량 목록</b>: 구역, 호차, 교회차, 기타 차편 등 (개인차 차주는 인원 추가의 개인차에서 추가·삭제)<br>• <b>회(부서)별 회비 단가</b>: 부서 이름·단가 수정/추가')}
     ${sec('2. 인원 등록', '명단 탭의 <b>＋ 버튼</b>으로 추가합니다.<br>• 필수: 구역, 회(부서), 성명, 접수 구분, 차수(1개 이상)<br>• 차수를 체크하면 상행(참석)·하행(귀가) 입력칸이 열립니다. 날짜를 고르고 차편 종류(버스·개인차·기타)를 선택하면 구체 차편이 나옵니다.<br>• 본 교회 차수가 아닌 분은 차편을 비워도 저장됩니다.<br>• 같은 구역+이름이 이미 있으면 확인 후 저장합니다.')}
     ${sec('3. 명단·차편 보기', '• 위쪽 <b>구역/차편 칩</b>을 누르면 해당 구역·차편만 보입니다(스크롤해도 고정).<br>• 차편 탭에서는 상행·하행 <b>출발 날짜·시각</b>을 입력할 수 있습니다(버스·개인차는 시각만, 교회차·타교회는 날짜+시각). 전체보기·인쇄에 표시됩니다.')}
     ${sec('4. 실시간 동기화', '여러 사람이 함께 접수할 때 사용합니다.<br>• 한 사람이 더보기에서 동기화를 시작하면 <b>행사 코드</b>가 만들어집니다.<br>• 다른 사람은 그 코드로 참여하면 같은 화면을 함께 봅니다.<br>⚠️ <b>함께 접수하는 동안은 동기화를 계속 켜두세요.</b> 껐다가 다시 켜면 클라우드 데이터로 맞춰지고, 끈 동안 혼자 입력한 내용은 사라집니다.')}
@@ -3891,7 +3964,6 @@ function openBaseSettingsSheet() {
     <div class="field"><label>본대 버스 목록</label><textarea id="sBuses" rows="2">${BUSES.join(', ')}</textarea><div class="helper">개수 제한은 없어요. 엑셀 내보내기에는 앞에서부터 10대까지 포함됩니다. 1호차, 2호차… 형식을 권장합니다.</div></div>
     <div class="field"><label>교회차 목록</label><textarea id="sChurch" rows="2">${CHURCH_CARS.join(', ')}</textarea><div class="helper">개수 제한은 없어요. 엑셀 내보내기에는 앞에서부터 5대까지 포함됩니다. 교회차1, 교회차2… 형식을 권장합니다.</div></div>
     <div class="field"><label>기타 차편 목록</label><textarea id="sOther" rows="2" placeholder="예: 타교회, 대중교통, 자전거">${OTHER_TRANSPORTS.join(', ')}</textarea><div class="helper">본대 외 차편의 옵션. 필요한 항목을 자유롭게 추가/수정하세요.</div></div>
-    <div class="field"><label>개인차 목록 (차주 이름)</label><textarea id="sPrivateCarList" rows="2" placeholder="예: 김장로, 박집사, 이형제">${PRIVATE_CAR_LIST.join(', ')}</textarea><div class="helper">여기 등록한 이름들이 인원 추가의 차편(개인차) 옵션에 자동으로 추가됩니다.</div></div>
   `;
   openSheet('기초 데이터 설정', html, () => {
     ZONES = $('#sZones').value.split(',').map(s=>s.trim()).filter(Boolean);
@@ -3899,7 +3971,6 @@ function openBaseSettingsSheet() {
     BUSES = $('#sBuses').value.split(',').map(s=>s.trim()).filter(Boolean);
     CHURCH_CARS = $('#sChurch').value.split(',').map(s=>s.trim()).filter(Boolean);
     OTHER_TRANSPORTS = $('#sOther').value.split(',').map(s=>s.trim()).filter(Boolean);
-    PRIVATE_CAR_LIST = $('#sPrivateCarList').value.split(',').map(s=>s.trim()).filter(Boolean);
 
     updateTransportOptions();
     // 차수 목록 변경을 sessionDefs에 동기화 (기존 날짜는 보존, 새 차수는 빈 날짜로 추가, 빠진 차수는 제거)

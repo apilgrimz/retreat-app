@@ -264,7 +264,7 @@ nav.tabbar {
 #dateRangeModal { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; padding: 20px; }
 .modal .box { background: var(--bg-1); border: 1px solid var(--line); border-radius: 16px; padding: 20px; max-width: 380px; width: 100%; }
 .modal h3 { margin: 0 0 8px; font-size: 16px; font-weight: 700; }
-.modal p { margin: 0 0 16px; color: var(--ink-soft); font-size: 14px; }
+.modal p { margin: 0 0 16px; color: var(--ink-soft); font-size: 14px; white-space: pre-line; }
 .modal .actions { display: flex; gap: 8px; }
 .modal .actions .btn { flex: 1; }
 
@@ -3648,12 +3648,18 @@ function syncShowCode() {
       '<button class="btn btn-secondary btn-block" id="syncCopyViewBtn">보기 코드 복사</button>'
     : '<button class="btn btn-secondary btn-block" id="syncMakeViewBtn" style="margin-top:16px;">보기 전용 코드 만들기</button>' +
       '<div style="font-size:12px;color:var(--ink-mute);margin-top:6px;">보기 코드로 참여한 사람은 명단을 볼 수만 있고 수정할 수 없어요.</div>';
+  // 방장 표시가 없는데 편집 코드를 가진 기기(예: 이전 버전에서 코드를 발행한 기기)에는
+  // 이 기기를 방장으로 지정하는 버튼을 제공 (행사 설정 수정 권한 부여)
+  const hostBlock = DB.isHost
+    ? '<div style="margin-top:16px; padding:9px 12px; border:1px solid var(--line-soft); border-radius:9px; font-size:12px; color:var(--green);">★ 이 기기가 이 행사의 방장이에요. 행사 설정을 수정할 수 있어요.</div>'
+    : '<button class="btn btn-secondary btn-block" id="syncClaimHostBtn" style="margin-top:16px;">이 기기를 방장으로 지정</button>' +
+      '<div style="font-size:12px;color:var(--ink-mute);margin-top:6px;">이 기기에서 직접 동기화 코드를 발행한 경우에만 지정하세요. 방장은 행사 정보·기초 데이터·회비 단가를 수정할 수 있어요.</div>';
   const html =
     '<div class="notice">편집 코드를 알려주면 함께 입력·수정할 수 있고, 보기 코드를 알려주면 열람만 할 수 있어요.</div>' +
     '<div class="field"><label>편집 코드 (입력·수정 가능)</label>' +
     '<input id="syncCodeInput" value="' + esc(code) + '" readonly style="font-family:monospace;font-size:22px;letter-spacing:2px;text-align:center"/></div>' +
     '<button class="btn btn-primary btn-block" id="syncCopyBtn">편집 코드 복사</button>' +
-    viewBlock;
+    viewBlock + hostBlock;
   openSheet('행사 공유 코드', html, null, { hideSave: true });
   setTimeout(function () {
     const btn = $('#syncCopyBtn');
@@ -3679,6 +3685,16 @@ function syncShowCode() {
         console.error(e); mb.disabled = false; mb.textContent = '보기 전용 코드 만들기';
         toast('보기 코드 생성 실패: 네트워크/보안 규칙을 확인해 주세요', true);
       }
+    };
+    const hb = $('#syncClaimHostBtn');
+    if (hb) hb.onclick = function () {
+      confirmModal('방장으로 지정',
+        '이 기기를 이 행사의 방장으로 지정합니다. (이 기기에서 직접 동기화 코드를 발행한 경우에만 지정하세요.)\n\n지정하면 행사 정보·기초 데이터·회비 단가를 수정할 수 있어요.',
+        function () {
+          DB.isHost = true; saveVault();
+          closeSheet(true); render(); syncShowCode();
+          toast('이 기기를 방장으로 지정했어요');
+        }, '방장으로 지정');
     };
   }, 50);
 }

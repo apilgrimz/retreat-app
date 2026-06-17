@@ -2052,9 +2052,11 @@ function renderHome() {
 
     <div class="card">
       <div class="card-head"><div class="card-title">회별(부서별) 인원 및 회비</div></div>
-      <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px;">
-        <div class="roster-row head" style="grid-template-columns: 1fr 50px 80px 85px;"><div>회(부서)</div><div style="text-align:center">인원</div><div style="text-align:right">단가(회비)</div><div style="text-align:right; padding-right:10px;">합계</div></div>
-        ${DEPTS.map(d => `<div class="roster-row clickable" style="grid-template-columns: 1fr 50px 80px 85px;" onclick="openDeptSheet('${esc(d)}')"><div>${esc(d)}</div><div style="text-align:center">${depts[d]||0}명</div><div style="text-align:right;color:var(--ink-mute)">${won(DB.fees[d]||0)}</div><div style="text-align:right;font-weight:600;color:var(--gold-soft); padding-right:10px;">${won(deptFees[d]||0)}</div></div>`).join('')}
+      <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0;">
+        <div style="min-width:340px;">
+          <div class="roster-row head" style="grid-template-columns: 110px 50px 80px 90px;"><div>회(부서)</div><div style="text-align:center">인원</div><div style="text-align:right">단가(회비)</div><div style="text-align:right; padding-right:10px;">합계</div></div>
+          ${DEPTS.map(d => `<div class="roster-row clickable" style="grid-template-columns: 110px 50px 80px 90px;" onclick="openDeptSheet('${esc(d)}')"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(d)}</div><div style="text-align:center; white-space:nowrap;">${depts[d]||0}명</div><div style="text-align:right;color:var(--ink-mute); white-space:nowrap;">${won(DB.fees[d]||0)}</div><div style="text-align:right;font-weight:600;color:var(--gold-soft); padding-right:10px; white-space:nowrap;">${won(deptFees[d]||0)}</div></div>`).join('')}
+        </div>
       </div>
     </div>
 
@@ -2382,7 +2384,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     <div class="field">
       <label>접수 구분</label>
       <div class="time-pill-row" id="mRegTypeRow">
-        ${[['pre1','사전 1차'],['pre2','사전 2차'],['onsite','현장 접수']].map(([v,lb]) => {
+        ${[['pre1','사전 1단계'],['pre2','사전 2단계'],['onsite','현장 접수']].map(([v,lb]) => {
           const sel = (m.regType||'')===v;
           return `<label class="time-pill ${sel?'active':''}"><input type="radio" name="mRegType" value="${v}" ${sel?'checked':''}/><span>${lb}</span></label>`;
         }).join('')}
@@ -3171,7 +3173,7 @@ function intakeTable(list, withRegister) {
   return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + (withRegister ? '430' : '380') + 'px">' + head + rows + '</div></div>';
 }
 
-var INTAKE_LABELS = { pre1: '사전 1차 접수 · 명찰 수령', pre2: '사전 2차 접수 · 명찰 현장 수령', onsite: '현장 접수' };
+var INTAKE_LABELS = { pre1: '사전 1단계 접수 · 명찰 수령', pre2: '사전 2단계 접수 · 명찰 현장 수령', onsite: '현장 접수' };
 function intakeMenuButton(key, count, desc) {
   return '<button class="menu-item" onclick="openIntakeGroup(\'' + key + '\')">' +
     '<div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>' +
@@ -3180,7 +3182,7 @@ function intakeMenuButton(key, count, desc) {
 function openIntakeStatus() {
   const g = intakeGroups();
   const html =
-    '<div class="notice">사전 1·2차 접수자는 등록 인원에 집계됩니다. 현장 접수자는 명단에서 \'등록\'을 누르면 즉시 정식 등록됩니다.</div>' +
+    '<div class="notice">사전 1·2단계 접수자는 등록 인원에 집계됩니다. 현장 접수자는 명단에서 \'등록\'을 누르면 즉시 정식 등록됩니다.</div>' +
     '<div class="menu-list">' +
     intakeMenuButton('pre1', g.pre1.length, '미리 접수하고 명찰을 받은 인원') +
     intakeMenuButton('pre2', g.pre2.length, '미리 접수했으나 명찰은 현장 수령') +
@@ -3202,7 +3204,7 @@ function openIntakeGroup(key) {
 function intakeRegister(id) {
   const m = (DB.members || []).find(function (x) { return x.id === id; });
   if (!m) return;
-  confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (사전 1차로 전환)', function () {
+  confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (사전 1단계로 전환)', function () {
     m.regType = 'pre1';
     saveDB();
     render();

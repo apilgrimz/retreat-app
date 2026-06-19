@@ -2222,6 +2222,16 @@ function memberItemHTML(m, no) {
   `;
 }
 
+// 부서가 미취학/영유아면 인도자 라벨을 '보호자'로 전환
+function isGuardianDept(dept) {
+  const d = (dept || '');
+  return d.indexOf('미취학') >= 0 || d.indexOf('영유아') >= 0 || d.indexOf('유아') >= 0;
+}
+function updateLeaderLabel(dept) {
+  const lb = document.getElementById('mLeaderLabel');
+  if (lb) lb.textContent = isGuardianDept(dept) ? '보호자' : '인도자';
+}
+
 // 인원 추가 화면의 개인차 "+ 차주 추가" 버튼 바인딩 (설정 잠금과 무관 — 참여자도 가능)
 // 현재 열린 인원 폼의 모든 개인차 select(.up-veh/.down-veh 중 개인차 종류인 것)를 새 목록으로 갱신
 // selectName이 주어지면 그 차주를 선택 상태로 둠
@@ -2378,7 +2388,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
   const html = `
     <div class="row-2">
       <div class="field"><label>구역</label><select id="mZone"><option value="" ${!m.zone?'selected':''}>선택</option>${ZONES.map(z => `<option value="${esc(z)}" ${m.zone===z?'selected':''}>${esc(z)}</option>`).join('')}</select></div>
-      <div class="field"><label>부서(회)</label><select id="mDept"><option value="">선택</option>${DEPTS.map(d => `<option value="${esc(d)}" ${m.dept===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
+      <div class="field"><label>부서(회)</label><select id="mDept" onchange="updateLeaderLabel(this.value)"><option value="">선택</option>${DEPTS.map(d => `<option value="${esc(d)}" ${m.dept===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
     </div>
     <div class="field"><label>성명</label><input id="mName" value="${esc(m.name)}" placeholder="홍길동" autocomplete="off"/></div>
     <div class="field">
@@ -2449,7 +2459,6 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           </div>`;
         }).join('')}
       </div>
-      <div class="helper">날짜를 고르고 차편 종류(버스·개인차·기타)를 선택하면 구체 차편이 나옵니다. 본 교회 차수가 아닌 분은 차편을 비워도 저장됩니다.</div>
     </div>
 
     <div class="section-title">추가 관리 항목</div>
@@ -2459,14 +2468,13 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     </div>
 
     <div class="section-title">인도자 / 숙소 / 비고</div>
-    <div class="notice" style="margin-top:-6px;">여기 기재된 인도자, 관계, 숙소 정보는 상단의 <b>'전도대상자 명단' 체크 시 자동으로 연동</b>됩니다.</div>
     <div class="row-2">
-      <div class="field"><label>인도자</label><input id="mLeaderName" value="${esc(m.leaderName)}"/></div>
+      <div class="field"><label id="mLeaderLabel">인도자</label><input id="mLeaderName" value="${esc(m.leaderName)}"/></div>
       <div class="field"><label>관계</label><input id="mLeaderRel" value="${esc(m.leaderRel)}"/></div>
     </div>
     <div class="field"><label>숙소</label><input id="mLodging" value="${esc(m.lodging||'')}" placeholder="예: A동 101호"/></div>
     <div class="field">
-      <label>구원 / 침례</label>
+      <label>구원 / 침례 <span style="font-weight:500;color:var(--gold-soft);font-size:12px">(${esc(DB.meta.title||'이번 수양회')})</span></label>
       <div style="display:flex;gap:16px;padding:8px 4px">
         <label style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer">
           <input type="checkbox" id="mSalvation" ${m.salvation ? 'checked':''}/> 구원
@@ -2575,6 +2583,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
   });
 
   setTimeout(() => {
+    updateLeaderLabel(($('#mDept')||{}).value);
     // 접수 구분: 라디오지만 "이미 선택된 걸 다시 누르면 해제" 토글
     document.querySelectorAll('#mRegTypeRow input[name="mRegType"]').forEach(r => { r._was = r.checked; });
     document.querySelectorAll('#mRegTypeRow input[name="mRegType"]').forEach(radio => {

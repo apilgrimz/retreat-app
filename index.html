@@ -3128,8 +3128,12 @@ async function downloadFile(file) {
   // 2차 폴백: 일반 다운로드 (브라우저가 폴더 지정 불가하므로
   // 파일명에 "Retreat App_" 접두사를 붙여 다운로드 폴더에서 한곳에 모이도록 함)
   const url = URL.createObjectURL(file);
-  const a = document.createElement('a'); a.href = url; a.download = file.name;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  const a = document.createElement('a');
+  a.href = url; a.download = file.name; a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 60000);
   toast('"다운로드" 폴더에 저장되었습니다. (Retreat App_ 접두사로 구분)');
 }
 
@@ -4549,6 +4553,11 @@ async function exportToExcel() {
 
   // 7) 생성된 ZIP을 Blob으로 저장
   const out = await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
+  // 안전장치: 생성 결과가 비었으면 저장하지 않고 알림 (빈 파일 방지)
+  if (!out || out.byteLength < 1000) {
+    toast('엑셀 생성에 실패했어요. 잠시 후 다시 시도해 주세요.', true);
+    return;
+  }
   const fname = `${title.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`;
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const file = new File([blob], fname, { type: blob.type });
@@ -4567,9 +4576,16 @@ async function exportToExcel() {
       if (err && err.name === 'AbortError') return;
     }
   }
+  // 모바일/태블릿에서 다운로드가 백그라운드로 진행되므로, 클릭 직후 즉시 revoke하면
+  // 다운로드 매니저가 데이터를 다 읽기 전에 Blob이 무효화되어 '빈 파일'이 저장될 수 있다.
+  // → revoke를 충분히 지연시켜 실제 저장이 끝난 뒤 정리한다.
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = fname;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname; a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 60000);
   toast('엑셀로 저장됐어요');
 }
 

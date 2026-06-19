@@ -3103,38 +3103,8 @@ function openFeeSupportSheet(fs, isNew=false) {
 }
 
 async function downloadFile(file) {
-  // 1차 시도: File System Access API — Chrome/Edge/Android PWA에서 폴더 지정 가능
-  // showSaveFilePicker는 사용자가 폴더+파일명을 직접 지정해서 저장
-  if (typeof window.showSaveFilePicker === 'function') {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: file.name,
-        types: [{
-          description: 'JSON 백업 파일',
-          accept: { 'application/json': ['.json'] },
-        }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(file);
-      await writable.close();
-      toast('백업 파일이 저장되었습니다.');
-      return;
-    } catch (e) {
-      // 사용자가 취소했거나 권한 거부 — 일반 다운로드로 폴백
-      if (e && e.name === 'AbortError') { return; } // 사용자가 취소
-      console.warn('FS Access API failed, fallback:', e);
-    }
-  }
-  // 2차 폴백: 일반 다운로드 (브라우저가 폴더 지정 불가하므로
-  // 파일명에 "Retreat App_" 접두사를 붙여 다운로드 폴더에서 한곳에 모이도록 함)
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url; a.download = file.name; a.rel = 'noopener';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 60000);
-  toast('"다운로드" 폴더에 저장되었습니다. (Retreat App_ 접두사로 구분)');
+  // 공통 저장 함수 사용 (showSaveFilePicker → 공유 → 다운로드 순)
+  await saveFileSmart(file, file.name, file.type || 'application/json');
 }
 
 function shareApp() {
@@ -4111,6 +4081,60 @@ function extraCellText(timeKey, val) {
   }
   return kind; // '대중교통' | '타교회'
 }
+// 파일 저장: 환경별 최적 방법을 순서대로 시도
+// 1) showSaveFilePicker(데스크톱 크롬: 폴더 직접 지정)
+// 2) navigator.share 파일 공유(모바일/태블릿/PWA에서 가장 안정적 — 빈 파일 문제 회피)
+// 3) <a download> 폴백
+async function saveFileSmart(blob, fname, mime) {
+  const file = new File([blob], fname, { type: mime });
+
+  // 1) File System Access API
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const ext = fname.slice(fname.lastIndexOf('.'));
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fname,
+        types: [{ description: '파일', accept: { [mime]: [ext] } }],
+      });
+      const w = await handle.createWritable();
+      await w.write(file); await w.close();
+      toast('파일이 저장됐어요');
+      return true;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return true; // 사용자가 취소
+      // 그 외 오류는 다음 방법으로
+    }
+  }
+
+  // 2) Web Share API (파일 공유) — 모바일/PWA에서 가장 안정적
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: fname });
+      toast('공유로 저장했어요');
+      return true;
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return true; // 사용자가 공유 취소
+    // 공유 실패 시 다운로드로
+  }
+
+  // 3) 다운로드 폴백 (지연 revoke)
+  try {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname; a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 60000);
+    toast('다운로드 폴더에 저장됐어요');
+    return true;
+  } catch (err) {
+    toast('저장에 실패했어요. 다시 시도해 주세요.', true);
+    return false;
+  }
+}
+
 async function exportToExcel() {
   const title = DB.meta.title || '하계수양회';
 
@@ -4560,33 +4584,7 @@ async function exportToExcel() {
   }
   const fname = `${title.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`;
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const file = new File([blob], fname, { type: blob.type });
-
-  if (typeof window.showSaveFilePicker === 'function') {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: fname,
-        types: [{ description: 'Excel 파일', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
-      });
-      const w = await handle.createWritable();
-      await w.write(file); await w.close();
-      toast('엑셀 파일이 저장됐어요');
-      return;
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-    }
-  }
-  // 모바일/태블릿에서 다운로드가 백그라운드로 진행되므로, 클릭 직후 즉시 revoke하면
-  // 다운로드 매니저가 데이터를 다 읽기 전에 Blob이 무효화되어 '빈 파일'이 저장될 수 있다.
-  // → revoke를 충분히 지연시켜 실제 저장이 끝난 뒤 정리한다.
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = fname; a.rel = 'noopener';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 60000);
-  toast('엑셀로 저장됐어요');
+  await saveFileSmart(blob, fname, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 }
 
 function bindViewHandlers() {

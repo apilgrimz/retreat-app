@@ -4087,8 +4087,26 @@ function extraCellText(timeKey, val) {
 // 3) <a download> 폴백
 async function saveFileSmart(blob, fname, mime) {
   const file = new File([blob], fname, { type: mime });
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
 
-  // 1) File System Access API
+  // 모바일(특히 갤럭시 크롬)에서는 showSaveFilePicker가 폴더 창은 뜨지만
+  // 실제 쓰기가 비어버리는 문제가 있어 → 공유를 먼저 시도한다.
+  // 공유는 사용자가 "내 파일/드라이브에 저장"을 직접 골라 데이터가 온전히 전달된다.
+  if (isMobile) {
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: fname, text: fname });
+        toast('공유 화면에서 저장 위치를 선택하세요');
+        return true;
+      }
+    } catch (err) {
+      if (err && err.name === 'AbortError') return true; // 사용자가 공유 취소
+      // 공유 불가/실패 → 다운로드로
+    }
+    return downloadViaAnchor(blob, fname);
+  }
+
+  // 데스크톱: File System Access API (폴더 직접 지정)
   if (typeof window.showSaveFilePicker === 'function') {
     try {
       const ext = fname.slice(fname.lastIndexOf('.'));
@@ -4097,28 +4115,19 @@ async function saveFileSmart(blob, fname, mime) {
         types: [{ description: '파일', accept: { [mime]: [ext] } }],
       });
       const w = await handle.createWritable();
-      await w.write(file); await w.close();
+      await w.write(blob); await w.close();   // blob을 직접 write
       toast('파일이 저장됐어요');
       return true;
     } catch (err) {
-      if (err && err.name === 'AbortError') return true; // 사용자가 취소
-      // 그 외 오류는 다음 방법으로
+      if (err && err.name === 'AbortError') return true;
+      // 실패 시 다운로드로
     }
   }
+  return downloadViaAnchor(blob, fname);
+}
 
-  // 2) Web Share API (파일 공유) — 모바일/PWA에서 가장 안정적
-  try {
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: fname });
-      toast('공유로 저장했어요');
-      return true;
-    }
-  } catch (err) {
-    if (err && err.name === 'AbortError') return true; // 사용자가 공유 취소
-    // 공유 실패 시 다운로드로
-  }
-
-  // 3) 다운로드 폴백 (지연 revoke)
+// 다운로드 폴백 (지연 revoke)
+function downloadViaAnchor(blob, fname) {
   try {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

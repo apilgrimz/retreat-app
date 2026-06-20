@@ -1783,52 +1783,88 @@ function execPrintHome() {
   doPrint(titleText, body);
 }
 
-window.addEventListener('popstate', (e) => {
-  // 시트가 열려 있을 때 뒤로가기 처리:
-  // - 편집창처럼 복귀(reopen)할 명단창이 있으면 → 명단창으로 돌아가되, 명단창을 위한 history를 다시 채운다
-  //   (그래야 명단창에서 다시 뒤로가기를 누르면 그 항목을 소비하며 명단창이 닫힌다)
-  // - 복귀할 화면이 없으면(명단창 자체) → 시트를 닫는다
-  // - 시트가 아예 없으면 → 가로채지 않음 = 앱 종료
-  if (document.body.classList.contains('sheet-open')) {
-    const hadReopen = !!sheetHandlers.reopen;
-    closeSheet(true);  // reopen이 있으면 그 안에서 명단창을 다시 열고, openSheet가 history를 다시 push함
-    // (closeSheet→reopen→openSheet에서 alreadyOpen=true이므로 pushState를 안 함 → 직접 보충)
-    if (hadReopen && document.body.classList.contains('sheet-open') && !(history.state && history.state.sheet)) {
-      history.pushState({ sheet: 'open' }, '', '#sheet');
-    }
-  }
-});
+// ── 시트(바텀시트) 화면 스택 ──────────────────────────────
+// 명단창·편집창 등 "시트로 뜨는 화면"을 스택으로 관리한다.
+// 화면을 하나 열 때마다 history.pushState를 한 번 한다 → 뒤로가기 1번 = 화면 1개 닫기.
+// sheetStack의 각 항목: { render: 다시 그리는 함수(없으면 단순 시트), save, hideSave, title }
+let sheetStack = [];
+let sheetHandlers = { save: null, cancel: null, reopen: null }; // 하위호환(기존 코드가 참조)
 
-let sheetHandlers = { save: null, cancel: null, reopen: null };
+// 실제로 시트 DOM에 내용을 표시 (스택 top 기준)
+function paintSheetTop() {
+  const top = sheetStack[sheetStack.length - 1];
+  if (!top) return;
+  $('#sheetTitle').textContent = top.title || '';
+  $('#sheetBody').innerHTML = top.bodyHTML || '';
+  $('#sheetBody').scrollTop = 0;
+  $('#sheetSave').style.display = top.hideSave ? 'none' : '';
+  $('#sheetSave').textContent = top.saveLabel || '저장';
+  sheetHandlers.save = top.save || null;
+  if (top.afterPaint) { try { top.afterPaint(); } catch(e){} }
+}
+
+// 시트 열기: 스택에 쌓고 history push (한 화면 = history 한 칸)
 function openSheet(title, bodyHTML, onSave, opts={}) {
-  $('#sheetTitle').textContent = title; $('#sheetBody').innerHTML = bodyHTML;
-  $('#sheetBody').scrollTop = 0;  // 시트를 열 때 항상 최상단부터 표시
-  $('#sheetSave').style.display = opts.hideSave ? 'none' : ''; $('#sheetSave').textContent = opts.saveLabel || '저장';
-  sheetHandlers.save = onSave;
-  // reopen: 이 시트가 어떤 식으로 닫히든(저장/취소/뒤로가기) 다시 열 화면. 명시되면 교체, 아니면 유지(같은 시트 내용 교체일 때).
-  if (opts.reopen !== undefined) sheetHandlers.reopen = opts.reopen;
-  const alreadyOpen = document.body.classList.contains('sheet-open');
-  $('#sheetBackdrop').classList.add('show'); document.body.classList.add('sheet-open');
-  // 이미 시트가 열린 상태에서 내용만 바꾸는 경우(명단창→편집창)는 history를 새로 쌓지 않음
-  if (!opts.skipHistory && !alreadyOpen) history.pushState({ sheet: 'open' }, '', '#sheet');
+  const entry = { title, bodyHTML, save: onSave, hideSave: !!opts.hideSave, saveLabel: opts.saveLabel, afterPaint: opts.afterPaint || null, reopener: opts.reopener || null };
+
+  if (opts.replaceTop && sheetStack.length) {
+    // 현재 화면을 history 추가 없이 교체 (복귀 시 갱신용)
+    sheetStack[sheetStack.length - 1] = entry;
+  } else {
+    sheetStack.push(entry);
+    history.pushState({ sheetDepth: sheetStack.length }, '', '#sheet' + sheetStack.length);
+  }
+
+  $('#sheetBackdrop').classList.add('show');
+  document.body.classList.add('sheet-open');
+  paintSheetTop();
   requestAnimationFrame(() => $('#sheet').classList.add('show'));
 }
+
+// 시트 닫기(버튼/저장/백드롭): 직접 DOM을 건드리지 않고 history.back()만 부른다.
+// → 실제 닫기는 popstate 핸들러(popSheetOnce)가 단독으로 수행한다(중복 방지).
+// skipHistory=true는 특수한 경우(외부에서 강제 정리)로, 스택을 직접 비운다.
 function closeSheet(skipHistory=false) {
-  const reopen = sheetHandlers.reopen;
-  sheetHandlers = { save:null, cancel:null, reopen:null };
-  if (reopen) {
-    // 편집창 → 명단창 복귀: 시트를 닫지 않고 내용만 명단창으로 교체 (history 그대로 1개 유지)
-    reopen();
+  if (!sheetStack.length) {
+    $('#sheet').classList.remove('show');
+    setTimeout(() => $('#sheetBackdrop').classList.remove('show'), 280);
+    document.body.classList.remove('sheet-open');
     return;
   }
-  $('#sheet').classList.remove('show'); setTimeout(() => $('#sheetBackdrop').classList.remove('show'), 280);
-  document.body.classList.remove('sheet-open');
-  if (!skipHistory && history.state && history.state.sheet) history.back();
+  if (skipHistory) {
+    // history를 건드리지 않고 한 단계만 정리 (보통은 쓰지 않음)
+    popSheetOnce();
+    return;
+  }
+  history.back();  // popstate → popSheetOnce 가 실제 닫기 수행
 }
-$('#sheetCancel').onclick = () => closeSheet(); $('#sheetBackdrop').onclick = () => closeSheet();
+
+// 시트 한 단계 닫기 실행부 (popstate에서만 호출)
+function popSheetOnce() {
+  if (!sheetStack.length) return;
+  sheetStack.pop();
+  if (sheetStack.length > 0) {
+    const below = sheetStack[sheetStack.length - 1];
+    if (below && typeof below.reopener === 'function') below.reopener(); // 데이터 갱신하며 복귀
+    else paintSheetTop();
+  } else {
+    $('#sheet').classList.remove('show');
+    setTimeout(() => $('#sheetBackdrop').classList.remove('show'), 280);
+    document.body.classList.remove('sheet-open');
+    sheetHandlers = { save: null, cancel: null, reopen: null };
+  }
+}
+
+// 뒤로가기: 시트가 떠 있으면 한 단계 닫고, 없으면 가로채지 않음(앱 종료)
+window.addEventListener('popstate', (e) => {
+  if (sheetStack.length > 0) popSheetOnce();
+});
+
+$('#sheetCancel').onclick = () => closeSheet();
+$('#sheetBackdrop').onclick = () => closeSheet();
 $('#sheetSave').onclick = () => { if (sheetHandlers.save) { if (sheetHandlers.save() !== false) closeSheet(); } else closeSheet(); };
 
-function openSessionSheet(session) {
+function openSessionSheet(session, isReopen) {
   const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
@@ -1850,7 +1886,7 @@ function openSessionSheet(session) {
       </div>
     </div>
   `;
-  openSheet(`${session} 명단`, html, null, {hideSave:true, reopen:null});
+  openSheet(`${session} 명단`, html, null, {hideSave:true, replaceTop:!!isReopen, reopener:()=>openSessionSheet(session, true)});
 }
 
 // 구역 명단창에서 "인원 추가": 그 구역으로 새 인원, 저장 후 구역 명단창으로 복귀
@@ -1861,7 +1897,7 @@ function addMemberInZone(zone) {
   openMemberSheet(emptyMember(zone), true, back);
 }
 
-function openZoneSheet(zone) {
+function openZoneSheet(zone, isReopen) {
   const list = membersByZone(zone).sort(memberSortCmp);
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
@@ -1884,10 +1920,10 @@ function openZoneSheet(zone) {
       </div>
     </div>
   `;
-  openSheet(`${zone} 명단`, html, null, {hideSave:true, reopen:null});
+  openSheet(`${zone} 명단`, html, null, {hideSave:true, replaceTop:!!isReopen, reopener:()=>openZoneSheet(zone, true)});
 }
 
-function openDeptSheet(dept) {
+function openDeptSheet(dept, isReopen) {
   const list = registeredMembers().filter(m => m.dept === dept).sort(memberSortCmp);
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
@@ -1909,7 +1945,7 @@ function openDeptSheet(dept) {
       </div>
     </div>
   `;
-  openSheet(`${dept} 명단`, html, null, {hideSave:true, reopen:null});
+  openSheet(`${dept} 명단`, html, null, {hideSave:true, replaceTop:!!isReopen, reopener:()=>openDeptSheet(dept, true)});
 }
 
 function isReg(m){ return m.regType !== 'onsite'; }
@@ -2621,9 +2657,10 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     saveDB();
     if (rosterFilter.zone !== ALL_ZONES) rosterFilter.zone = updated.zone;
     render(); toast(isNew ? '추가됐어요' : '수정됐어요');
-    closeSheet();  // reopen(명단창 복귀)이 등록돼 있으면 그쪽으로, 아니면 일반 닫기
+    // 편집창을 닫으면(스택에서 제거) 아래 명단창으로 복귀하며 자동 갱신된다.
+    closeSheet();
     }
-  }, { reopen: (typeof afterSave === 'function') ? afterSave : null });
+  });
 
   setTimeout(() => {
     updateLeaderLabel(($('#mDept')||{}).value);
@@ -3216,7 +3253,7 @@ function openIntakeStatus() {
     '</div>';
   openSheet('접수 현황', html, null, { hideSave: true });
 }
-function openIntakeGroup(key) {
+function openIntakeGroup(key, isReopen) {
   const g = intakeGroups();
   const list = g[key] || [];
   const isOnsite = key === 'onsite';
@@ -3224,7 +3261,7 @@ function openIntakeGroup(key) {
     (isOnsite ? '<div class="notice">\'등록\'을 누르면 해당 인원이 즉시 정식 등록되어 모든 집계에 반영됩니다.</div>' : '') +
     '<div class="section-title">' + INTAKE_LABELS[key] + ' (' + list.length + '명)</div>' +
     intakeTable(list, isOnsite, key);
-  openSheet(INTAKE_LABELS[key], html, null, { hideSave: true, reopen:null });
+  openSheet(INTAKE_LABELS[key], html, null, { hideSave: true, replaceTop:!!isReopen, reopener:()=>openIntakeGroup(key, true) });
 }
 
 function intakeRegister(id) {

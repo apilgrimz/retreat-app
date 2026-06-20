@@ -1,6 +1,6 @@
 // 하계수양회 PWA Service Worker
 // v1.0.9 — 모바일 안정성 강화: HTML 캐시 우선, 네트워크 차단/호스팅 다운 시에도 동작
-const CACHE_VERSION = 'retreat-sync-v9.9.4';
+const CACHE_VERSION = 'retreat-sync-v9.9.5';
 const CORE_ASSETS = [
   './',
   './index.html',

@@ -1856,6 +1856,7 @@ function popSheetOnce() {
 }
 
 // 뒤로가기: 시트가 떠 있으면 한 단계 닫고, 없으면 가로채지 않음(앱 종료)
+window.__getSheetDepth = function(){ return sheetStack.length; };
 window.addEventListener('popstate', (e) => {
   if (sheetStack.length > 0) popSheetOnce();
 });
@@ -2068,7 +2069,7 @@ function renderHome() {
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:202px; margin-top:6px; min-width:0;">
         <div style="min-width:400px;">
           <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div></div>
-          ${lList.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
+          ${lList.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openLodgingQuickEdit('${esc(m.id)}')">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
         </div>
       </div>
     `;
@@ -2211,7 +2212,7 @@ function renderLodgingSheet() {
       <div style="margin-top:12px; font-weight:700; color:var(--gold); font-size:13px;">${esc(lk)} (${lList.length}명)</div>
       <div class="roster-table" style="margin-bottom:0; min-width:400px; margin-top:6px;">
         <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div></div>
-        ${lList.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
+        ${lList.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberFromRef('${esc(m.id)}','${esc(m.name)}','${esc(m.zone)}','renderLodgingSheet')">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
       </div>
     `;
   });
@@ -2417,6 +2418,34 @@ function openDriverDeleteSheet() {
       };
     });
   }, 50);
+}
+
+// 숙소만 간단히 편집 (홈 숙소 카드의 화면 성명 클릭용). 저장 후 홈 갱신.
+function openLodgingQuickEdit(memberId) {
+  if (guardViewOnly()) return;
+  const m = (DB.members || []).find(x => x.id === memberId);
+  if (!m) { toast('인원을 찾지 못했어요.', true); return; }
+  const html = `
+    <div style="font-size:13px;color:var(--ink-mute);margin-bottom:10px;">${esc(m.zone)} · ${esc(m.dept)} · <b style="color:var(--ink)">${esc(m.name)}</b></div>
+    <div class="field"><label>숙소</label><input id="qLodging" value="${esc(m.lodging||'')}" placeholder="예: A동 101호" autofocus/></div>
+    <div style="font-size:12px;color:var(--ink-mute);margin-top:4px;">숙소만 빠르게 바꿉니다. 다른 정보는 명단에서 성명을 눌러 수정하세요.</div>
+  `;
+  openSheet('숙소 입력 · ' + m.name, html, function () {
+    m.lodging = ($('#qLodging').value || '').trim();
+    saveDB(); render();
+    return true;  // closeSheet가 이어서 처리(스택 복귀)
+  }, { saveLabel: '저장' });
+}
+
+// 전도대상자/회비지원/숙소 전체보기에서 성명 클릭 → 해당 인원의 편집창
+function openMemberFromRef(memberId, name, zone, backFn) {
+  let m = null;
+  if (memberId) m = (DB.members || []).find(function(x){ return x.id === memberId; });
+  if (!m) m = (DB.members || []).find(function(x){ return x.name === name && x.zone === zone && name; });
+  if (!m) m = (DB.members || []).find(function(x){ return x.name === name && name; });
+  if (!m) { toast('연결된 등록 인원을 찾지 못했어요. (명단에서 추가했는지 확인해 주세요)', true); return; }
+  const afterSave = (backFn && typeof window[backFn] === 'function') ? function(){ window[backFn](); } : null;
+  openMemberSheet(m, false, afterSave);
 }
 
 // id로 멤버를 찾아 인원 편집 시트 열기 (각 명단 표의 성명 클릭용)
@@ -2859,7 +2888,7 @@ function renderFeeSupportSheet() {
       <div class="roster-table" style="margin-bottom:0; min-width:550px;">
         <div class="roster-row head" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div><div style="text-align:right">금액</div></div>
         ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : 
-          sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row clickable" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
+          sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 45px 55px 60px 1fr 65px;"><div class="no">${i+1}</div><div>${esc(fs.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="event.stopPropagation(); openMemberFromRef('${esc(fs.memberId||'')}','${esc(fs.name)}','${esc(fs.zone)}','renderFeeSupportSheet')">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
       </div>
     </div>
   `;
@@ -4093,7 +4122,7 @@ function renderEvangelismSheet() {
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:640px;">
         <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div><div style="text-align:center">상태</div></div>
-        ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
+        ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openMemberFromRef('${esc(e.memberId||'')}','${esc(e.name)}','${esc(e.zone)}','renderEvangelismSheet')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
         ${DB.evangelism.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>

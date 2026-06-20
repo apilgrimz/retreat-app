@@ -1784,10 +1784,18 @@ function execPrintHome() {
 }
 
 window.addEventListener('popstate', (e) => {
-  // 시트(편집창)가 열려 있으면 뒤로가기로 시트만 닫는다 (안전장치).
-  // 시트가 없으면 아무것도 가로채지 않으므로 뒤로가기 = 앱 종료.
+  // 시트가 열려 있을 때 뒤로가기 처리:
+  // - 편집창처럼 복귀(reopen)할 명단창이 있으면 → 명단창으로 돌아가되, 명단창을 위한 history를 다시 채운다
+  //   (그래야 명단창에서 다시 뒤로가기를 누르면 그 항목을 소비하며 명단창이 닫힌다)
+  // - 복귀할 화면이 없으면(명단창 자체) → 시트를 닫는다
+  // - 시트가 아예 없으면 → 가로채지 않음 = 앱 종료
   if (document.body.classList.contains('sheet-open')) {
-    closeSheet(true);
+    const hadReopen = !!sheetHandlers.reopen;
+    closeSheet(true);  // reopen이 있으면 그 안에서 명단창을 다시 열고, openSheet가 history를 다시 push함
+    // (closeSheet→reopen→openSheet에서 alreadyOpen=true이므로 pushState를 안 함 → 직접 보충)
+    if (hadReopen && document.body.classList.contains('sheet-open') && !(history.state && history.state.sheet)) {
+      history.pushState({ sheet: 'open' }, '', '#sheet');
+    }
   }
 });
 

@@ -90,7 +90,7 @@ nav.tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; padding: 8px 8px calc(8px + var(--safe-bot));
   background: rgba(11,16,36,.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--line-soft); 
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; 
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; 
 }
 .tabbar button {
   display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0; border-radius: 10px;
@@ -1791,19 +1791,30 @@ window.addEventListener('popstate', (e) => {
   }
 });
 
-let sheetHandlers = { save: null, cancel: null };
+let sheetHandlers = { save: null, cancel: null, reopen: null };
 function openSheet(title, bodyHTML, onSave, opts={}) {
   $('#sheetTitle').textContent = title; $('#sheetBody').innerHTML = bodyHTML;
   $('#sheetBody').scrollTop = 0;  // 시트를 열 때 항상 최상단부터 표시
   $('#sheetSave').style.display = opts.hideSave ? 'none' : ''; $('#sheetSave').textContent = opts.saveLabel || '저장';
   sheetHandlers.save = onSave;
+  // reopen: 이 시트가 어떤 식으로 닫히든(저장/취소/뒤로가기) 다시 열 화면. 명시되면 교체, 아니면 유지(같은 시트 내용 교체일 때).
+  if (opts.reopen !== undefined) sheetHandlers.reopen = opts.reopen;
+  const alreadyOpen = document.body.classList.contains('sheet-open');
   $('#sheetBackdrop').classList.add('show'); document.body.classList.add('sheet-open');
-  if (!opts.skipHistory) history.pushState({ sheet: 'open' }, '', '#sheet');
+  // 이미 시트가 열린 상태에서 내용만 바꾸는 경우(명단창→편집창)는 history를 새로 쌓지 않음
+  if (!opts.skipHistory && !alreadyOpen) history.pushState({ sheet: 'open' }, '', '#sheet');
   requestAnimationFrame(() => $('#sheet').classList.add('show'));
 }
 function closeSheet(skipHistory=false) {
+  const reopen = sheetHandlers.reopen;
+  sheetHandlers = { save:null, cancel:null, reopen:null };
+  if (reopen) {
+    // 편집창 → 명단창 복귀: 시트를 닫지 않고 내용만 명단창으로 교체 (history 그대로 1개 유지)
+    reopen();
+    return;
+  }
   $('#sheet').classList.remove('show'); setTimeout(() => $('#sheetBackdrop').classList.remove('show'), 280);
-  document.body.classList.remove('sheet-open'); sheetHandlers = { save:null, cancel:null };
+  document.body.classList.remove('sheet-open');
   if (!skipHistory && history.state && history.state.sheet) history.back();
 }
 $('#sheetCancel').onclick = () => closeSheet(); $('#sheetBackdrop').onclick = () => closeSheet();
@@ -1831,13 +1842,15 @@ function openSessionSheet(session) {
       </div>
     </div>
   `;
-  openSheet(`${session} 명단`, html, null, {hideSave:true});
+  openSheet(`${session} 명단`, html, null, {hideSave:true, reopen:null});
 }
 
 // 구역 명단창에서 "인원 추가": 그 구역으로 새 인원, 저장 후 구역 명단창으로 복귀
 function addMemberInZone(zone) {
   if (guardViewOnly()) return;
-  openMemberSheet(emptyMember(zone), true, function () { openZoneSheet(zone); });
+  // 구역이 지정돼 있으면 저장 후 그 구역 명단창으로 복귀, 아니면(홈 '추가') 그냥 닫기
+  const back = zone ? function () { openZoneSheet(zone); } : null;
+  openMemberSheet(emptyMember(zone), true, back);
 }
 
 function openZoneSheet(zone) {
@@ -1863,7 +1876,7 @@ function openZoneSheet(zone) {
       </div>
     </div>
   `;
-  openSheet(`${zone} 명단`, html, null, {hideSave:true});
+  openSheet(`${zone} 명단`, html, null, {hideSave:true, reopen:null});
 }
 
 function openDeptSheet(dept) {
@@ -1888,7 +1901,7 @@ function openDeptSheet(dept) {
       </div>
     </div>
   `;
-  openSheet(`${dept} 명단`, html, null, {hideSave:true});
+  openSheet(`${dept} 명단`, html, null, {hideSave:true, reopen:null});
 }
 
 function isReg(m){ return m.regType !== 'onsite'; }
@@ -2049,7 +2062,7 @@ function renderHome() {
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">구역별 인원 <span style="color:var(--ink-mute);font-weight:500">·</span> 총 회비 <span style="color:var(--gold);font-weight:700">${won(feeTotal)}원</span> <span style="color:var(--ink-mute);font-weight:500;font-size:11px">· 구역을 누르면 명단</span></div>
+        <div class="card-title">구역별 인원 <span style="color:var(--ink-mute);font-weight:500">·</span> <span style="color:var(--gold);cursor:pointer" onclick="addMemberInZone('')">추가</span> <span style="color:var(--ink-mute);font-weight:500">·</span> 총 회비 <span style="color:var(--gold);font-weight:700">${won(feeTotal)}원</span></div>
         <button class="card-action" onclick="execPrintRosterAll()">인쇄</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(96px, 1fr));gap:8px">
@@ -2600,10 +2613,9 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     saveDB();
     if (rosterFilter.zone !== ALL_ZONES) rosterFilter.zone = updated.zone;
     render(); toast(isNew ? '추가됐어요' : '수정됐어요');
-    if (typeof afterSave === 'function') { closeSheet(true); setTimeout(function(){ afterSave(updated); }, 300); }
-    else { closeSheet(true); }
+    closeSheet();  // reopen(명단창 복귀)이 등록돼 있으면 그쪽으로, 아니면 일반 닫기
     }
-  });
+  }, { reopen: (typeof afterSave === 'function') ? afterSave : null });
 
   setTimeout(() => {
     updateLeaderLabel(($('#mDept')||{}).value);
@@ -3010,20 +3022,19 @@ function restoreAutoBackup(idx) {
 }
 
 function openManualSheet() {
-  const sec = (title, body) => `<div style="margin-bottom:16px;">
-    <div style="font-weight:800; color:var(--gold-soft); font-size:14px; margin-bottom:6px;">${title}</div>
-    <div style="font-size:13px; color:var(--ink-soft); line-height:1.7;">${body}</div>
-  </div>`;
+  const sec = (title, body) => `<div style="margin-bottom:16px;"><div style="font-weight:700;color:var(--gold);margin-bottom:6px;font-size:15px">${title}</div><div style="font-size:13px;line-height:1.7;color:var(--ink-soft)">${body}</div></div>`;
   const html = `
-    <div class="notice">앱 사용 방법을 간단히 안내합니다.</div>
-    ${sec('화면 구성', '아래 네 개의 탭으로 이루어져 있습니다.<br>• <b>홈</b> — 전체 현황 한눈에 보기<br>• <b>명단</b> — 인원 추가·수정, 전체 명단<br>• <b>차편</b> — 차편별 탑승 명단과 출발 정보<br>• <b>더보기</b> — 행사 설정, 동기화, 엑셀, 도움말')}
-    ${sec('1. 행사 준비', '더보기 맨 위 <b>행사</b> 칸에서 설정합니다.<br>• <b>행사 정보 수정</b>: 교회명, 본 교회 차수, 차수별 날짜(달력에서 두 날짜를 고르면 빠른 날=시작, 늦은 날=끝)<br>• <b>구역·차수·차량 목록</b>: 구역, 호차, 교회차, 기타 차편 등 (개인차 차주는 인원 추가의 개인차에서 추가·삭제)<br>• <b>회(부서)별 회비 단가</b>: 부서 이름·단가 수정/추가')}
-    ${sec('2. 인원 등록', '명단 탭의 <b>＋ 버튼</b>으로 추가합니다.<br>• 필수: 구역, 회(부서), 성명, 접수 구분, 차수(1개 이상)<br>• 차수를 체크하면 상행(참석)·하행(귀가) 입력칸이 열립니다. 날짜를 고르고 차편 종류(버스·개인차·기타)를 선택하면 구체 차편이 나옵니다.<br>• 본 교회 차수가 아닌 분은 차편을 비워도 저장됩니다.<br>• 같은 구역+이름이 이미 있으면 확인 후 저장합니다.')}
-    ${sec('3. 명단·차편 보기', '• 위쪽 <b>구역/차편 칩</b>을 누르면 해당 구역·차편만 보입니다(스크롤해도 고정).<br>• 차편 탭에서는 상행·하행 <b>출발 날짜·시각</b>을 입력할 수 있습니다(버스·개인차는 시각만, 교회차·타교회는 날짜+시각). 전체보기·인쇄에 표시됩니다.')}
-    ${sec('4. 실시간 동기화', '여러 사람이 함께 접수할 때 사용합니다.<br>• 한 사람이 더보기에서 동기화를 시작하면 <b>행사 코드</b>가 만들어집니다.<br>• 다른 사람은 그 코드로 참여하면 같은 화면을 함께 봅니다.<br>⚠️ <b>함께 접수하는 동안은 동기화를 계속 켜두세요.</b> 껐다가 다시 켜면 클라우드 데이터로 맞춰지고, 끈 동안 혼자 입력한 내용은 사라집니다.')}
-    ${sec('5. 여러 행사 관리', '더보기 맨 위 <b>행사명</b>을 누르면 드롭다운이 열립니다.<br>• <b>＋ 새 행사 추가</b>: 빈 상태로 시작(구역·부서 목록은 유지, 나머지 초기화). 이전 행사는 보존됩니다.<br>• 누적 행사를 선택해 전환하거나 삭제할 수 있습니다.')}
-    ${sec('6. 엑셀·백업', '• <b>엑셀로 내보내기</b>: 교회 서식 엑셀로 저장(통계 교통편은 본 교회 차수만 집계).<br>• <b>데이터 백업/복원</b>: 모든 정보를 파일로 보관/복원. 접수가 한창인 날은 하루 한 번 백업을 권합니다.')}
-    <div style="font-size:12px; color:var(--ink-mute); margin-top:10px; padding-top:10px; border-top:1px solid var(--line-soft);">더 자세한 내용이나 문의는 담당자에게 말씀해 주세요.</div>
+    <div style="font-size:13px;line-height:1.7;color:var(--ink-soft)">
+    ${sec('화면 구성', '아래 세 개의 탭으로 이루어져 있습니다.<br>• <b>홈</b> — 전체 현황 한눈에 보기, 인원 추가·수정, 명단·인쇄<br>• <b>차편</b> — 차편별 탑승 명단과 출발 정보<br>• <b>더보기</b> — 행사 설정, 동기화, 엑셀, 도움말')}
+    ${sec('1. 행사 준비', '더보기 맨 위에서 설정합니다. (동기화 코드를 발행한 <b>방장</b> 기기에서만 수정할 수 있어요)<br>• <b>행사명 수정</b>: 행사 이름<br>• <b>행사 정보 수정</b>: 교회명, 본 교회 차수, 차수별 날짜(달력에서 두 날짜를 고르면 빠른 날=시작, 늦은 날=끝)<br>• <b>구역·차수·차량 목록</b>: 구역, 호차, 교회차, 기타 차편 (개인차 차주는 인원 추가에서 추가·삭제)<br>• <b>회(부서)별 회비 단가</b>: 부서 이름·단가')}
+    ${sec('2. 인원 등록', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분(사전 1단계·2단계·현장 접수), 차수는 꼭 골라야 저장됩니다.<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. 본 교회 차수가 아니면 차편을 비워도 됩니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 개인차를 고르면 <b>+ 차주 추가</b>로 차주를 바로 등록할 수 있고(상·하행 모두 반영), <b>차주 삭제</b>로 뺄 수 있습니다.')}
+    ${sec('3. 명단 보기·수정·인쇄', '홈의 <b>접수 현황·구역별·차수별·회별</b> 카드에서 항목을 누르면 명단창이 열립니다.<br>• 명단창에서 <b>성명을 누르면 편집창</b>이 열리고, 저장하거나 취소하면 다시 그 명단창으로 돌아옵니다.<br>• 구역별 카드 오른쪽 <b>인쇄</b>는 전체 명단을 인쇄합니다. 각 구역 명단창의 <b>인쇄</b>는 그 구역만 인쇄합니다.')}
+    ${sec('4. 전도 대상자', '홈 <b>전도대상자 명단</b> 카드에서 관리합니다.<br>• <b>구원·침례</b>는 표에서 바로 체크합니다.<br>• <b>성명을 누르면</b> 상태·메모(기도 제목, 상황 등)를 적을 수 있고, 적힌 사람은 이름이 금색으로 표시됩니다.<br>• <b>전체보기</b>에서 대상자 정보와 상태·메모를 함께 편집할 수 있습니다.')}
+    ${sec('5. 실시간 동기화', '더보기 <b>실시간 동기화</b>에서 코드를 만들면 여러 기기가 같은 행사를 함께 봅니다.<br>• <b>편집 코드</b>: 함께 입력·수정 / <b>보기 코드</b>: 열람만<br>• 코드를 발행한 기기가 <b>방장</b>이 되어 행사 설정을 바꿀 수 있습니다. 이전에 발행한 기기는 코드 화면의 <b>"이 기기를 방장으로 지정"</b>으로 권한을 받을 수 있습니다.')}
+    ${sec('6. 여러 행사 관리', '더보기 맨 위 행사 이름을 누르면 다른 행사로 바꾸거나 새 행사를 추가할 수 있습니다. 행사마다 인원·차편·회비가 따로 저장됩니다.')}
+    ${sec('7. 엑셀·백업', '• <b>엑셀 내보내기</b>: 구역별·차편별·회비·전도 현황이 모두 담긴 엑셀 파일을 만듭니다. 휴대폰에서는 <b>공유 화면</b>이 떠서 "내 파일에 저장"이나 드라이브 등으로 저장합니다.<br>• <b>데이터 통합·공유</b>: 전체 데이터를 백업 파일로 내보내거나 불러옵니다.')}
+    <div style="margin-top:8px;padding:10px 12px;background:var(--bg-2);border-radius:10px;font-size:12px;color:var(--ink-mute)">화면을 가로로 돌리면 표를 더 넓게 볼 수 있어요. (휴대폰 회전 잠금 설정을 따릅니다)</div>
+    </div>
   `;
   openSheet('사용 설명서', html, null, { hideSave: true });
 }
@@ -3205,7 +3216,7 @@ function openIntakeGroup(key) {
     (isOnsite ? '<div class="notice">\'등록\'을 누르면 해당 인원이 즉시 정식 등록되어 모든 집계에 반영됩니다.</div>' : '') +
     '<div class="section-title">' + INTAKE_LABELS[key] + ' (' + list.length + '명)</div>' +
     intakeTable(list, isOnsite, key);
-  openSheet(INTAKE_LABELS[key], html, null, { hideSave: true });
+  openSheet(INTAKE_LABELS[key], html, null, { hideSave: true, reopen:null });
 }
 
 function intakeRegister(id) {

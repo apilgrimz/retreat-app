@@ -1810,7 +1810,7 @@ function openSessionSheet(session) {
           if (eu) up = `${m.extraUp[eu]} (${eu})`;
           if (ed) down = `${m.extraDown[ed]} (${ed})`;
           const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 190px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 190px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}')">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -1835,7 +1835,7 @@ function openZoneSheet(zone) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
-          return `<div class="roster-row" style="grid-template-columns: 28px 52px 52px 58px 190px 82px 98px;"><div class="no">${i+1}</div><div class="nm">${esc(m.name)}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 52px 52px 58px 190px 82px 98px;"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}')">${esc(m.name)}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -1860,7 +1860,7 @@ function openDeptSheet(dept) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm">${esc(m.name)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}')">${esc(m.name)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -2071,7 +2071,7 @@ function renderHome() {
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0;">
         <div style="min-width:720px;">
           <div class="roster-row head" style="grid-template-columns: 28px 40px 60px 50px 85px 50px 40px 32px 32px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div></div>
-          ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 60px 50px 85px 50px 40px 32px 32px 1fr;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer; ${e.status?'color:var(--gold);font-weight:800;':'text-decoration:underline;text-decoration-style:dotted;'}" onclick="openStatusMemo('evangelism','${esc(e.id)}')" title="${e.status?'상태/메모 있음 — 눌러서 보기':'눌러서 상태/메모 입력'}">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
+          ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 40px 60px 50px 85px 50px 40px 32px 32px 1fr;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer; ${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')" title="${e.status?'상태/메모 있음 — 눌러서 보기':'눌러서 상태/메모 입력'}">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
           ${evCount === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 전도대상자가 없습니다.</div>` : ''}
         </div>
       </div>
@@ -2338,6 +2338,12 @@ function openDriverDeleteSheet() {
       };
     });
   }, 50);
+}
+
+// id로 멤버를 찾아 인원 편집 시트 열기 (각 명단 표의 성명 클릭용)
+function openMemberById(id) {
+  const m = (DB.members || []).find(function (x) { return x.id === id; });
+  if (m) openMemberSheet(m, false);
 }
 
 function openMemberSheet(m, isNew=false, afterSave=null) {
@@ -3141,7 +3147,7 @@ function intakeTable(list, withRegister) {
   let head = '<div class="roster-row head" style="grid-template-columns:' + cols + '"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>차수</div><div>비고</div>' + (withRegister ? '<div style="text-align:center">등록</div>' : '') + '</div>';
   let rows = list.map(function (m, i) {
     const reg = withRegister ? '<div style="text-align:center"><button class="card-action" style="font-size:11px;padding:2px 8px" onclick="intakeRegister(\'' + esc(m.id) + '\')">등록</button></div>' : '';
-    return '<div class="roster-row" style="grid-template-columns:' + cols + '"><div class="no">' + (i + 1) + '</div><div>' + esc(m.zone) + '</div><div class="nm">' + esc(m.name) + '</div><div>' + esc(m.dept) + '</div><div>' + esc(m.session || '') + '</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.note || '') + '</div>' + reg + '</div>';
+    return '<div class="roster-row" style="grid-template-columns:' + cols + '"><div class="no">' + (i + 1) + '</div><div>' + esc(m.zone) + '</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById(\'' + esc(m.id) + '\')">' + esc(m.name) + '</div><div>' + esc(m.dept) + '</div><div>' + esc(m.session || '') + '</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.note || '') + '</div>' + reg + '</div>';
   }).join('');
   return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + (withRegister ? '430' : '380') + 'px">' + head + rows + '</div></div>';
 }
@@ -4003,7 +4009,7 @@ function renderEvangelismSheet() {
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:640px;">
         <div class="roster-row head" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div><div style="text-align:center">상태</div></div>
-        ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
+        ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 40px 55px 50px 85px 50px 40px 32px 32px 1fr 40px;"><div class="no">${i+1}</div><div>${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openEvangelismEditById('${esc(e.id)}')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.note)}</div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div></div>`).join('')}
         ${DB.evangelism.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>
@@ -4033,10 +4039,11 @@ function openEvangelismEdit(e, isNew) {
       <div class="field"><label>숙소</label><input id="eLodging" value="${esc(e.lodging||'')}"/></div>
     </div>
     <div class="field"><label>비고</label><textarea id="eNote" rows="2">${esc(e.note)}</textarea></div>
+    <div class="field"><label>상태 / 메모 <span style="font-weight:500;color:var(--ink-mute);font-size:11px">(인쇄 제외 · 기도제목·상황 등)</span></label><textarea id="eStatus" rows="3" placeholder="예: 직장 문제로 기도 요청. 다음 주 재방문 예정.">${esc(e.status||'')}</textarea></div>
     ${!isNew ? `<button class="btn btn-danger btn-block" id="eDelete" style="margin-top:8px">삭제</button>` : ''}
   `;
   openSheet(isNew ? '전도대상자 추가' : '전도대상자 편집', html, () => {
-    const updated = {...e, zone: $('#eZone').value, dept: $('#eDept').value, name: $('#eName').value.trim(), relation: $('#eRel').value.trim(), leader: $('#eLeader').value.trim(), lodging: $('#eLodging').value.trim(), note: $('#eNote').value.trim()};
+    const updated = {...e, zone: $('#eZone').value, dept: $('#eDept').value, name: $('#eName').value.trim(), relation: $('#eRel').value.trim(), leader: $('#eLeader').value.trim(), lodging: $('#eLodging').value.trim(), note: $('#eNote').value.trim(), status: $('#eStatus').value.trim()};
     if (isNew) DB.evangelism.push(updated); else { const idx = DB.evangelism.findIndex(x => x.id === e.id); if (idx >= 0) DB.evangelism[idx] = updated; }
     saveDB(); closeSheet(true); setTimeout(renderEvangelismSheet, 300); toast('저장됐어요'); return false;
   });

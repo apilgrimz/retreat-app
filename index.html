@@ -411,6 +411,35 @@ function updateTransportOptions() {
   TRANSPORT_EXTRA_OPTIONS = ['', ...CHURCH_CARS, ...OTHER_TRANSPORTS, ...PRIVATE_CAR_LIST];
 }
 
+// "타교회" 구역: 실제 교회명을 직접 입력받아 zone에 저장한다.
+// ZONES에 이 이름의 구역이 있으면, 그 구역을 고를 때 교회명 입력칸이 나타난다.
+const OTHER_CHURCH_ZONE = '타교회';
+// 어떤 zone 값이 "타교회"성격인지 판단:
+//  - 값이 정확히 '타교회'이거나
+//  - ZONES 목록에 없는 값(=이미 실제 교회명이 들어간 타교회)
+function isOtherChurchZone(zone) {
+  if (!zone) return false;
+  if (zone === OTHER_CHURCH_ZONE) return true;
+  // ZONES에 '타교회'가 있고, 이 zone이 ZONES 목록에 없으면 → 실제 교회명으로 본다
+  if ((ZONES || []).includes(OTHER_CHURCH_ZONE) && !(ZONES || []).includes(zone)) return true;
+  return false;
+}
+// 인원 폼에서 구역 select가 바뀔 때: '타교회'면 교회명 입력칸 표시
+function onZoneChange(val) {
+  const f = document.getElementById('mZoneEtcField');
+  if (!f) return;
+  f.style.display = (val === OTHER_CHURCH_ZONE) ? 'block' : 'none';
+}
+// 저장 시 실제 zone 값 결정: '타교회' 선택 시 교회명 입력칸 값 사용
+function resolveZoneValue() {
+  const sel = (document.getElementById('mZone') || {}).value || '';
+  if (sel === OTHER_CHURCH_ZONE) {
+    const etc = ((document.getElementById('mZoneEtc') || {}).value || '').trim();
+    return etc || OTHER_CHURCH_ZONE;  // 교회명을 안 적었으면 그냥 '타교회'
+  }
+  return sel;
+}
+
 function emptyMember(zone) {
   return {
     id: uid(), zone: zone || '', dept: '', name: '', session: '',
@@ -1923,7 +1952,7 @@ function openZoneSheet(zone, isReopen) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
-          return `<div class="roster-row" style="grid-template-columns: 28px 52px 52px 58px 190px 82px 98px;"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 52px 52px 58px 190px 82px 98px;"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -1959,7 +1988,13 @@ function openDeptSheet(dept, isReopen) {
 
 function isReg(m){ return m.regType !== 'onsite'; }
 function registeredMembers(){ return DB.members.filter(isReg); }
-function membersByZone(zone) { return registeredMembers().filter(m => m.zone === zone).sort(memberSortCmp); }
+function membersByZone(zone) {
+  // '타교회' 구역을 누르면 실제 교회명으로 저장된 모든 타교회 인원을 모아서 보여준다.
+  if (zone === OTHER_CHURCH_ZONE) {
+    return registeredMembers().filter(m => isOtherChurchZone(m.zone)).sort(memberSortCmp);
+  }
+  return registeredMembers().filter(m => m.zone === zone).sort(memberSortCmp);
+}
 
 // ===== 통합 명단 정렬 =====
 // 우선순위: 1)구역순(ZONES 배열 순서) 2)회(부서)순(DEPTS 배열 순서) 3)이름 가나다순
@@ -2009,7 +2044,10 @@ function feeTotalByDept() {
   registeredMembers().forEach(m => { if (totals.hasOwnProperty(m.dept)) totals[m.dept] += (DB.fees[m.dept] || 0); }); return totals;
 }
 function feeTotalByZone(zone) {
-  return registeredMembers().filter(m => m.zone === zone).reduce((s, m) => s + (DB.fees[m.dept] || 0), 0);
+  const inZone = (zone === OTHER_CHURCH_ZONE)
+    ? registeredMembers().filter(m => isOtherChurchZone(m.zone))
+    : registeredMembers().filter(m => m.zone === zone);
+  return inZone.reduce((s, m) => s + (DB.fees[m.dept] || 0), 0);
 }
 
 let currentTab = 'home';
@@ -2515,7 +2553,8 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
 
   const html = `
     <div class="row-2">
-      <div class="field"><label>구역</label><select id="mZone"><option value="" ${!m.zone?'selected':''}>선택</option>${ZONES.map(z => `<option value="${esc(z)}" ${m.zone===z?'selected':''}>${esc(z)}</option>`).join('')}</select></div>
+      <div class="field"><label>구역</label><select id="mZone" onchange="onZoneChange(this.value)"><option value="" ${!m.zone&&!isOtherChurchZone(m.zone)?'selected':''}>선택</option>${ZONES.map(z => `<option value="${esc(z)}" ${(m.zone===z || (z===OTHER_CHURCH_ZONE && isOtherChurchZone(m.zone)))?'selected':''}>${esc(z)}</option>`).join('')}</select></div>
+      <div class="field" id="mZoneEtcField" style="display:${isOtherChurchZone(m.zone)?'block':'none'}"><label>교회 이름</label><input id="mZoneEtc" value="${esc((isOtherChurchZone(m.zone) && m.zone!==OTHER_CHURCH_ZONE)?m.zone:'')}" placeholder="예: 서울00교회"/></div>
       <div class="field"><label>부서(회)</label><select id="mDept" onchange="updateLeaderLabel(this.value)"><option value="">선택</option>${DEPTS.map(d => `<option value="${esc(d)}" ${m.dept===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
     </div>
     <div class="field"><label>성명</label><input id="mName" value="${esc(m.name)}" placeholder="홍길동" autocomplete="off"/></div>
@@ -2631,7 +2670,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     const sessionStr = sessionValues.join(', ');
 
     const updated = {
-      ...m, zone: $('#mZone').value, dept: $('#mDept').value, name: $('#mName').value.trim(), session: sessionStr,
+      ...m, zone: resolveZoneValue(), dept: $('#mDept').value, name: $('#mName').value.trim(), session: sessionStr,
       transUp: '', transDown: '',
       extraUp: {}, extraDown: {}, sessionTrans: sessionTrans,
       leaderName: $('#mLeaderName').value.trim(), leaderRel: $('#mLeaderRel').value.trim(),

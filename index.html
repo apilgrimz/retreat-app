@@ -1463,7 +1463,7 @@ function execPrintRosterAll() {
   let body = `<div class="print-title">${titleText}</div>`;
   let any = false;
   ZONES.forEach(zn => {
-    const zList = membersByZone(zn);
+    const zList = membersByZone(zn).filter(m => !isInfantDept(m.dept));  // 영유아 제외
     if (zList.length === 0) return;
     any = true;
     body += `<div class="print-section">
@@ -1484,7 +1484,7 @@ function execPrintRoster() {
   if (isAll) {
     let any = false;
     ZONES.forEach(zn => {
-      const zList = membersByZone(zn);
+      const zList = membersByZone(zn).filter(m => !isInfantDept(m.dept));  // 영유아 제외
       if (zList.length === 0) return;
       any = true;
       body += `<div class="print-section">
@@ -1493,13 +1493,13 @@ function execPrintRoster() {
       </div>`;
     });
     if (!any) body += `<div style="text-align:center; padding:30px; color:#666">등록된 인원이 없습니다.</div>`;
-  } else { body += rosterPrintRowsHtml(membersByZone(z), 1, 'zone'); }
+  } else { body += rosterPrintRowsHtml(membersByZone(z).filter(m => !isInfantDept(m.dept)), 1, 'zone'); }
   doPrint(titleText, body);
 }
 
 function execPrintZoneData(zone) {
   const titleText = `${getYearPrefix()} 하계수양회 - ${esc(zone)}`;
-  const list = membersByZone(zone);
+  const list = membersByZone(zone).filter(m => !isInfantDept(m.dept));  // 영유아 제외
   let body = `<div class="print-title">${titleText}</div>`;
   body += `<div class="print-section">
     <div class="print-section-title">${esc(zone)} <span style="font-weight:500;color:#666;font-size:11px">· ${list.length}명</span></div>
@@ -1595,7 +1595,7 @@ function execPrintTransport() {
 }
 
 function execPrintSession(session) {
-  const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);
+  const list = countableMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);  // 영유아 제외
   const titleText = `${getYearPrefix()} 하계수양회 - ${session} 명단`;
   let trs = list.map((m, i) => {
     let up = m.transUp || ''; let down = m.transDown || '';
@@ -1797,7 +1797,7 @@ function execPrintHome() {
         <thead><tr><th style="width:50px">구역</th><th style="width:40px">인원</th><th style="width:65px">회비</th></tr></thead>
         <tbody>
           ${ZONES.map(z => {
-            const ct = membersByZone(z).length;
+            const ct = membersByZone(z).filter(m => !isInfantDept(m.dept)).length;  // 영유아 제외
             const fee = feeTotalByZone(z);
             return `<tr><td><b>${esc(z)}</b></td><td>${ct}</td><td style="text-align:right;padding-right:10px">${won(fee)}원</td></tr>`;
           }).join('')}
@@ -1903,7 +1903,7 @@ $('#sheetBackdrop').onclick = () => closeSheet();
 $('#sheetSave').onclick = () => { if (sheetHandlers.save) { if (sheetHandlers.save() !== false) closeSheet(); } else closeSheet(); };
 
 function openSessionSheet(session, isReopen) {
-  const list = registeredMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);
+  const list = countableMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);  // 영유아 제외
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary btn-block" onclick="execPrintSession('${esc(session)}')">인쇄</button>
@@ -1936,7 +1936,7 @@ function addMemberInZone(zone) {
 }
 
 function openZoneSheet(zone, isReopen) {
-  const list = membersByZone(zone).sort(memberSortCmp);
+  const list = membersByZone(zone).filter(m => !isInfantDept(m.dept)).sort(memberSortCmp);  // 영유아 제외(회별·차편에만 표시)
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       ${isViewOnly() ? '' : `<button class="btn btn-primary btn-block" onclick="addMemberInZone('${esc(zone)}')">+ 인원 추가</button>`}
@@ -1988,6 +1988,10 @@ function openDeptSheet(dept, isReopen) {
 
 function isReg(m){ return m.regType !== 'onsite'; }
 function registeredMembers(){ return DB.members.filter(isReg); }
+// "영유아" 부서: 회별 카드와 차편에는 포함하되, 그 외 모든 인원 집계(총원/차수별/구역별/접수현황)에서는 제외한다.
+function isInfantDept(dept) { return (dept || '').indexOf('영유아') >= 0; }
+// 집계용 등록 인원: 영유아 제외 (회별·차편은 registeredMembers를 그대로 쓰므로 영향 없음)
+function countableMembers(){ return registeredMembers().filter(m => !isInfantDept(m.dept)); }
 function membersByZone(zone) {
   // '타교회' 구역을 누르면 실제 교회명으로 저장된 모든 타교회 인원을 모아서 보여준다.
   if (zone === OTHER_CHURCH_ZONE) {
@@ -2025,10 +2029,10 @@ function sortMembersDriverFirst(list, driver) {
     return memberSortCmp(a,b);
   });
 }
-function totalRegistered() { return registeredMembers().length; }
+function totalRegistered() { return countableMembers().length; }  // 영유아 제외
 function sessionCounts() {
   const r = Object.fromEntries(SESSIONS.map(s => [s, 0]));
-  registeredMembers().forEach(m => {
+  countableMembers().forEach(m => {  // 영유아 제외
     (m.session||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(s => {
       if (r.hasOwnProperty(s)) r[s]++;
     });
@@ -2158,7 +2162,7 @@ function renderHome() {
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(96px, 1fr));gap:8px">
         ${ZONES.map(z => {
-          const ct = membersByZone(z).length;
+          const ct = membersByZone(z).filter(m => !isInfantDept(m.dept)).length;  // 영유아 제외
           const fee = feeTotalByZone(z);
           return `<div class="clickable" style="background:var(--bg-2);border-radius:10px;padding:10px 8px;text-align:center" onclick="openZoneSheet('${esc(z)}')">
             <div style="font-size:11px;color:var(--ink-mute)">${esc(z)}</div>
@@ -3295,6 +3299,7 @@ function openStatusMemo(listName, id) {
 function intakeGroups() {
   const g = { pre1: [], pre2: [], onsite: [] };
   (DB.members || []).forEach(function (m) {
+    if (isInfantDept(m.dept)) return;  // 영유아는 접수 현황 집계에서 제외
     const t = m.regType || 'pre1';
     (g[t] || g.pre1).push(m);
   });

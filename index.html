@@ -1463,12 +1463,13 @@ function execPrintRosterAll() {
   let body = `<div class="print-title">${titleText}</div>`;
   let any = false;
   ZONES.forEach(zn => {
-    const zList = membersByZone(zn).filter(m => !isInfantDept(m.dept));  // 영유아 제외
-    if (zList.length === 0) return;
+    const zAll = membersByZone(zn);  // 명단에는 영유아 포함
+    const zCount = zAll.filter(m => !isInfantDept(m.dept)).length;  // 카운트는 영유아 제외
+    if (zAll.length === 0) return;
     any = true;
     body += `<div class="print-section">
-      <div class="print-section-title">${esc(zn)} <span style="font-weight:500;color:#666;font-size:11px">· ${zList.length}명</span></div>
-      ${rosterPrintRowsHtml(zList, 1, 'zone')}
+      <div class="print-section-title">${esc(zn)} <span style="font-weight:500;color:#666;font-size:11px">· ${zCount}명</span></div>
+      ${rosterPrintRowsHtml(zAll, 1, 'zone')}
     </div>`;
   });
   if (!any) body += `<div style="text-align:center; padding:30px; color:#666">등록된 인원이 없습니다.</div>`;
@@ -1484,25 +1485,27 @@ function execPrintRoster() {
   if (isAll) {
     let any = false;
     ZONES.forEach(zn => {
-      const zList = membersByZone(zn).filter(m => !isInfantDept(m.dept));  // 영유아 제외
-      if (zList.length === 0) return;
+      const zAll = membersByZone(zn);  // 명단에는 영유아 포함
+      const zCount = zAll.filter(m => !isInfantDept(m.dept)).length;  // 카운트는 영유아 제외
+      if (zAll.length === 0) return;
       any = true;
       body += `<div class="print-section">
-        <div class="print-section-title">${esc(zn)} <span style="font-weight:500;color:#666;font-size:11px">· ${zList.length}명</span></div>
-        ${rosterPrintRowsHtml(zList, 1, 'zone')}
+        <div class="print-section-title">${esc(zn)} <span style="font-weight:500;color:#666;font-size:11px">· ${zCount}명</span></div>
+        ${rosterPrintRowsHtml(zAll, 1, 'zone')}
       </div>`;
     });
     if (!any) body += `<div style="text-align:center; padding:30px; color:#666">등록된 인원이 없습니다.</div>`;
-  } else { body += rosterPrintRowsHtml(membersByZone(z).filter(m => !isInfantDept(m.dept)), 1, 'zone'); }
+  } else { body += rosterPrintRowsHtml(membersByZone(z), 1, 'zone'); }  // 명단에는 영유아 포함
   doPrint(titleText, body);
 }
 
 function execPrintZoneData(zone) {
   const titleText = `${getYearPrefix()} 하계수양회 - ${esc(zone)}`;
-  const list = membersByZone(zone).filter(m => !isInfantDept(m.dept));  // 영유아 제외
+  const list = membersByZone(zone);  // 구역 명단에는 영유아 포함
+  const zCount = list.filter(m => !isInfantDept(m.dept)).length;  // 카운트는 영유아 제외
   let body = `<div class="print-title">${titleText}</div>`;
   body += `<div class="print-section">
-    <div class="print-section-title">${esc(zone)} <span style="font-weight:500;color:#666;font-size:11px">· ${list.length}명</span></div>
+    <div class="print-section-title">${esc(zone)} <span style="font-weight:500;color:#666;font-size:11px">· ${zCount}명</span></div>
     ${rosterPrintRowsHtml(list, 1, 'zone')}
   </div>`;
   doPrint(titleText, body);
@@ -1936,7 +1939,7 @@ function addMemberInZone(zone) {
 }
 
 function openZoneSheet(zone, isReopen) {
-  const list = membersByZone(zone).filter(m => !isInfantDept(m.dept)).sort(memberSortCmp);  // 영유아 제외(회별·차편에만 표시)
+  const list = membersByZone(zone).sort(memberSortCmp);  // 구역 명단에는 영유아도 표시(카운트만 카드에서 제외)
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       ${isViewOnly() ? '' : `<button class="btn btn-primary btn-block" onclick="addMemberInZone('${esc(zone)}')">+ 인원 추가</button>`}

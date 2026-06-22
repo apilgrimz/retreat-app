@@ -2249,7 +2249,7 @@ function renderHome() {
   `;
 }
 
-function renderLodgingSheet() {
+function renderLodgingSheet(isReopen) {
   const lodgings = getLodgings();
   const lodgingKeys = Object.keys(lodgings).sort();
   
@@ -2270,7 +2270,7 @@ function renderLodgingSheet() {
     `;
   });
   html += `</div>`;
-  openSheet('숙소별 명단 전체', html, null, { hideSave:true });
+  openSheet('숙소별 명단 전체', html, null, { hideSave:true, replaceTop:!!isReopen, reopener:()=>renderLodgingSheet(true) });
 }
 
 // 특정 숙소 1개만 전체 보기 (인쇄 없음)
@@ -2924,7 +2924,7 @@ function renderTransport() {
   return html;
 }
 
-function renderFeeSupportSheet() {
+function renderFeeSupportSheet(isReopen) {
   const fsTotal = DB.feeSupport.reduce((s, fs) => s + (fs.amount||0), 0);
   const html = `
     <div style="background:linear-gradient(135deg, rgba(255,200,87,.15), rgba(255,200,87,.05));border:1px solid rgba(255,200,87,.3);border-radius:12px;padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
@@ -2948,7 +2948,7 @@ function renderFeeSupportSheet() {
       </div>
     </div>
   `;
-  openSheet('회비 지원 명단', html, null, { hideSave:true });
+  openSheet('회비 지원 명단', html, null, { hideSave:true, replaceTop:!!isReopen, reopener:()=>renderFeeSupportSheet(true) });
   setTimeout(() => {
     $$('[data-fs-id]').forEach(el => el.onclick = () => {
       const fs = DB.feeSupport.find(x => x.id === el.dataset.fsId);
@@ -4171,7 +4171,7 @@ function openBaseSettingsSheet() {
   });
 }
 
-function renderEvangelismSheet() {
+function renderEvangelismSheet(isReopen) {
   const html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
       <button class="btn btn-secondary" onclick="execPrintEvangelism()" style="flex:1">인쇄</button>
@@ -4184,7 +4184,7 @@ function renderEvangelismSheet() {
       </div>
     </div>
   `;
-  openSheet('전도대상자 명단 전체', html, null, { hideSave:true });
+  openSheet('전도대상자 명단 전체', html, null, { hideSave:true, replaceTop:!!isReopen, reopener:()=>renderEvangelismSheet(true) });
   setTimeout(() => {
     // 이름 클릭 편집은 openEvangelismEditById가 처리 (상태 버튼과 분리)
   }, 50);

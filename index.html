@@ -975,6 +975,14 @@ function kindOfVehicle(v) {
   if (CHURCH_CARS.includes(v) || OTHER_TRANSPORTS.includes(v)) return 'etc';
   return '';
 }
+// 차편 표시 라벨: 세부 편(vehicle)이 있으면 그대로, 없고 종류(kind)만 있으면 기본 표기.
+//  bus→'본대'(기타 버스와 구분), private→'개인차', etc→'기타'. 둘 다 없으면 ''.
+const TRANS_KIND_LABEL = { bus: '본대', private: '개인차', etc: '기타' };
+function vehLabel(vehicle, kind) {
+  if (vehicle) return vehicle;
+  if (kind && TRANS_KIND_LABEL[kind]) return TRANS_KIND_LABEL[kind];
+  return '';
+}
 
 // 멤버의 대표 상/하행 정보 {upBus, upVehicle, upDate, downBus, downVehicle, downDate}
 function memberRepTrans(m) {
@@ -1038,6 +1046,66 @@ function privateDriversWithGroups() {
 
 // 멤버의 대표 상하행(transUp/transDown/extraUp/extraDown)을 sessionTrans로부터 재계산.
 // 통계/엑셀·본대버스 명단은 본 교회 차수만 집계하므로, 대표 차수가 본 교회 차수가 아니면 비움.
+// 멤버의 한 차수(sname)에 대한 상/하행 차편 텍스트를 만든다. (없으면 '-')
+function sessionTransText(m, sname) {
+  const st = (m.sessionTrans && m.sessionTrans[sname]) || null;
+  // 세부 편이 없어도 종류(kind)만 있으면 본대/개인차/기타로 표기
+  const up = st ? vehLabel(st.upVehicle, st.upKind) : '';
+  const down = st ? vehLabel(st.downVehicle, st.downKind) : '';
+  return { up, down };
+}
+// 명단/인쇄용: 멤버의 "모든 차수" 교통편을 줄바꿈으로. 여러 차수면 각 줄 앞에 차수 라벨.
+// 반환은 HTML(줄바꿈 <br>). sep='\n'이면 개행 텍스트(엑셀/플레인용)로.
+function allSessionsTransText(m, asHtml) {
+  const sess = memberSessions(m);
+  if (!sess.length) return '';
+  // getSessionDefs 순서대로 정렬
+  const order = getSessionDefs().map(d => d.name);
+  const sorted = sess.slice().sort((a,b) => {
+    let ia=order.indexOf(a), ib=order.indexOf(b); if(ia<0)ia=9999; if(ib<0)ib=9999; return ia-ib;
+  });
+  const multi = sorted.length > 1;
+  const lines = [];
+  sorted.forEach(sn => {
+    const t = sessionTransText(m, sn);
+    if (!t.up && !t.down) {
+      // 그 차수에 차편 정보가 없으면, 다중 차수일 때만 차수 라벨과 '-' 표기
+      if (multi) lines.push(`${sn}) 상:- / 하:-`);
+      return;
+    }
+    const body = `상:${t.up||'-'} / 하:${t.down||'-'}`;
+    lines.push(multi ? `${sn}) ${body}` : body);
+  });
+  if (!lines.length) return '';
+  return asHtml ? lines.map(esc).join('<br>') : lines.join('\n');
+}
+// 엑셀용: 단일 차수 규칙(한 차수면 그 차수 / 여러+본차수면 본차수 / 그 외 빠른차수)의 상하행.
+// representativeSession이 정확히 이 규칙을 따른다.
+function repSessionTransText(m) {
+  const rep = representativeSession(m);
+  if (!rep) return { up:'', down:'' };
+  return sessionTransText(m, rep);
+}
+// 엑셀 셀용: 대표 차수(본차수 또는 빠른차수) 기준 상/하행을 버스(F/G)와 비버스(H~K)로 분리.
+function excelTransCells(m) {
+  const out = { F:'', G:'', H:'', I:'', J:'', K:'' };
+  if (!m) return out;
+  const rep = representativeSession(m);
+  const st = (rep && m.sessionTrans && m.sessionTrans[rep]) || null;
+  if (!st) return out;
+  const upLabel = fmtDateKo(st.upDate) || rep;
+  const downLabel = fmtDateKo(st.downDate) || rep;
+  if (st.upVehicle) {
+    if (st.upKind === 'bus') out.F = st.upVehicle;
+    else { out.H = st.upVehicle + (upLabel ? ` (${upLabel})` : ''); out.I = upLabel; }
+  }
+  if (st.downVehicle) {
+    if (st.downKind === 'bus') out.G = st.downVehicle;
+    else { out.J = st.downVehicle + (downLabel ? ` (${downLabel})` : ''); out.K = downLabel; }
+  }
+  return out;
+}
+
 function recalcMemberRepTrans(m) {
   m.transUp = ''; m.transDown = ''; m.extraUp = {}; m.extraDown = {};
   const rep = representativeSession(m);
@@ -1394,26 +1462,30 @@ function getTransportStats() {
   CHURCH_CARS.forEach(c => { countUp[c] = 0; countDown[c] = 0; });
   OTHER_TRANSPORTS.forEach(o => { countUp[o] = 0; countDown[o] = 0; });
 
+  // 종류만 선택(세부 편 미정)도 집계: '본대'→본대버스 묶음, '개인차', '기타'
   function mapT(val) {
     if (!val) return null;
-    if (BUSES.includes(val)) return '본대버스';
+    if (val === '본대' || BUSES.includes(val)) return '본대버스';
     if (CHURCH_CARS.includes(val)) return val;
     if (PRIVATE_CAR_LIST.includes(val) || val === '개인차') return '개인차';
+    if (val === '기타') return '기타';
     if (OTHER_TRANSPORTS.includes(val)) return val;
     return null;
   }
+  // '기타'(세부 미정) 카테고리 키 확보
+  if (countUp['기타'] === undefined) countUp['기타'] = 0;
+  if (countDown['기타'] === undefined) countDown['기타'] = 0;
 
   registeredMembers().forEach(m => {
-    let aUp = Object.values(m.extraUp||{}).find(v=>v) || m.transUp;
-    let mUp = mapT(aUp);
+    // 대표 차수(본차수 또는 빠른차수) 기준 상/하행 차편 라벨 — 세부 편이 없으면 본대/개인차/기타
+    const t = repSessionTransText(m);
+    let mUp = mapT(t.up);
     if (mUp && countUp[mUp] !== undefined) countUp[mUp]++;
-
-    let aDn = Object.values(m.extraDown||{}).find(v=>v) || m.transDown;
-    let mDn = mapT(aDn);
+    let mDn = mapT(t.down);
     if (mDn && countDown[mDn] !== undefined) countDown[mDn]++;
   });
 
-  const keys = ['본대버스', ...CHURCH_CARS, '개인차', ...OTHER_TRANSPORTS];
+  const keys = ['본대버스', ...CHURCH_CARS, '개인차', '기타', ...OTHER_TRANSPORTS];
   // 등록된(데이터가 있는) 항목만 표시 — 0인 카테고리는 제외
   return {
     up: keys.map(k => [k, countUp[k]||0]).filter(x => x[1] > 0),
@@ -1433,11 +1505,11 @@ function rosterPrintRowsHtml(list, startNo, mode, opts) {
     const extraDown = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
     if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
     if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
-    const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
+    const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
     const col3 = showZone ? esc(m.zone) : esc(m.dept);
     return `<tr>
       <td>${startNo + i}</td><td class="print-name">${esc(m.name)}</td><td>${col3}</td>
-      <td style="white-space:nowrap;font-size:10px;">${esc(m.session)}</td><td class="tl trans-cell">${esc(transStr)}</td>
+      <td style="white-space:nowrap;font-size:10px;">${esc(m.session)}</td><td class="tl trans-cell">${transStr}</td>
       <td>${esc(m.lodging||'')}</td><td class="tl note-cell">${esc(m.note)}</td>
     </tr>`;
   }).join('');
@@ -1606,10 +1678,10 @@ function execPrintSession(session) {
     const extraDown = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
     if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
     if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
-    const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
+    const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
     return `<tr>
       <td>${i+1}</td><td>${esc(m.zone)}</td><td class="print-name">${esc(m.name)}</td>
-      <td>${esc(m.dept)}</td><td class="tl trans-cell">${esc(transStr)}</td>
+      <td>${esc(m.dept)}</td><td class="tl trans-cell">${transStr}</td>
       <td>${esc(m.lodging||'')}</td><td class="tl note-cell">${esc(m.note)}</td>
     </tr>`;
   }).join('');
@@ -1920,8 +1992,8 @@ function openSessionSheet(session, isReopen) {
           const ed = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
           if (eu) up = `${m.extraUp[eu]} (${eu})`;
           if (ed) down = `${m.extraDown[ed]} (${ed})`;
-          const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 190px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openSessionSheet', arg:'${esc(session)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
+          return `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 190px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openSessionSheet', arg:'${esc(session)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -1954,8 +2026,8 @@ function openZoneSheet(zone, isReopen) {
           const extraDown = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
-          const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
-          return `<div class="roster-row" style="grid-template-columns: 28px 52px 52px 58px 190px 82px 98px;"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
+          return `<div class="roster-row" style="grid-template-columns: 28px 52px 52px 58px 190px 82px 98px;"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -1979,8 +2051,8 @@ function openDeptSheet(dept, isReopen) {
           const extraDown = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
-          const transStr = (up || down) ? `상:${up||'-'} / 하:${down||'-'}` : '';
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${esc(transStr)}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
+          return `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -4485,21 +4557,14 @@ async function exportToExcel() {
       edits[`C${row}`] = m ? (m.dept||'') : '';
       edits[`D${row}`] = m ? (m.name||'') : '';
       edits[`E${row}`] = m ? (m.session||'') : '';
-      edits[`F${row}`] = m ? (m.transUp||'') : '';
-      edits[`G${row}`] = m ? (m.transDown||'') : '';
-      // 기타 묶음: H=상행(차편), I=참석시점, J=하행(차편), K=귀가시점
-      // 통계: 상행 차편은 H, 하행 차편은 J 열을 참조하도록 수식도 맞춤.
-      if (m) {
-        const euKey = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
-        const edKey = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
-        edits[`H${row}`] = euKey ? extraCellText(euKey, m.extraUp[euKey]) : '';  // 상행 차편
-        edits[`I${row}`] = euKey || '';   // 참석 시점 (예: 금저)
-        edits[`J${row}`] = edKey ? extraCellText(edKey, m.extraDown[edKey]) : ''; // 하행 차편
-        edits[`K${row}`] = edKey || '';   // 귀가 시점 (예: 토저)
-      } else {
-        edits[`H${row}`] = ''; edits[`I${row}`] = '';
-        edits[`J${row}`] = ''; edits[`K${row}`] = '';
-      }
+      // 교통편은 대표 차수(본차수 우선, 없으면 빠른 차수) 한 차수만 표기
+      const tc = excelTransCells(m);
+      edits[`F${row}`] = tc.F;
+      edits[`G${row}`] = tc.G;
+      edits[`H${row}`] = tc.H;
+      edits[`I${row}`] = tc.I;
+      edits[`J${row}`] = tc.J;
+      edits[`K${row}`] = tc.K;
       edits[`L${row}`] = m ? (m.leaderName||'') : '';
       edits[`M${row}`] = m ? (m.leaderRel||'') : '';
       edits[`N${row}`] = m ? (m.note||'') : '';

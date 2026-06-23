@@ -1306,7 +1306,7 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
      const dateKey = (label === '상행') ? 'upDate' : 'downDate';
      const baseDate = baseDateOf(list, dateKey);
      const rows = list.length === 0
-       ? `<tr><td colspan="5" style="padding:14px;text-align:center;color:#888;">데이터가 없습니다.</td></tr>`
+       ? ``
        : list.map((m, i) => {
            const checked = !!m[dirField];
            const checkCell = isPrint
@@ -1324,6 +1324,30 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
            ${checkCell}
          </tr>`;
          }).join('');
+     // 미등록 추가 탑승자 행을 같은 표에 이어서 (글자색만 다르게 구분)
+     let extraRows = '';
+     if (BUSES.includes(type)) {
+       const dir = (label === '상행') ? 'up' : 'down';
+       const exField = (label === '상행') ? 'boardUp' : 'boardDown';
+       const allExtras = busExtrasOf(type);
+       const extras = allExtras.map((e, gi) => ({ e, gi })).filter(x => dir==='up' ? x.e.up : x.e.down);
+       extraRows = extras.map((x, j) => {
+         const e = x.e;
+         const no = list.length + j + 1;
+         const exCheck = isPrint
+           ? `<td class="check-cell" style="color:var(--accent-teal,#46c8c0);">${e[exField] ? '✓' : ''}</td>`
+           : `<td class="check-cell"><input type="checkbox" class="bus-extra-board" data-bus="${esc(type)}" data-idx="${x.gi}" data-field="${exField}" ${e[exField]?'checked':''}${isViewOnly()?' disabled':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--accent-teal,#46c8c0);"/></td>`;
+         const delCell = isPrint ? '' : `<button type="button" class="bus-extra-del" data-bus="${esc(type)}" data-idx="${x.gi}" title="삭제" style="border:none;background:transparent;color:var(--rose);font-size:11px;cursor:pointer;padding:0 2px;">✕</button>`;
+         return `<tr style="color:var(--accent-teal,#46c8c0);">
+           <td>${no}</td>
+           <td style="font-size:11px;">${esc(e.church)||'-'}</td>
+           <td class="nm print-name" style="color:var(--accent-teal,#46c8c0);">${esc(e.name)} ${delCell}</td>
+           <td>${esc(e.dept)||'-'}</td>
+           ${exCheck}
+         </tr>`;
+       }).join('');
+     }
+     const allRows = rows + extraRows;
      return `<table class="${tableClass}">
        <thead>
          <tr><th colspan="5" class="side-head ${label==='상행'?'up-head':'down-head'}">${label} (${list.length + (BUSES.includes(type) ? busExtraCount(type, label==='상행'?'up':'down') : 0)}명)${dirInfo?` <span style="font-weight:400; font-size:11px; opacity:.9;">· ${esc(dirInfo)}</span>`:''}</th></tr>
@@ -1335,7 +1359,7 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
            <th style="width:${isPrint?'14%':'16%'}">확인</th>
          </tr>
        </thead>
-       <tbody>${rows}</tbody>
+       <tbody>${allRows || `<tr><td colspan="5" style="padding:14px;text-align:center;color:#888;">데이터가 없습니다.</td></tr>`}</tbody>
      </table>`;
    }
 
@@ -1689,18 +1713,6 @@ function execPrintTransport() {
     const churchN = churchSessionName();
     if (churchN) body += `<div style="font-size:12px; color:#555; margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     body += buildSplitTable(null, u, d, true, null, type);
-    const extras = busExtrasOf(type);
-    const upEx = extras.filter(e => e.up), downEx = extras.filter(e => e.down);
-    if (upEx.length || downEx.length) {
-      const exTable = (title, arr, boardField) => {
-        if (!arr.length) return '';
-        const rows = arr.map((e,i)=>`<tr><td>${i+1}</td><td class="tl">${esc(e.church)||'-'}</td><td class="tl">${esc(e.name)}</td><td class="tl">${esc(e.dept)||'-'}</td><td>${e[boardField]?'✓':''}</td></tr>`).join('');
-        return `<div style="margin-top:8px; font-size:12px; font-weight:700; color:#555;">추가 탑승 (미등록) · ${title} ${arr.length}명</div>
-          <table class="print-table" style="margin-top:4px;"><thead><tr><th style="width:36px">번호</th><th>교회명</th><th>성명</th><th>부서</th><th style="width:40px">확인</th></tr></thead><tbody>${rows}</tbody></table>`;
-      };
-      body += exTable('상행', upEx, 'boardUp');
-      body += exTable('하행', downEx, 'boardDown');
-    }
   } else if (type === '개인차') {
     const drv2 = privateDriversWithGroups();
     if (drv2.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">개인차로 가는 사람이 없습니다.</div>`;
@@ -3164,46 +3176,19 @@ function busExtraCount(busName, dir) {
 }
 // 호차 추가 탑승자 입력 + 목록 UI (표 형태: 번호·교회명·성명·부서·상하행·탑승확인)
 function busExtraEditor(busName) {
-  const extras = busExtrasOf(busName);
-  const upN = busExtraCount(busName, 'up');
-  const downN = busExtraCount(busName, 'down');
-  const gridCols = '28px 1fr 1fr 70px 64px';  // 번호·교회·성명·부서·확인(상/하)
-  let rows = '';
-  if (extras.length) {
-    rows = extras.map((e, i) => `
-      <div class="roster-row" style="grid-template-columns:${gridCols};">
-        <div class="no">${i+1}</div>
-        <div style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.church)||'<span style="color:var(--ink-mute)">-</span>'}</div>
-        <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.name)}</div>
-        <div style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.dept)||'<span style="color:var(--ink-mute)">-</span>'}</div>
-        <div style="display:flex; gap:8px; align-items:center; justify-content:center;">
-          ${e.up ? `<label style="display:flex;flex-direction:column;align-items:center;gap:1px;font-size:9px;color:var(--ink-mute);cursor:pointer;"><input type="checkbox" class="bus-extra-board" data-bus="${esc(busName)}" data-idx="${i}" data-field="boardUp" ${e.boardUp?'checked':''}/>상</label>` : ''}
-          ${e.down ? `<label style="display:flex;flex-direction:column;align-items:center;gap:1px;font-size:9px;color:var(--ink-mute);cursor:pointer;"><input type="checkbox" class="bus-extra-board" data-bus="${esc(busName)}" data-idx="${i}" data-field="boardDown" ${e.boardDown?'checked':''}/>하</label>` : ''}
-          <button type="button" class="bus-extra-del" data-bus="${esc(busName)}" data-idx="${i}" style="border:none; background:transparent; color:var(--rose); font-size:11px; cursor:pointer; padding:0;">✕</button>
-        </div>
-      </div>`).join('');
-  }
-  const headRow = extras.length ? `<div class="roster-row head" style="grid-template-columns:${gridCols};"><div class="no">번호</div><div>교회명</div><div>성명</div><div>부서</div><div style="text-align:center;">확인</div></div>` : '';
-  return `<div style="margin-top:12px; border:1px dashed var(--line-soft); border-radius:10px; padding:10px;">
-    <div style="font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:6px;">추가 탑승 (미등록 인원)</div>
-    <div style="font-size:11px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수로 등록하지 않았으나 ${esc(busName)}를 이용하는 인원입니다. 통계 집계에는 포함되지 않고, 이 호차 인원수와 인쇄에만 반영됩니다.</div>
-    <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:330px;">
-        ${headRow}
-        ${rows}
-      </div>
+  // 목록은 위의 상행/하행 표에 통합 표시됨. 여기는 입력 폼만.
+  return `<div style="margin-top:10px; border:1px dashed var(--line-soft); border-radius:10px; padding:10px;">
+    <div style="font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:4px;">미등록 인원 추가</div>
+    <div style="font-size:11px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수로 등록하지 않았으나 ${esc(busName)}를 이용하는 인원입니다. 통계에는 포함되지 않고 이 호차 명단·인원수·인쇄에만 반영되며, 위 명단에 다른 색으로 표시됩니다.</div>
+    <div style="display:flex; gap:5px; margin-bottom:5px;">
+      <input type="text" class="be-in-church" data-bus="${esc(busName)}" placeholder="교회명" style="flex:1; font-size:12px; padding:6px 8px;"/>
+      <input type="text" class="be-in-name" data-bus="${esc(busName)}" placeholder="성명" style="flex:1; font-size:12px; padding:6px 8px;"/>
+      <input type="text" class="be-in-dept" data-bus="${esc(busName)}" placeholder="부서" style="width:72px; font-size:12px; padding:6px 8px;"/>
     </div>
-    <div style="margin-top:10px; padding-top:8px; border-top:1px solid var(--line-soft);">
-      <div style="display:flex; gap:5px; margin-bottom:5px;">
-        <input type="text" class="be-in-church" data-bus="${esc(busName)}" placeholder="교회명" style="flex:1; font-size:12px; padding:6px 8px;"/>
-        <input type="text" class="be-in-name" data-bus="${esc(busName)}" placeholder="성명" style="flex:1; font-size:12px; padding:6px 8px;"/>
-        <input type="text" class="be-in-dept" data-bus="${esc(busName)}" placeholder="부서" style="width:72px; font-size:12px; padding:6px 8px;"/>
-      </div>
-      <div style="display:flex; gap:10px; align-items:center;">
-        <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-up" data-bus="${esc(busName)}" checked/> 상행</label>
-        <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-down" data-bus="${esc(busName)}" checked/> 하행</label>
-        <button type="button" class="bus-extra-add" data-bus="${esc(busName)}" style="margin-left:auto; padding:6px 16px; font-size:13px; border:1px solid var(--gold-soft); border-radius:8px; background:transparent; color:var(--gold-soft); cursor:pointer; white-space:nowrap;">추가</button>
-      </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-up" data-bus="${esc(busName)}" checked/> 상행</label>
+      <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-down" data-bus="${esc(busName)}" checked/> 하행</label>
+      <button type="button" class="bus-extra-add" data-bus="${esc(busName)}" style="margin-left:auto; padding:6px 16px; font-size:13px; border:1px solid var(--gold-soft); border-radius:8px; background:transparent; color:var(--gold-soft); cursor:pointer; white-space:nowrap;">추가</button>
     </div>
   </div>`;
 }

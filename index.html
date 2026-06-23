@@ -1326,7 +1326,7 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
          }).join('');
      return `<table class="${tableClass}">
        <thead>
-         <tr><th colspan="5" class="side-head ${label==='상행'?'up-head':'down-head'}">${label} (${list.length}명)${dirInfo?` <span style="font-weight:400; font-size:11px; opacity:.9;">· ${esc(dirInfo)}</span>`:''}</th></tr>
+         <tr><th colspan="5" class="side-head ${label==='상행'?'up-head':'down-head'}">${label} (${list.length + (BUSES.includes(type) ? busExtraCount(type, label==='상행'?'up':'down') : 0)}명)${dirInfo?` <span style="font-weight:400; font-size:11px; opacity:.9;">· ${esc(dirInfo)}</span>`:''}</th></tr>
          <tr>
            <th style="width:${isPrint?'10%':'12%'}">번호</th>
            <th style="width:${isPrint?'15%':'17%'}">구역</th>
@@ -1632,6 +1632,7 @@ function openTransportFull() {
     if (churchN) body += `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     if (u.length===0 && d.length===0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
     else body += buildSplitTable(null, u, d, false, null, type);
+    body += busExtraEditor(type);
   } else if (type === '개인차') {
     const drv2 = privateDriversWithGroups();
     if (drv2.length === 0) body += `<div class="empty-state">개인차로 가는 사람이 없습니다.</div>`;
@@ -1656,6 +1657,24 @@ function openTransportFull() {
     document.querySelectorAll('#sheetBody .board-check').forEach(cb => {
       cb.addEventListener('change', () => setBoardCheck(cb.dataset.id, cb.dataset.dir, cb.checked));
     });
+    // 추가 탑승자 입력/삭제/탑승확인 (전체보기)
+    const readBE = (bus) => {
+      const q = (cls) => document.querySelector(`#sheetBody .${cls}[data-bus="${bus}"]`);
+      const c=q('be-in-church'), n=q('be-in-name'), d=q('be-in-dept'), up=q('be-in-up'), dn=q('be-in-down');
+      return { church:c?c.value:'', name:n?n.value:'', dept:d?d.value:'', up:up?up.checked:true, down:dn?dn.checked:true };
+    };
+    document.querySelectorAll('#sheetBody .bus-extra-add').forEach(btn => {
+      btn.onclick = () => { if (guardViewOnly()) return; const o=readBE(btn.dataset.bus); if(o.name.trim()){ addBusExtra(btn.dataset.bus,o); openTransportFull(); } else toast('성명을 입력해 주세요', true); };
+    });
+    document.querySelectorAll('#sheetBody .be-in-name').forEach(inp => {
+      inp.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); if(guardViewOnly())return; const o=readBE(inp.dataset.bus); if(o.name.trim()){ addBusExtra(inp.dataset.bus,o); openTransportFull(); } } });
+    });
+    document.querySelectorAll('#sheetBody .bus-extra-del').forEach(btn => {
+      btn.onclick = () => { if (guardViewOnly()) return; removeBusExtra(btn.dataset.bus, parseInt(btn.dataset.idx,10)); openTransportFull(); };
+    });
+    document.querySelectorAll('#sheetBody .bus-extra-board').forEach(cb => {
+      cb.addEventListener('change', () => { if (guardViewOnly()) { openTransportFull(); return; } setBusExtraField(cb.dataset.bus, parseInt(cb.dataset.idx,10), cb.dataset.field, cb.checked); });
+    });
   }, 50);
 }
 
@@ -1671,9 +1690,16 @@ function execPrintTransport() {
     if (churchN) body += `<div style="font-size:12px; color:#555; margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     body += buildSplitTable(null, u, d, true, null, type);
     const extras = busExtrasOf(type);
-    if (extras.length) {
-      body += `<div style="margin-top:10px; font-size:12px; font-weight:700; color:#555;">추가 탑승 (미등록) · ${extras.length}명</div>`;
-      body += `<table class="print-table" style="margin-top:4px; width:50%;"><thead><tr><th style="width:40px">번호</th><th>성명</th></tr></thead><tbody>${extras.map((nm,i)=>`<tr><td>${i+1}</td><td class="tl">${esc(nm)}</td></tr>`).join('')}</tbody></table>`;
+    const upEx = extras.filter(e => e.up), downEx = extras.filter(e => e.down);
+    if (upEx.length || downEx.length) {
+      const exTable = (title, arr, boardField) => {
+        if (!arr.length) return '';
+        const rows = arr.map((e,i)=>`<tr><td>${i+1}</td><td class="tl">${esc(e.church)||'-'}</td><td class="tl">${esc(e.name)}</td><td class="tl">${esc(e.dept)||'-'}</td><td>${e[boardField]?'✓':''}</td></tr>`).join('');
+        return `<div style="margin-top:8px; font-size:12px; font-weight:700; color:#555;">추가 탑승 (미등록) · ${title} ${arr.length}명</div>
+          <table class="print-table" style="margin-top:4px;"><thead><tr><th style="width:36px">번호</th><th>교회명</th><th>성명</th><th>부서</th><th style="width:40px">확인</th></tr></thead><tbody>${rows}</tbody></table>`;
+      };
+      body += exTable('상행', upEx, 'boardUp');
+      body += exTable('하행', downEx, 'boardDown');
     }
   } else if (type === '개인차') {
     const drv2 = privateDriversWithGroups();
@@ -3027,6 +3053,11 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
               radio.checked = false;
               radio.dataset.wasChecked = '';
               vehBox.innerHTML = '';  // 차편 종류 해제 → 구체 차편도 비움
+              // 버스(본대) 해제 시: 본 차수면 자동 선택됐던 날짜도 해제
+              if (radio.value === 'bus' && nm === churchSessionName()) {
+                block.querySelectorAll(`input[name="${dir}date-${nm}"]`).forEach(r => { r.checked = false; r.dataset.wasChecked = ''; });
+                refreshDatePills(dir);
+              }
             } else {
               block.querySelectorAll(`input[name="${dir}kind-${nm}"]`).forEach(r => { r.dataset.wasChecked = ''; });
               radio.dataset.wasChecked = '1';
@@ -3096,39 +3127,83 @@ function allPrivateDrivers() {
 // 차편 탭 그 호차 인원수와 인쇄에만 반영된다.
 function busExtrasOf(busName) {
   const be = (DB.settings && DB.settings.busExtras) || {};
-  return Array.isArray(be[busName]) ? be[busName] : [];
+  const arr = Array.isArray(be[busName]) ? be[busName] : [];
+  // 하위호환: 옛 문자열 데이터를 객체로 정규화
+  return arr.map(it => (typeof it === 'string')
+    ? { church:'', name:it, dept:'', up:true, down:true, boardUp:false, boardDown:false }
+    : { church:it.church||'', name:it.name||'', dept:it.dept||'', up:it.up!==false, down:it.down!==false, boardUp:!!it.boardUp, boardDown:!!it.boardDown });
 }
-function addBusExtra(busName, name) {
-  name = (name || '').trim();
+// 추가 탑승자 1명 추가 (상/하행 탑승 여부 포함)
+function addBusExtra(busName, obj) {
+  const name = (obj && obj.name || '').trim();
   if (!name) return;
   DB.settings = DB.settings || {};
   DB.settings.busExtras = DB.settings.busExtras || {};
   if (!Array.isArray(DB.settings.busExtras[busName])) DB.settings.busExtras[busName] = [];
-  DB.settings.busExtras[busName].push(name);
+  DB.settings.busExtras[busName].push({
+    church: (obj.church||'').trim(), name: name, dept: (obj.dept||'').trim(),
+    up: obj.up!==false, down: obj.down!==false, boardUp:false, boardDown:false
+  });
   saveDB();
 }
 function removeBusExtra(busName, idx) {
   const arr = (DB.settings && DB.settings.busExtras && DB.settings.busExtras[busName]) || [];
   if (idx >= 0 && idx < arr.length) { arr.splice(idx, 1); saveDB(); }
 }
-// 호차 추가 탑승자 입력 + 목록 UI (차편 탭 호차 명단 아래)
+// 추가 탑승자 필드 변경 (탑승 확인 체크 등)
+function setBusExtraField(busName, idx, field, value) {
+  const arr = (DB.settings && DB.settings.busExtras && DB.settings.busExtras[busName]) || [];
+  if (idx >= 0 && idx < arr.length) {
+    if (typeof arr[idx] === 'string') arr[idx] = { church:'', name:arr[idx], dept:'', up:true, down:true, boardUp:false, boardDown:false };
+    arr[idx][field] = value; saveDB();
+  }
+}
+// 호차의 상행/하행 추가 탑승 인원수
+function busExtraCount(busName, dir) {
+  return busExtrasOf(busName).filter(e => dir==='up' ? e.up : e.down).length;
+}
+// 호차 추가 탑승자 입력 + 목록 UI (표 형태: 번호·교회명·성명·부서·상하행·탑승확인)
 function busExtraEditor(busName) {
   const extras = busExtrasOf(busName);
-  let list = '';
+  const upN = busExtraCount(busName, 'up');
+  const downN = busExtraCount(busName, 'down');
+  const gridCols = '28px 1fr 1fr 70px 64px';  // 번호·교회·성명·부서·확인(상/하)
+  let rows = '';
   if (extras.length) {
-    list = extras.map((nm, i) => `<div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-bottom:1px solid var(--line-soft);">
-      <span style="width:22px; color:var(--ink-mute); font-size:12px;">${i+1}</span>
-      <span style="flex:1; font-size:13px;">${esc(nm)}</span>
-      <button type="button" class="bus-extra-del" data-bus="${esc(busName)}" data-idx="${i}" style="border:none; background:transparent; color:var(--rose); font-size:12px; cursor:pointer;">삭제</button>
-    </div>`).join('');
+    rows = extras.map((e, i) => `
+      <div class="roster-row" style="grid-template-columns:${gridCols};">
+        <div class="no">${i+1}</div>
+        <div style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.church)||'<span style="color:var(--ink-mute)">-</span>'}</div>
+        <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.name)}</div>
+        <div style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.dept)||'<span style="color:var(--ink-mute)">-</span>'}</div>
+        <div style="display:flex; gap:8px; align-items:center; justify-content:center;">
+          ${e.up ? `<label style="display:flex;flex-direction:column;align-items:center;gap:1px;font-size:9px;color:var(--ink-mute);cursor:pointer;"><input type="checkbox" class="bus-extra-board" data-bus="${esc(busName)}" data-idx="${i}" data-field="boardUp" ${e.boardUp?'checked':''}/>상</label>` : ''}
+          ${e.down ? `<label style="display:flex;flex-direction:column;align-items:center;gap:1px;font-size:9px;color:var(--ink-mute);cursor:pointer;"><input type="checkbox" class="bus-extra-board" data-bus="${esc(busName)}" data-idx="${i}" data-field="boardDown" ${e.boardDown?'checked':''}/>하</label>` : ''}
+          <button type="button" class="bus-extra-del" data-bus="${esc(busName)}" data-idx="${i}" style="border:none; background:transparent; color:var(--rose); font-size:11px; cursor:pointer; padding:0;">✕</button>
+        </div>
+      </div>`).join('');
   }
+  const headRow = extras.length ? `<div class="roster-row head" style="grid-template-columns:${gridCols};"><div class="no">번호</div><div>교회명</div><div>성명</div><div>부서</div><div style="text-align:center;">확인</div></div>` : '';
   return `<div style="margin-top:12px; border:1px dashed var(--line-soft); border-radius:10px; padding:10px;">
-    <div style="font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:6px;">추가 탑승 (미등록 인원) <span style="font-weight:400; color:var(--ink-mute);">· ${extras.length}명</span></div>
-    <div style="font-size:11px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수로 등록하지 않았으나 ${esc(busName)}를 이용하는 인원입니다. 인원·통계 집계에는 포함되지 않고, 이 호차 인원수와 인쇄에만 반영됩니다.</div>
-    ${list}
-    <div style="display:flex; gap:6px; margin-top:8px;">
-      <input type="text" class="bus-extra-input" data-bus="${esc(busName)}" placeholder="이름 입력" style="flex:1; font-size:13px; padding:7px 9px;"/>
-      <button type="button" class="bus-extra-add" data-bus="${esc(busName)}" style="padding:7px 14px; font-size:13px; border:1px solid var(--gold-soft); border-radius:8px; background:transparent; color:var(--gold-soft); cursor:pointer; white-space:nowrap;">추가</button>
+    <div style="font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:6px;">추가 탑승 (미등록 인원)</div>
+    <div style="font-size:11px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수로 등록하지 않았으나 ${esc(busName)}를 이용하는 인원입니다. 통계 집계에는 포함되지 않고, 이 호차 인원수와 인쇄에만 반영됩니다.</div>
+    <div style="overflow-x:auto;">
+      <div class="roster-table" style="min-width:330px;">
+        ${headRow}
+        ${rows}
+      </div>
+    </div>
+    <div style="margin-top:10px; padding-top:8px; border-top:1px solid var(--line-soft);">
+      <div style="display:flex; gap:5px; margin-bottom:5px;">
+        <input type="text" class="be-in-church" data-bus="${esc(busName)}" placeholder="교회명" style="flex:1; font-size:12px; padding:6px 8px;"/>
+        <input type="text" class="be-in-name" data-bus="${esc(busName)}" placeholder="성명" style="flex:1; font-size:12px; padding:6px 8px;"/>
+        <input type="text" class="be-in-dept" data-bus="${esc(busName)}" placeholder="부서" style="width:72px; font-size:12px; padding:6px 8px;"/>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-up" data-bus="${esc(busName)}" checked/> 상행</label>
+        <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-down" data-bus="${esc(busName)}" checked/> 하행</label>
+        <button type="button" class="bus-extra-add" data-bus="${esc(busName)}" style="margin-left:auto; padding:6px 16px; font-size:13px; border:1px solid var(--gold-soft); border-radius:8px; background:transparent; color:var(--gold-soft); cursor:pointer; white-space:nowrap;">추가</button>
+      </div>
     </div>
   </div>`;
 }
@@ -5097,22 +5172,32 @@ function bindViewHandlers() {
   $$('.trans-info-box .ti-time, .trans-info-box .ti-date, .trans-info-box .ti-leader').forEach(el => {
     el.addEventListener('change', () => saveTransInfoField(el));
   });
-  // 호차 추가 탑승자 입력/삭제
+  // 호차 추가 탑승자 입력/삭제/탑승확인
+  function readBusExtraInput(bus) {
+    const q = (cls) => document.querySelector(`.${cls}[data-bus="${bus}"]`);
+    const church = q('be-in-church'), name = q('be-in-name'), dept = q('be-in-dept');
+    const up = q('be-in-up'), down = q('be-in-down');
+    return { church: church?church.value:'', name: name?name.value:'', dept: dept?dept.value:'', up: up?up.checked:true, down: down?down.checked:true };
+  }
   $$('#view .bus-extra-add').forEach(btn => {
     btn.onclick = () => {
       if (guardViewOnly()) return;
       const bus = btn.dataset.bus;
-      const input = document.querySelector(`.bus-extra-input[data-bus="${bus}"]`);
-      if (input && input.value.trim()) { addBusExtra(bus, input.value); render(); }
+      const obj = readBusExtraInput(bus);
+      if (obj.name.trim()) { addBusExtra(bus, obj); render(); }
+      else toast('성명을 입력해 주세요', true);
     };
   });
-  $$('#view .bus-extra-input').forEach(inp => {
+  $$('#view .be-in-name').forEach(inp => {
     inp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); if (guardViewOnly()) return; if (inp.value.trim()) { addBusExtra(inp.dataset.bus, inp.value); render(); } }
+      if (e.key === 'Enter') { e.preventDefault(); if (guardViewOnly()) return; const obj = readBusExtraInput(inp.dataset.bus); if (obj.name.trim()) { addBusExtra(inp.dataset.bus, obj); render(); } }
     });
   });
   $$('#view .bus-extra-del').forEach(btn => {
     btn.onclick = () => { if (guardViewOnly()) return; removeBusExtra(btn.dataset.bus, parseInt(btn.dataset.idx,10)); render(); };
+  });
+  $$('#view .bus-extra-board').forEach(cb => {
+    cb.addEventListener('change', () => { if (guardViewOnly()) { render(); return; } setBusExtraField(cb.dataset.bus, parseInt(cb.dataset.idx,10), cb.dataset.field, cb.checked); });
   });
   // 차편 탭 명단의 탑승 확인 체크박스
   $$('#view .board-check').forEach(cb => {

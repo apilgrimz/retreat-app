@@ -915,6 +915,13 @@ function fmtDateKo(iso) {
   if (isNaN(d.getTime())) return iso;
   return (d.getMonth()+1) + '/' + d.getDate() + '(' + WEEKDAY_KO[d.getDay()] + ')';
 }
+// 명단 교통편 옆에 붙일 간단 날짜(월/일). 요일은 생략해 공간 절약.
+function fmtMD(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  return (d.getMonth()+1) + '/' + d.getDate();
+}
 // 차수 정의 배열 가져오기 (settings.sessionDefs). 없으면 SESSIONS로 생성.
 function getSessionDefs() {
   let defs = (DB.settings && DB.settings.sessionDefs) || null;
@@ -1049,9 +1056,19 @@ function privateDriversWithGroups() {
 // 멤버의 한 차수(sname)에 대한 상/하행 차편 텍스트를 만든다. (없으면 '-')
 function sessionTransText(m, sname) {
   const st = (m.sessionTrans && m.sessionTrans[sname]) || null;
+  if (!st) return { up:'', down:'' };
   // 세부 편이 없어도 종류(kind)만 있으면 본대/개인차/기타로 표기
-  const up = st ? vehLabel(st.upVehicle, st.upKind) : '';
-  const down = st ? vehLabel(st.downVehicle, st.downKind) : '';
+  let up = vehLabel(st.upVehicle, st.upKind);
+  let down = vehLabel(st.downVehicle, st.downKind);
+  // 본대(버스)를 제외한 차편(개인차/교회차/기타)에는 날짜(월/일)를 함께 표기
+  if (up && st.upKind && st.upKind !== 'bus') {
+    const d = fmtMD(st.upDate);
+    if (d) up += ` (${d})`;
+  }
+  if (down && st.downKind && st.downKind !== 'bus') {
+    const d = fmtMD(st.downDate);
+    if (d) down += ` (${d})`;
+  }
   return { up, down };
 }
 // 명단/인쇄용: 멤버의 "모든 차수" 교통편을 줄바꿈으로. 여러 차수면 각 줄 앞에 차수 라벨.
@@ -1477,11 +1494,13 @@ function getTransportStats() {
   if (countDown['기타'] === undefined) countDown['기타'] = 0;
 
   registeredMembers().forEach(m => {
-    // 대표 차수(본차수 또는 빠른차수) 기준 상/하행 차편 라벨 — 세부 편이 없으면 본대/개인차/기타
-    const t = repSessionTransText(m);
-    let mUp = mapT(t.up);
+    // 대표 차수(본차수 또는 빠른차수)의 상/하행 차편 — 집계용은 날짜 없는 순수 라벨(vehLabel) 사용
+    const rep = representativeSession(m);
+    const st = (rep && m.sessionTrans && m.sessionTrans[rep]) || null;
+    if (!st) return;
+    let mUp = mapT(vehLabel(st.upVehicle, st.upKind));
     if (mUp && countUp[mUp] !== undefined) countUp[mUp]++;
-    let mDn = mapT(t.down);
+    let mDn = mapT(vehLabel(st.downVehicle, st.downKind));
     if (mDn && countDown[mDn] !== undefined) countDown[mDn]++;
   });
 
@@ -2043,7 +2062,7 @@ function openDeptSheet(dept, isReopen) {
       <button class="btn btn-secondary btn-block" onclick="execPrintDept('${esc(dept)}')">인쇄</button>
     </div>
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:660px;">
+      <div class="roster-table" style="min-width:682px;">
         <div class="roster-row head" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
@@ -2052,7 +2071,7 @@ function openDeptSheet(dept, isReopen) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div style="white-space:nowrap;">${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>

@@ -1670,6 +1670,11 @@ function execPrintTransport() {
     const churchN = churchSessionName();
     if (churchN) body += `<div style="font-size:12px; color:#555; margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     body += buildSplitTable(null, u, d, true, null, type);
+    const extras = busExtrasOf(type);
+    if (extras.length) {
+      body += `<div style="margin-top:10px; font-size:12px; font-weight:700; color:#555;">추가 탑승 (미등록) · ${extras.length}명</div>`;
+      body += `<table class="print-table" style="margin-top:4px; width:50%;"><thead><tr><th style="width:40px">번호</th><th>성명</th></tr></thead><tbody>${extras.map((nm,i)=>`<tr><td>${i+1}</td><td class="tl">${esc(nm)}</td></tr>`).join('')}</tbody></table>`;
+    }
   } else if (type === '개인차') {
     const drv2 = privateDriversWithGroups();
     if (drv2.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">개인차로 가는 사람이 없습니다.</div>`;
@@ -2821,15 +2826,15 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
               <div style="display:flex; gap:12px;">
                 <div style="flex:1; min-width:0;">
                   <div style="font-size:12px; font-weight:700; color:var(--gold-soft); margin-bottom:5px;">상행 (참석)</div>
-                  ${dateRadios('up', st.upDate||'')}
                   <div class="up-kindbox">${kindRadios('up', upKind)}</div>
                   <div class="up-vehbox">${upKind ? vehSelect('up', upKind, st.upVehicle||'') : ''}</div>
+                  <div style="margin-top:6px;">${dateRadios('up', st.upDate||'')}</div>
                 </div>
                 <div style="flex:1; min-width:0;">
                   <div style="font-size:12px; font-weight:700; color:var(--gold-soft); margin-bottom:5px;">하행 (귀가)</div>
-                  ${dateRadios('down', st.downDate||'')}
                   <div class="down-kindbox">${kindRadios('down', downKind)}</div>
                   <div class="down-vehbox">${downKind ? vehSelect('down', downKind, st.downVehicle||'') : ''}</div>
+                  <div style="margin-top:6px;">${dateRadios('down', st.downDate||'')}</div>
                 </div>
               </div>
             </div>
@@ -3028,6 +3033,19 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
               const addBtn2 = (radio.value === 'private') ? `<div style="display:flex; gap:5px; margin-top:4px;"><button type="button" class="add-driver-btn" data-dir="${dir}" style="flex:1; padding:5px; font-size:11px; border:1px dashed var(--gold-soft); border-radius:6px; background:transparent; color:var(--gold-soft); cursor:pointer;">+ 차주 추가</button><button type="button" class="del-driver-btn" data-dir="${dir}" style="flex:1; padding:5px; font-size:11px; border:1px dashed var(--rose); border-radius:6px; background:transparent; color:var(--rose); cursor:pointer;">차주 삭제</button></div>` : '';
               vehBox.innerHTML = `<select class="${dir}-veh" style="width:100%; margin-top:5px;">${vehHtmlFor(radio.value, prev)}</select>` + addBtn2;
               bindAddDriverBtns(block);
+              // 버스(본대) 선택 시: 본 차수면 상행=첫날, 하행=끝날 자동 선택
+              if (radio.value === 'bus' && nm === churchSessionName()) {
+                const def = sessionDefByName(nm) || {};
+                const autoDate = (dir === 'up') ? def.upDate : def.downDate;
+                if (autoDate) {
+                  const dr = block.querySelector(`input[name="${dir}date-${nm}"][value="${autoDate}"]`);
+                  if (dr) {
+                    block.querySelectorAll(`input[name="${dir}date-${nm}"]`).forEach(r => { r.checked = false; r.dataset.wasChecked = ''; });
+                    dr.checked = true; dr.dataset.wasChecked = '1';
+                    refreshDatePills(dir);
+                  }
+                }
+              }
             }
             refreshKindPills(dir);
           });
@@ -3073,6 +3091,48 @@ function allPrivateDrivers() {
   return Array.from(set).filter(s => s).sort((a,b)=>a.localeCompare(b,'ko'));
 }
 
+// ===== 호차별 추가 탑승자 (본 교회 차수 미등록이나 본대 버스 이용) =====
+// DB.settings.busExtras = { 호차명: [이름, ...] }. 정식 멤버가 아니므로 모든 집계에서 제외되며,
+// 차편 탭 그 호차 인원수와 인쇄에만 반영된다.
+function busExtrasOf(busName) {
+  const be = (DB.settings && DB.settings.busExtras) || {};
+  return Array.isArray(be[busName]) ? be[busName] : [];
+}
+function addBusExtra(busName, name) {
+  name = (name || '').trim();
+  if (!name) return;
+  DB.settings = DB.settings || {};
+  DB.settings.busExtras = DB.settings.busExtras || {};
+  if (!Array.isArray(DB.settings.busExtras[busName])) DB.settings.busExtras[busName] = [];
+  DB.settings.busExtras[busName].push(name);
+  saveDB();
+}
+function removeBusExtra(busName, idx) {
+  const arr = (DB.settings && DB.settings.busExtras && DB.settings.busExtras[busName]) || [];
+  if (idx >= 0 && idx < arr.length) { arr.splice(idx, 1); saveDB(); }
+}
+// 호차 추가 탑승자 입력 + 목록 UI (차편 탭 호차 명단 아래)
+function busExtraEditor(busName) {
+  const extras = busExtrasOf(busName);
+  let list = '';
+  if (extras.length) {
+    list = extras.map((nm, i) => `<div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-bottom:1px solid var(--line-soft);">
+      <span style="width:22px; color:var(--ink-mute); font-size:12px;">${i+1}</span>
+      <span style="flex:1; font-size:13px;">${esc(nm)}</span>
+      <button type="button" class="bus-extra-del" data-bus="${esc(busName)}" data-idx="${i}" style="border:none; background:transparent; color:var(--rose); font-size:12px; cursor:pointer;">삭제</button>
+    </div>`).join('');
+  }
+  return `<div style="margin-top:12px; border:1px dashed var(--line-soft); border-radius:10px; padding:10px;">
+    <div style="font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:6px;">추가 탑승 (미등록 인원) <span style="font-weight:400; color:var(--ink-mute);">· ${extras.length}명</span></div>
+    <div style="font-size:11px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수로 등록하지 않았으나 ${esc(busName)}를 이용하는 인원입니다. 인원·통계 집계에는 포함되지 않고, 이 호차 인원수와 인쇄에만 반영됩니다.</div>
+    ${list}
+    <div style="display:flex; gap:6px; margin-top:8px;">
+      <input type="text" class="bus-extra-input" data-bus="${esc(busName)}" placeholder="이름 입력" style="flex:1; font-size:13px; padding:7px 9px;"/>
+      <button type="button" class="bus-extra-add" data-bus="${esc(busName)}" style="padding:7px 14px; font-size:13px; border:1px solid var(--gold-soft); border-radius:8px; background:transparent; color:var(--gold-soft); cursor:pointer; white-space:nowrap;">추가</button>
+    </div>
+  </div>`;
+}
+
 function renderTransport() {
   const TYPES = [...BUSES, ...CHURCH_CARS, '개인차', ...OTHER_TRANSPORTS];
   let type = transportTab.type;
@@ -3094,6 +3154,7 @@ function renderTransport() {
     const churchN = churchSessionName();
     if (churchN) html += `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     html += buildSplitTable(null, uList, dList, false, null, type);
+    html += busExtraEditor(type);
   } else if (type === '개인차') {
     const drv2 = privateDriversWithGroups();
     if (drv2.length === 0) {
@@ -5035,6 +5096,23 @@ function bindViewHandlers() {
   }
   $$('.trans-info-box .ti-time, .trans-info-box .ti-date, .trans-info-box .ti-leader').forEach(el => {
     el.addEventListener('change', () => saveTransInfoField(el));
+  });
+  // 호차 추가 탑승자 입력/삭제
+  $$('#view .bus-extra-add').forEach(btn => {
+    btn.onclick = () => {
+      if (guardViewOnly()) return;
+      const bus = btn.dataset.bus;
+      const input = document.querySelector(`.bus-extra-input[data-bus="${bus}"]`);
+      if (input && input.value.trim()) { addBusExtra(bus, input.value); render(); }
+    };
+  });
+  $$('#view .bus-extra-input').forEach(inp => {
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); if (guardViewOnly()) return; if (inp.value.trim()) { addBusExtra(inp.dataset.bus, inp.value); render(); } }
+    });
+  });
+  $$('#view .bus-extra-del').forEach(btn => {
+    btn.onclick = () => { if (guardViewOnly()) return; removeBusExtra(btn.dataset.bus, parseInt(btn.dataset.idx,10)); render(); };
   });
   // 차편 탭 명단의 탑승 확인 체크박스
   $$('#view .board-check').forEach(cb => {

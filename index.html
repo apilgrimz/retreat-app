@@ -2080,6 +2080,116 @@ function openDeptSheet(dept, isReopen) {
   openSheet(`${dept} 명단`, html, null, {hideSave:true, replaceTop:!!isReopen, reopener:()=>openDeptSheet(dept, true)});
 }
 
+// ===== 본대(호차) 배정 =====
+// 본 교회 차수의 상행이 버스인 사람 = 본대 탑승 대상. 호차는 그 차수 상행 차편(upVehicle)에 저장.
+function busAssignMembers() {
+  const ch = churchSessionName();
+  if (!ch) return [];
+  return registeredMembers().filter(m => {
+    if (!memberSessions(m).includes(ch)) return false;
+    const st = (m.sessionTrans && m.sessionTrans[ch]) || null;
+    return st && st.upKind === 'bus';
+  }).sort(memberSortCmp);
+}
+// 특정 멤버의 본 차수 상행 호차를 변경 (배정 화면 / 인원폼 공통 경로)
+function setMemberBus(memberId, busName) {
+  const ch = churchSessionName();
+  const m = DB.members.find(x => x.id === memberId);
+  if (!m || !ch) return;
+  if (!m.sessionTrans) m.sessionTrans = {};
+  if (!m.sessionTrans[ch]) m.sessionTrans[ch] = {};
+  const st = m.sessionTrans[ch];
+  st.upKind = 'bus';
+  st.upVehicle = busName || '';
+  if (!st.upDate) { const def = sessionDefByName(ch); if (def && def.upDate) st.upDate = def.upDate; }
+  recalcMemberRepTrans(m);
+  saveVault();
+}
+// 구역 일괄: 그 구역의 본대 대상 전원에게 호차 배정
+function setZoneBus(zone, busName) {
+  busAssignMembers().filter(m => m.zone === zone).forEach(m => setMemberBus(m.id, busName));
+}
+
+function openBusAssignSheet(isReopen) {
+  const ch = churchSessionName();
+  const buses = BUSES.slice();
+  const list = busAssignMembers();
+  // 구역순으로 그룹화 (zoneRank 순서)
+  const zoneOrder = [];
+  list.forEach(m => { if (!zoneOrder.includes(m.zone)) zoneOrder.push(m.zone); });
+  zoneOrder.sort((a,b) => zoneRank(a) - zoneRank(b));
+
+  const busOpts = (cur) => ['', ...buses].map(b =>
+    `<option value="${esc(b)}" ${cur===b?'selected':''}>${esc(b||'─ 미배정 ─')}</option>`).join('');
+
+  let rows = '';
+  let no = 0;
+  if (!ch) {
+    rows = `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본 교회 차수가 설정되지 않았습니다.</div>`;
+  } else if (!list.length) {
+    rows = `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본대(버스) 탑승 대상이 없습니다.<br/><span style="font-size:11px;">인원 편집에서 본 교회 차수 상행을 '버스'로 선택하면 여기에 나타납니다.</span></div>`;
+  } else {
+    zoneOrder.forEach(zone => {
+      const zoneMembers = list.filter(m => m.zone === zone);
+      // 구역 헤더 + 구역 일괄 배정 드롭다운
+      rows += `<div style="display:flex; align-items:center; gap:8px; margin:12px 0 4px; padding:6px 8px; background:var(--bg-2); border-radius:8px;">
+        <span style="font-weight:800; color:var(--gold-soft);">${esc(zone)}</span>
+        <span style="font-size:12px; color:var(--ink-soft);">${zoneMembers.length}명</span>
+        <span style="font-size:11px; color:var(--ink-mute); margin-left:auto;">구역 일괄</span>
+        <select class="zone-bus-select" data-zone="${esc(zone)}" style="width:120px; font-size:12px;"><option value="">─ 선택 ─</option>${buses.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('')}</select>
+      </div>`;
+      // 표 헤더 (구역마다)
+      rows += `<div class="roster-row head" style="grid-template-columns: 34px 70px 70px 80px 110px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>호차</div></div>`;
+      zoneMembers.forEach(m => {
+        no++;
+        const st = (m.sessionTrans && m.sessionTrans[ch]) || {};
+        const cur = st.upVehicle || '';
+        rows += `<div class="roster-row" style="grid-template-columns: 34px 70px 70px 80px 110px;">
+          <div class="no">${no}</div>
+          <div style="white-space:nowrap;">${esc(m.zone)}</div>
+          <div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openBusAssignSheet'})">${esc(m.name)}</div>
+          <div style="font-size:12px;">${esc(m.dept)}</div>
+          <div><select class="member-bus-select" data-id="${esc(m.id)}" style="width:100%; font-size:12px;">${busOpts(cur)}</select></div>
+        </div>`;
+      });
+    });
+  }
+
+  // 호차별 인원 요약
+  let summary = '';
+  if (ch && list.length) {
+    const counts = {};
+    buses.forEach(b => counts[b] = 0);
+    let unassigned = 0;
+    list.forEach(m => { const st=(m.sessionTrans&&m.sessionTrans[ch])||{}; const v=st.upVehicle; if(v&&counts[v]!==undefined)counts[v]++; else unassigned++; });
+    const parts = buses.map(b => `${esc(b)} ${counts[b]}명`).join(' · ');
+    summary = `<div style="font-size:12px; color:var(--ink-soft); margin-bottom:10px; padding:8px 10px; background:var(--bg-2); border-radius:8px;">${parts}${unassigned?` · <span style="color:var(--rose);">미배정 ${unassigned}명</span>`:''}</div>`;
+  }
+
+  const html = `
+    <div style="font-size:12px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수(${esc(ch||'-')}) 상행을 '버스'로 선택한 인원입니다. 호차를 선택해 각 호차에 배정하세요.</div>
+    ${summary}
+    <div style="overflow-x:auto;">
+      <div class="roster-table" style="min-width:374px;">
+        ${rows}
+      </div>
+    </div>
+  `;
+  openSheet('본대 배정', html, null, {
+    hideSave:true, replaceTop:!!isReopen, reopener:()=>openBusAssignSheet(true),
+    afterPaint:()=>{
+      // 개별 호차 select
+      document.querySelectorAll('.member-bus-select').forEach(sel => {
+        sel.onchange = () => { setMemberBus(sel.dataset.id, sel.value); openBusAssignSheet(true); };
+      });
+      // 구역 일괄 select
+      document.querySelectorAll('.zone-bus-select').forEach(sel => {
+        sel.onchange = () => { if(sel.value){ setZoneBus(sel.dataset.zone, sel.value); openBusAssignSheet(true); } };
+      });
+    }
+  });
+}
+
 function isReg(m){ return m.regType !== 'onsite'; }
 function registeredMembers(){ return DB.members.filter(isReg); }
 // "영유아" 부서: 회별 카드와 차편에는 포함하되, 그 외 모든 인원 집계(총원/차수별/구역별/접수현황)에서는 제외한다.
@@ -2321,7 +2431,7 @@ function renderHome() {
     ${lodgingHtml}
 
     <div class="card">
-      <div class="card-head"><div class="card-title">차편 분포</div><button class="card-action" data-action="goto-transport">자세히</button></div>
+      <div class="card-head"><div class="card-title">차편 분포</div><div style="display:flex; gap:6px;"><button class="card-action" data-action="open-bus-assign">본대 배정</button><button class="card-action" data-action="goto-transport">자세히</button></div></div>
       <div class="dist-dual">
         <div class="dist-col">
           <div class="dist-col-title">상행</div>
@@ -2677,7 +2787,9 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           const dates = sessionDateRange(def);
           const upKind = st.upKind || kindOfVehicle(st.upVehicle) || '';
           const downKind = st.downKind || kindOfVehicle(st.downVehicle) || '';
-          const kindLabels = [['bus','버스'],['private','개인차'],['etc','기타']];
+          // 버스(본대)는 본 교회 차수에서만 선택 가능. 다른 차수는 개인차·기타만.
+          const isChurchSess = (sname === churchSessionName());
+          const kindLabels = isChurchSess ? [['bus','버스'],['private','개인차'],['etc','기타']] : [['private','개인차'],['etc','기타']];
           // 날짜 라디오 묶음
           function dateRadios(dir, sel) {
             if (!dates.length) return '<div style="font-size:11px;color:var(--ink-mute);">차수 날짜 미설정</div>';
@@ -4869,6 +4981,7 @@ async function exportToExcel() {
 
 function bindViewHandlers() {
   $$('[data-action="goto-transport"]').forEach(b => b.onclick = () => setTab('transport'));
+  $$('[data-action="open-bus-assign"]').forEach(b => b.onclick = () => openBusAssignSheet());
   $$('[data-action="goto-evangelism"]').forEach(b => b.onclick = renderEvangelismSheet);
   $$('[data-action="goto-lodging"]').forEach(b => b.onclick = renderLodgingSheet);
   $$('[data-action="goto-fee-sheet"]').forEach(b => b.onclick = renderFeeSupportSheet);

@@ -1337,11 +1337,14 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
          const exCheck = isPrint
            ? `<td class="check-cell" style="color:var(--accent-teal,#46c8c0);">${e[exField] ? '✓' : ''}</td>`
            : `<td class="check-cell"><input type="checkbox" class="bus-extra-board" data-bus="${esc(type)}" data-idx="${x.gi}" data-field="${exField}" ${e[exField]?'checked':''}${isViewOnly()?' disabled':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--accent-teal,#46c8c0);"/></td>`;
-         const delCell = isPrint ? '' : `<button type="button" class="bus-extra-del" data-bus="${esc(type)}" data-idx="${x.gi}" title="삭제" style="border:none;background:transparent;color:var(--rose);font-size:11px;cursor:pointer;padding:0 2px;">✕</button>`;
+         // 번호 셀: 화면에서는 클릭 시 그 방향(상행/하행)만 삭제. 인쇄는 일반 번호.
+         const noCell = isPrint
+           ? `<td>${no}</td>`
+           : `<td class="bus-extra-delrow" data-bus="${esc(type)}" data-idx="${x.gi}" data-dir="${dir}" title="이 줄(${label}) 삭제" style="cursor:pointer; color:var(--rose); text-decoration:underline; font-weight:700;">${no}</td>`;
          return `<tr style="color:var(--accent-teal,#46c8c0);">
-           <td>${no}</td>
+           ${noCell}
            <td style="font-size:11px;">${esc(e.church)||'-'}</td>
-           <td class="nm print-name" style="color:var(--accent-teal,#46c8c0);">${esc(e.name)} ${delCell}</td>
+           <td class="nm print-name" style="color:var(--accent-teal,#46c8c0);">${esc(e.name)}</td>
            <td>${esc(e.dept)||'-'}</td>
            ${exCheck}
          </tr>`;
@@ -1693,8 +1696,8 @@ function openTransportFull() {
     document.querySelectorAll('#sheetBody .be-in-name').forEach(inp => {
       inp.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); if(guardViewOnly())return; const o=readBE(inp.dataset.bus); if(o.name.trim()){ addBusExtra(inp.dataset.bus,o); openTransportFull(); } } });
     });
-    document.querySelectorAll('#sheetBody .bus-extra-del').forEach(btn => {
-      btn.onclick = () => { if (guardViewOnly()) return; removeBusExtra(btn.dataset.bus, parseInt(btn.dataset.idx,10)); openTransportFull(); };
+    document.querySelectorAll('#sheetBody .bus-extra-delrow').forEach(el => {
+      el.onclick = () => { if (guardViewOnly()) return; removeBusExtraDir(el.dataset.bus, parseInt(el.dataset.idx,10), el.dataset.dir); openTransportFull(); };
     });
     document.querySelectorAll('#sheetBody .bus-extra-board').forEach(cb => {
       cb.addEventListener('change', () => { if (guardViewOnly()) { openTransportFull(); return; } setBusExtraField(cb.dataset.bus, parseInt(cb.dataset.idx,10), cb.dataset.field, cb.checked); });
@@ -3161,6 +3164,18 @@ function addBusExtra(busName, obj) {
 function removeBusExtra(busName, idx) {
   const arr = (DB.settings && DB.settings.busExtras && DB.settings.busExtras[busName]) || [];
   if (idx >= 0 && idx < arr.length) { arr.splice(idx, 1); saveDB(); }
+}
+// 방향별 삭제: 그 방향(상행/하행) 탑승만 해제. 상·하행 둘 다 해제되면 사람 자체를 제거.
+function removeBusExtraDir(busName, idx, dir) {
+  const arr = (DB.settings && DB.settings.busExtras && DB.settings.busExtras[busName]) || [];
+  if (idx < 0 || idx >= arr.length) return;
+  let it = arr[idx];
+  if (typeof it === 'string') it = arr[idx] = { church:'', name:it, dept:'', up:true, down:true, boardUp:false, boardDown:false };
+  if (dir === 'up') { it.up = false; it.boardUp = false; }
+  else { it.down = false; it.boardDown = false; }
+  // 둘 다 안 타면 제거
+  if (!it.up && !it.down) arr.splice(idx, 1);
+  saveDB();
 }
 // 추가 탑승자 필드 변경 (탑승 확인 체크 등)
 function setBusExtraField(busName, idx, field, value) {
@@ -5178,8 +5193,8 @@ function bindViewHandlers() {
       if (e.key === 'Enter') { e.preventDefault(); if (guardViewOnly()) return; const obj = readBusExtraInput(inp.dataset.bus); if (obj.name.trim()) { addBusExtra(inp.dataset.bus, obj); render(); } }
     });
   });
-  $$('#view .bus-extra-del').forEach(btn => {
-    btn.onclick = () => { if (guardViewOnly()) return; removeBusExtra(btn.dataset.bus, parseInt(btn.dataset.idx,10)); render(); };
+  $$('#view .bus-extra-delrow').forEach(el => {
+    el.onclick = () => { if (guardViewOnly()) return; removeBusExtraDir(el.dataset.bus, parseInt(el.dataset.idx,10), el.dataset.dir); render(); };
   });
   $$('#view .bus-extra-board').forEach(cb => {
     cb.addEventListener('change', () => { if (guardViewOnly()) { render(); return; } setBusExtraField(cb.dataset.bus, parseInt(cb.dataset.idx,10), cb.dataset.field, cb.checked); });

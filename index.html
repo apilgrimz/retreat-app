@@ -2057,7 +2057,7 @@ function openSessionSheet(session, isReopen) {
       <button class="btn btn-secondary btn-block" onclick="execPrintSession('${esc(session)}')">인쇄</button>
     </div>
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:620px;">
+      <div class="roster-table" style="min-width:620px; width:max-content;">
         <div class="roster-row head" style="grid-template-columns: 28px 45px 58px 58px 250px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>교통편</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
@@ -2091,7 +2091,7 @@ function openZoneSheet(zone, isReopen) {
       <button class="btn btn-secondary btn-block" onclick="execPrintZoneData('${esc(zone)}')">인쇄</button>
     </div>
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:670px;">
+      <div class="roster-table" style="min-width:670px; width:max-content;">
         <div class="roster-row head" style="grid-template-columns: 28px 50px 50px 52px 250px 70px max-content;"><div class="no">번호</div><div>성명</div><div>부서(회)</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
@@ -2116,7 +2116,7 @@ function openDeptSheet(dept, isReopen) {
       <button class="btn btn-secondary btn-block" onclick="execPrintDept('${esc(dept)}')">인쇄</button>
     </div>
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:682px;">
+      <div class="roster-table" style="min-width:682px; width:max-content;">
         <div class="roster-row head" style="grid-template-columns: 28px 42px 52px 40px 250px 72px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
@@ -2512,7 +2512,7 @@ function renderHome() {
         </div>
       </div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0;">
-        <div style="min-width:720px;">
+        <div style="min-width:720px; width:max-content;">
           <div class="roster-row head" style="grid-template-columns: 28px 56px 58px 48px 80px 48px 38px 30px 30px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div></div>
           ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 56px 58px 48px 80px 48px 38px 30px 30px max-content;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer; ${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')" title="${e.status?'상태/메모 있음 — 눌러서 보기':'눌러서 상태/메모 입력'}">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
           ${evCount === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 전도대상자가 없습니다.</div>` : ''}
@@ -2529,7 +2529,7 @@ function renderHome() {
         </div>
       </div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:202px; min-width:0;">
-        <div style="min-width:550px;">
+        <div style="min-width:550px; width:max-content;">
           <div class="roster-row head" style="grid-template-columns: 28px 56px 55px 60px max-content 65px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div><div style="text-align:right">금액</div></div>
           ${sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row clickable" onclick="openFeeSupportSheetById('${esc(fs.id)}')" style="grid-template-columns: 28px 56px 55px 60px max-content 65px;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}
           ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">회비 지원자가 없습니다.</div>` : ''}
@@ -3343,7 +3343,7 @@ function renderFeeSupportSheet(isReopen) {
       <button class="btn btn-secondary" onclick="execPrintFeeSupport()" style="flex:1">인쇄</button>
     </div>
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="margin-bottom:0; min-width:550px;">
+      <div class="roster-table" style="margin-bottom:0; min-width:550px; width:max-content;">
         <div class="roster-row head" style="grid-template-columns: 28px 56px 55px 60px max-content 65px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div><div style="text-align:right">금액</div></div>
         ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : 
           sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 56px 55px 60px max-content 65px;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="event.stopPropagation(); openMemberFromRef('${esc(fs.memberId||'')}','${esc(fs.name)}','${esc(fs.zone)}','renderFeeSupportSheet')">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div></div>`).join('')}

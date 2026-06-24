@@ -2331,6 +2331,51 @@ function updateTopbarChurch() {
   const el = document.getElementById('topbarChurch');
   if (el) el.textContent = (DB && DB.meta && DB.meta.churchName) ? DB.meta.churchName : '';
 }
+// ===== 구역 카드 인원 검색 =====
+let memberSearchQuery = '';
+// 검색 결과 목록 HTML 생성 (이름 매칭, 이름·구역·회·차수 표시)
+function memberSearchResultHtml(q) {
+  q = (q || '').trim().toLowerCase();
+  if (!q) return '';
+  // 등록 인원 전체에서 이름 매칭 (현장접수 포함). 미등록 호차 탑승자는 대상 아님.
+  const hits = DB.members.filter(m => (m.name||'').toLowerCase().includes(q)).sort(memberSortCmp);
+  if (!hits.length) {
+    return `<div style="padding:14px; text-align:center; color:var(--ink-mute); font-size:13px;">'${esc(q)}' 검색 결과가 없습니다.</div>`;
+  }
+  const rows = hits.map(m => {
+    const sess = memberSessions(m).join(', ');
+    const zoneLabel = isOtherChurchZone(m.zone) ? m.zone : m.zone;
+    return `<div class="clickable" style="display:flex; align-items:center; gap:8px; padding:9px 10px; border-bottom:1px solid var(--line-soft);" onclick="openMemberById('${esc(m.id)}', null)">
+      <span style="font-weight:700; font-size:14px;">${esc(m.name)}</span>
+      <span style="font-size:12px; color:var(--ink-soft);">${esc(zoneLabel)}</span>
+      <span style="font-size:11px; color:var(--ink-mute);">·</span>
+      <span style="font-size:12px; color:var(--ink-soft);">${esc(m.dept)}</span>
+      ${sess ? `<span style="font-size:11px; color:var(--ink-mute);">·</span><span style="font-size:12px; color:var(--gold-soft);">${esc(sess)}</span>` : ''}
+    </div>`;
+  }).join('');
+  return `<div style="margin-top:8px; border:1px solid var(--line-soft); border-radius:10px; overflow:hidden;">
+    <div style="padding:6px 10px; font-size:11px; color:var(--ink-mute); background:var(--bg-2);">검색 결과 ${hits.length}명</div>
+    ${rows}
+  </div>`;
+}
+// 결과 div만 갱신 (전체 render 없이)
+function refreshMemberSearch() {
+  const box = document.getElementById('memberSearchResult');
+  if (box) box.innerHTML = memberSearchResultHtml(memberSearchQuery);
+  const clr = document.getElementById('memberSearchClear');
+  if (clr) clr.style.display = memberSearchQuery ? 'block' : 'none';
+}
+// 검색창 이벤트 바인딩 (render 후 호출)
+function bindMemberSearch() {
+  const input = document.getElementById('memberSearchInput');
+  if (!input) return;
+  input.value = memberSearchQuery;
+  input.oninput = () => { memberSearchQuery = input.value; refreshMemberSearch(); };
+  const clr = document.getElementById('memberSearchClear');
+  if (clr) clr.onclick = () => { memberSearchQuery = ''; input.value = ''; refreshMemberSearch(); input.focus(); };
+  refreshMemberSearch();
+}
+
 function render() {
   const v = $('#view'); v.innerHTML = '';
   if (currentTab === 'roster') currentTab = 'home';  // 명단 탭 제거됨 → 홈으로
@@ -2421,6 +2466,12 @@ function renderHome() {
           </div>`;
         }).join('')}
       </div>
+      <div style="margin-top:12px; position:relative;">
+        <input type="text" id="memberSearchInput" placeholder="이름으로 검색" autocomplete="off"
+          style="width:100%; font-size:14px; padding:9px 32px 9px 12px; border-radius:10px; box-sizing:border-box;"/>
+        <span id="memberSearchClear" style="display:none; position:absolute; right:10px; top:50%; transform:translateY(-50%); color:var(--ink-mute); cursor:pointer; font-size:16px;">✕</span>
+      </div>
+      <div id="memberSearchResult"></div>
     </div>
 
     <div class="card">
@@ -5118,6 +5169,7 @@ async function exportToExcel() {
 function bindViewHandlers() {
   $$('[data-action="goto-transport"]').forEach(b => b.onclick = () => setTab('transport'));
   $$('[data-action="open-bus-assign"]').forEach(b => b.onclick = () => openBusAssignSheet());
+  bindMemberSearch();
   $$('[data-action="goto-evangelism"]').forEach(b => b.onclick = renderEvangelismSheet);
   $$('[data-action="goto-lodging"]').forEach(b => b.onclick = renderLodgingSheet);
   $$('[data-action="goto-fee-sheet"]').forEach(b => b.onclick = renderFeeSupportSheet);

@@ -922,6 +922,13 @@ function fmtMD(iso) {
   if (isNaN(d.getTime())) return '';
   return (d.getMonth()+1) + '/' + d.getDate();
 }
+// 월/일 + 요일 (예: 7/10금). 명단 교통편 날짜 옆에 붙임.
+function fmtMDw(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  return (d.getMonth()+1) + '/' + d.getDate() + WEEKDAY_KO[d.getDay()];
+}
 // 차수 정의 배열 가져오기 (settings.sessionDefs). 없으면 SESSIONS로 생성.
 function getSessionDefs() {
   let defs = (DB.settings && DB.settings.sessionDefs) || null;
@@ -1060,13 +1067,13 @@ function sessionTransText(m, sname) {
   // 세부 편이 없어도 종류(kind)만 있으면 본대/개인차/기타로 표기
   let up = vehLabel(st.upVehicle, st.upKind);
   let down = vehLabel(st.downVehicle, st.downKind);
-  // 본대(버스)를 제외한 차편(개인차/교회차/기타)에는 날짜(월/일)를 함께 표기
+  // 본대(버스)를 제외한 차편(개인차/교회차/기타)에는 날짜(월/일+요일)를 함께 표기
   if (up && st.upKind && st.upKind !== 'bus') {
-    const d = fmtMD(st.upDate);
+    const d = fmtMDw(st.upDate);
     if (d) up += ` (${d})`;
   }
   if (down && st.downKind && st.downKind !== 'bus') {
-    const d = fmtMD(st.downDate);
+    const d = fmtMDw(st.downDate);
     if (d) down += ` (${d})`;
   }
   return { up, down };
@@ -1094,7 +1101,8 @@ function allSessionsTransText(m, asHtml) {
     lines.push(multi ? `${sn}) ${body}` : body);
   });
   if (!lines.length) return '';
-  return asHtml ? lines.map(esc).join('<br>') : lines.join('\n');
+  // 각 차수 줄은 줄바꿈 없이 한 줄로 (상/하행이 분리되지 않게). 여러 차수면 차수끼리만 줄바꿈.
+  return asHtml ? lines.map(l => `<span style="white-space:nowrap;">${esc(l)}</span>`).join('<br>') : lines.join('\n');
 }
 // 엑셀용: 단일 차수 규칙(한 차수면 그 차수 / 여러+본차수면 본차수 / 그 외 빠른차수)의 상하행.
 // representativeSession이 정확히 이 규칙을 따른다.
@@ -2050,7 +2058,7 @@ function openSessionSheet(session, isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:620px;">
-        <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 190px 120px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>교통편</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 45px 58px 58px 250px 90px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>교통편</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
           const eu = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
@@ -2058,7 +2066,7 @@ function openSessionSheet(session, isReopen) {
           if (eu) up = `${m.extraUp[eu]} (${eu})`;
           if (ed) down = `${m.extraDown[ed]} (${ed})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 190px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openSessionSheet', arg:'${esc(session)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 45px 58px 58px 250px 90px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openSessionSheet', arg:'${esc(session)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -2084,7 +2092,7 @@ function openZoneSheet(zone, isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:670px;">
-        <div class="roster-row head" style="grid-template-columns: 28px 52px 52px 58px 190px 82px 98px;"><div class="no">번호</div><div>성명</div><div>부서(회)</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 50px 50px 52px 250px 70px 70px;"><div class="no">번호</div><div>성명</div><div>부서(회)</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
           const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
@@ -2092,7 +2100,7 @@ function openZoneSheet(zone, isReopen) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 52px 52px 58px 190px 82px 98px;"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 50px 50px 52px 250px 70px 70px;"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -2109,7 +2117,7 @@ function openDeptSheet(dept, isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:682px;">
-        <div class="roster-row head" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 42px 52px 40px 250px 72px 80px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
           const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
@@ -2117,7 +2125,7 @@ function openDeptSheet(dept, isReopen) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 55px 40px 190px 80px 120px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div style="white-space:nowrap;">${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 42px 52px 40px 250px 72px 80px;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div style="white-space:nowrap;">${esc(m.session)}</div><div style="font-size:11px;word-break:keep-all;line-height:1.3;">${transStr}</div><div>${esc(m.lodging)}</div><div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -2345,12 +2353,16 @@ function memberSearchResultHtml(q) {
   const rows = hits.map(m => {
     const sess = memberSessions(m).join(', ');
     const zoneLabel = isOtherChurchZone(m.zone) ? m.zone : m.zone;
-    return `<div class="clickable" style="display:flex; align-items:center; gap:8px; padding:9px 10px; border-bottom:1px solid var(--line-soft);" onclick="openMemberById('${esc(m.id)}', null)">
-      <span style="font-weight:700; font-size:14px;">${esc(m.name)}</span>
-      <span style="font-size:12px; color:var(--ink-soft);">${esc(zoneLabel)}</span>
-      <span style="font-size:11px; color:var(--ink-mute);">·</span>
-      <span style="font-size:12px; color:var(--ink-soft);">${esc(m.dept)}</span>
-      ${sess ? `<span style="font-size:11px; color:var(--ink-mute);">·</span><span style="font-size:12px; color:var(--gold-soft);">${esc(sess)}</span>` : ''}
+    const trans = allSessionsTransText(m, true);
+    return `<div class="clickable" style="padding:9px 10px; border-bottom:1px solid var(--line-soft);" onclick="openMemberById('${esc(m.id)}', null)">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span style="font-weight:700; font-size:14px;">${esc(m.name)}</span>
+        <span style="font-size:12px; color:var(--ink-soft);">${esc(zoneLabel)}</span>
+        <span style="font-size:11px; color:var(--ink-mute);">·</span>
+        <span style="font-size:12px; color:var(--ink-soft);">${esc(m.dept)}</span>
+        ${sess ? `<span style="font-size:11px; color:var(--ink-mute);">·</span><span style="font-size:12px; color:var(--gold-soft);">${esc(sess)}</span>` : ''}
+      </div>
+      ${trans ? `<div style="margin-top:3px; font-size:11px; color:var(--ink-mute); line-height:1.4;">${trans}</div>` : ''}
     </div>`;
   }).join('');
   return `<div style="margin-top:8px; border:1px solid var(--line-soft); border-radius:10px; overflow:hidden;">

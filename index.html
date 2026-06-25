@@ -2481,7 +2481,6 @@ let rosterFilter = { zone: ALL_ZONES, q: '' };
 let transportTab = { type: BUSES[0] || '1호차' };
 
 function setTab(tab, skipHistory=false) {
-  const prevTab = currentTab;
   currentTab = tab;
   $$('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   render();
@@ -2489,10 +2488,6 @@ function setTab(tab, skipHistory=false) {
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
-  // 차편 탭에 (다른 탭에서) 처음 진입하면 '본대 배정'을 기본으로 열어줌
-  if (tab === 'transport' && prevTab !== 'transport') {
-    setTimeout(() => { if (currentTab === 'transport' && !document.body.classList.contains('sheet-open')) openBusAssignSheet(); }, 80);
-  }
   // 탭 전환은 히스토리에 쌓지 않음 → 탭 화면에서 뒤로가기 누르면 앱이 바로 종료됨
 }
 $$('.tabbar button').forEach(b => b.onclick = () => setTab(b.dataset.tab));

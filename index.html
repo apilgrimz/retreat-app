@@ -1722,7 +1722,7 @@ function openUnassignedSheet(isReopen) {
   const optHtml = () => ['', ...opts.map(o=>o.name)].map(v =>
     `<option value="${esc(v)}">${esc(v||'─ 배차 ─')}</option>`).join('');
   const sessions = getSessionDefs().map(d => d.name);
-  const gridCols = '24px 44px 50px 44px 58px 84px';  // 번호·구역·성명·부서·출발·교통편
+  const gridCols = '28px 52px 58px 52px 56px 92px';  // 번호·구역·성명·부서·출발·교통편
 
   // 한 방향(상/하행) 명단: 날짜별 그룹
   const buildSide = (sname, dir, label) => {
@@ -1747,16 +1747,16 @@ function openUnassignedSheet(isReopen) {
         const depart = (dir==='up' ? st.upDepartTime : st.downDepartTime) || '';
         rows += `<div class="roster-row" style="grid-template-columns:${gridCols};">
           <div class="no">${i+1}</div>
-          <div style="font-size:10px; white-space:nowrap;">${esc(m.zone)}</div>
-          <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:11px;" onclick="openMemberById('${esc(m.id)}', {fn:'openUnassignedSheet'})">${esc(m.name)}</div>
-          <div style="font-size:10px;">${esc(m.dept)}</div>
-          <div><input type="text" class="ua-depart" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" value="${esc(depart)}" placeholder="시간" style="width:100%; font-size:10px; padding:3px;"/></div>
-          <div><select class="ua-assign sel-compact" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" style="width:100%; font-size:10px;">${optHtml()}</select></div>
+          <div style="font-size:12px; white-space:nowrap;">${esc(m.zone)}</div>
+          <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:13px;" onclick="openMemberById('${esc(m.id)}', {fn:'openUnassignedSheet'})">${esc(m.name)}</div>
+          <div style="font-size:12px;">${esc(m.dept)}</div>
+          <div><input type="text" class="ua-depart" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" value="${esc(depart)}" placeholder="시간" style="width:100%; font-size:11px; padding:4px;"/></div>
+          <div><select class="ua-assign sel-compact" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" style="width:100%; font-size:11px;">${optHtml()}</select></div>
         </div>`;
       });
       blocks += `<div style="margin-top:6px;">
         <div style="font-size:10px; font-weight:700; color:var(--ink-soft); background:var(--bg-2); padding:3px 6px; border-radius:5px;">${esc(dateLabel)} · ${list.length}명</div>
-        <div class="roster-table" style="min-width:304px; width:max-content; margin-top:3px;">
+        <div class="roster-table" style="min-width:378px; width:max-content; margin-top:3px;">
           <div class="roster-row head" style="grid-template-columns:${gridCols};"><div class="no">번호</div><div>구역</div><div>성명</div><div>부서</div><div>출발</div><div>교통편</div></div>
           ${rows}
         </div>

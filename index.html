@@ -3481,6 +3481,7 @@ function renderTransport() {
 
   let html = `
     <div class="transport-tabs" id="ttTabs" style="margin-top:10px;">
+      <button class="tt-pill" data-action="bus-assign">본대 배정</button>
       ${TYPES.map(t => `<button class="tt-pill ${t===type?'active':''}" data-t="${esc(t)}">${esc(t)}</button>`).join('')}
       <button class="tt-pill" data-action="unassigned">미배차</button>
     </div>
@@ -5441,6 +5442,7 @@ function bindViewHandlers() {
     openMemberSheet(emptyMember(startZone), true);
   };
   $$('#ttTabs .tt-pill').forEach(b => b.onclick = () => {
+    if (b.dataset.action === 'bus-assign') { openBusAssignSheet(); return; }  // 본대 배정 칩 → 배정 시트
     if (b.dataset.action === 'unassigned') { openUnassignedSheet(); return; }  // 미배차 칩 → 배차 시트
     transportTab.type = b.dataset.t;
     const tt = document.getElementById('ttTabs');

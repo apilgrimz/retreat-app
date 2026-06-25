@@ -1025,9 +1025,10 @@ function memberRepTrans(m) {
 // 한 멤버의 sessionTrans[차수]를 보고, 해당 방향(dir)의 차편이 type/driver와 일치하면 포함
 function transMatchesType(vehicle, kind, type, driver) {
   if (!vehicle) return false;
-  if (driver) {  // 개인차: 차주명과 일치
+  if (driver) {  // 개인차: 특정 차주명과 일치
     return kind === 'private' && vehicle === driver;
   }
+  if (type === '개인차') return kind === 'private';  // 개인차 탭(차주 무관): 개인차 전체
   if (BUSES.includes(type)) return vehicle === type;          // 호차
   if (CHURCH_CARS.includes(type)) return vehicle === type;    // 교회차N
   // 타교회/대중교통 등 기타
@@ -1049,8 +1050,9 @@ function transSessionGroups(type, driver) {
       if (transMatchesType(st.downVehicle, downKindV, type, driver)) dList.push(m);
     });
     if (uList.length || dList.length) {
-      // 개인차 탭(driver 지정)은 차수순 → 성명 가나다순. 그 외는 표준(구역→부서→성명).
-      const cmp = driver ? (a, b) => (a.name||'').localeCompare(b.name||'', 'ko') : memberSortCmp;
+      // 개인차(차주 지정 또는 개인차 탭 전체)는 차수순 → 성명 가나다순. 그 외는 표준(구역→부서→성명).
+      const byName = !!driver || type === '개인차';
+      const cmp = byName ? (a, b) => (a.name||'').localeCompare(b.name||'', 'ko') : memberSortCmp;
       groups.push({
         session: sname,
         upDate: def.upDate || '', downDate: def.downDate || '',
@@ -1283,12 +1285,14 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
    // 두 개의 독립된 <table>을 좌우로 나란히 배치 (각자 닫힌 외곽선을 가짐)
    // driver(개인차 차주명)가 주어지면 그 사람을 1번으로
    const drvName = String(driver||'').trim();
+   const isPrivateTab = type === '개인차';  // 개인차 탭: 차수순 → 성명 가나다순 (구역 무관)
    const cmp = (a,b) => {
      if (drvName) {
        const aD = (a.name||'').trim() === drvName, bD = (b.name||'').trim() === drvName;
        if (aD && !bD) return -1;
        if (!aD && bD) return 1;
      }
+     if (isPrivateTab) return (a.name||'').localeCompare(b.name||'', 'ko');  // 성명 가나다순
      return memberSortCmp(a, b);
    };
    const uSorted = uList.slice().sort(cmp);
@@ -3477,18 +3481,14 @@ function renderTransport() {
     html += buildSplitTable(null, uList, dList, false, null, type);
     html += busExtraEditor(type);
   } else if (type === '개인차') {
-    const drv2 = privateDriversWithGroups();
-    if (drv2.length === 0) {
+    // 차주 구분 없이 차수별로 묶어 표시 (차수 순 → 성명 가나다순)
+    const groups = transSessionGroups('개인차', null);
+    if (groups.length === 0) {
       html += `<div class="empty-state">개인차로 가는 사람이 없습니다.<br/><span style="font-size:12px">더보기 → 기초 데이터 설정 → '개인차 목록'에서 차주를 등록하고, 인원 추가에서 개인차를 선택하세요.</span></div>`;
     } else {
-      // 차주별 → 차수별 블록 (차수 순서대로)
-      drv2.forEach(({driver, groups}) => {
-        groups.forEach(g => {
-          const label = `🚗 ${esc(driver)} · ${esc(g.session)}`;
-          html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${label}</div>`;
-          html += transInfoEditor('', driver);
-          html += buildSplitTable(null, g.uList, g.dList, false, driver, '개인차', g);
-        });
+      groups.forEach(g => {
+        html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">🚗 개인차 · ${esc(g.session)}</div>`;
+        html += buildSplitTable(null, g.uList, g.dList, false, null, '개인차', g);
       });
     }
   } else {

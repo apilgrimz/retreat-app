@@ -58,6 +58,12 @@ select {
   background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px;
 }
 ::placeholder { color: var(--ink-mute); }
+/* 작은 드롭다운(미배차·본대 배정): 화살표를 작게, 우측 여백 축소 */
+select.sel-compact {
+  background-size: 9px 9px;
+  background-position: right 5px center;
+  padding-right: 18px;
+}
 
 /* ============ 레이아웃 ============ */
 #app { padding-bottom: calc(72px + var(--safe-bot)); }
@@ -207,7 +213,7 @@ nav.tabbar {
 .roster-row { display: grid; grid-template-columns: 28px 1fr 56px 60px; gap: 8px; padding: 9px 12px; align-items: center; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
 .roster-row:last-child { border-bottom: none; }
 .roster-row.head { background: var(--bg-2); font-size: 11px; color: var(--ink-mute); font-weight: 600; }
-.roster-row.head > div { text-align: center !important; }
+.roster-row.head > div { text-align: left !important; }
 .roster-row .no { color: var(--ink-mute); font-size: 12px; }
 .roster-row .nm { font-weight: 500; }
 .roster-row .zo { color: var(--ink-soft); font-size: 12px; }
@@ -217,6 +223,7 @@ nav.tabbar {
 .vscroll { overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .vscroll .roster-row.head { position: sticky; top: 0; z-index: 5; background: var(--bg-3); box-shadow: 0 2px 4px rgba(0,0,0,0.4), 0 1px 0 var(--line); }
 .vscroll .roster-row.head > div { background: var(--bg-3); }
+.vscroll .roster-row:not(.head) { position: relative; z-index: 0; background: var(--bg-1); }
 .vscroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .vscroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 
@@ -1041,10 +1048,12 @@ function transSessionGroups(type, driver) {
       if (transMatchesType(st.downVehicle, downKindV, type, driver)) dList.push(m);
     });
     if (uList.length || dList.length) {
+      // 개인차 탭(driver 지정)은 차수순 → 성명 가나다순. 그 외는 표준(구역→부서→성명).
+      const cmp = driver ? (a, b) => (a.name||'').localeCompare(b.name||'', 'ko') : memberSortCmp;
       groups.push({
         session: sname,
         upDate: def.upDate || '', downDate: def.downDate || '',
-        uList: uList.sort(memberSortCmp), dList: dList.sort(memberSortCmp),
+        uList: uList.sort(cmp), dList: dList.sort(cmp),
       });
     }
   });
@@ -1741,7 +1750,7 @@ function openUnassignedSheet(isReopen) {
           <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:11px;" onclick="openMemberById('${esc(m.id)}', {fn:'openUnassignedSheet'})">${esc(m.name)}</div>
           <div style="font-size:10px;">${esc(m.dept)}</div>
           <div><input type="text" class="ua-depart" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" value="${esc(depart)}" placeholder="시간" style="width:100%; font-size:10px; padding:3px;"/></div>
-          <div><select class="ua-assign" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" style="width:100%; font-size:10px;">${optHtml()}</select></div>
+          <div><select class="ua-assign sel-compact" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" style="width:100%; font-size:10px;">${optHtml()}</select></div>
         </div>`;
       });
       blocks += `<div style="margin-top:6px;">
@@ -1754,7 +1763,7 @@ function openUnassignedSheet(isReopen) {
     });
     return `<div style="flex:1; min-width:0;">
       <div style="font-weight:700; color:var(--gold-soft); margin-bottom:4px; text-align:center; font-size:12px;">${label} (${items.length})</div>
-      <div style="overflow-x:auto;">${blocks}</div>
+      <div>${blocks}</div>
     </div>`;
   };
 
@@ -1765,10 +1774,10 @@ function openUnassignedSheet(isReopen) {
     if (upN === 0 && downN === 0) return;  // 미배차 없는 차수는 생략
     body += `<div style="margin-bottom:16px;">
       <div style="font-size:13px; font-weight:800; color:var(--gold); border-bottom:1px solid var(--line); padding-bottom:4px; margin-bottom:8px;">${esc(sname)}</div>
-      <div style="display:flex; gap:10px; align-items:flex-start;">
+      <div style="overflow-x:auto;"><div style="display:flex; gap:10px; align-items:flex-start; width:max-content; min-width:100%;">
         ${buildSide(sname,'up','상행')}
         ${buildSide(sname,'down','하행')}
-      </div>
+      </div></div>
     </div>`;
   });
   if (sessions.every(sn => unassignedItems(sn,'up').length===0 && unassignedItems(sn,'down').length===0)) {
@@ -2322,7 +2331,7 @@ function openBusAssignSheet(isReopen) {
         <span style="font-weight:800; color:var(--gold-soft);">${esc(zone)}</span>
         <span style="font-size:12px; color:var(--ink-soft);">${zoneMembers.length}명</span>
         <span style="font-size:11px; color:var(--ink-mute); margin-left:auto;">구역 일괄</span>
-        <select class="zone-bus-select" data-zone="${esc(zone)}" style="width:120px; font-size:12px;"><option value="">─ 선택 ─</option>${buses.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('')}</select>
+        <select class="zone-bus-select sel-compact" data-zone="${esc(zone)}" style="width:120px; font-size:12px;"><option value="">─ 선택 ─</option>${buses.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('')}</select>
       </div>`;
       // 표 헤더 (구역마다)
       rows += `<div class="roster-row head" style="grid-template-columns: 34px 70px 70px 80px 110px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>호차</div></div>`;
@@ -2335,7 +2344,7 @@ function openBusAssignSheet(isReopen) {
           <div style="white-space:nowrap;">${esc(m.zone)}</div>
           <div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openBusAssignSheet'})">${esc(m.name)}</div>
           <div style="font-size:12px;">${esc(m.dept)}</div>
-          <div><select class="member-bus-select" data-id="${esc(m.id)}" style="width:100%; font-size:12px;">${busOpts(cur)}</select></div>
+          <div><select class="member-bus-select sel-compact" data-id="${esc(m.id)}" style="width:100%; font-size:12px;">${busOpts(cur)}</select></div>
         </div>`;
       });
     });
@@ -2356,7 +2365,7 @@ function openBusAssignSheet(isReopen) {
     <div style="font-size:12px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수(${esc(ch||'-')}) 상행을 '버스'로 선택한 인원입니다. 호차를 선택해 각 호차에 배정하세요.</div>
     ${summary}
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:374px;">
+      <div class="roster-table" style="min-width:374px; width:max-content;">
         ${rows}
       </div>
     </div>
@@ -2648,10 +2657,8 @@ function renderHome() {
     <div class="card">
       <div class="card-head"><div class="card-title">회별(부서별) 인원 및 회비</div></div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0;">
-        <div style="min-width:340px;">
-          <div class="roster-row head" style="grid-template-columns: 112px 42px 72px 112px;"><div>회(부서)</div><div style="text-align:center">인원</div><div style="text-align:right">단가(회비)</div><div style="text-align:right; padding-right:10px;">합계</div></div>
-          ${DEPTS.map(d => `<div class="roster-row clickable" style="grid-template-columns: 112px 42px 72px 112px;" onclick="openDeptSheet('${esc(d)}')"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(d)}</div><div style="text-align:center; white-space:nowrap;">${depts[d]||0}명</div><div style="text-align:right;color:var(--ink-mute); white-space:nowrap;">${won(DB.fees[d]||0)}</div><div style="text-align:right;font-weight:600;color:var(--gold-soft); padding-right:10px; white-space:nowrap;">${won(deptFees[d]||0)}</div></div>`).join('')}
-        </div>
+          <div class="roster-row head" style="grid-template-columns: 1fr 42px 72px 96px;"><div>회(부서)</div><div style="text-align:center">인원</div><div style="text-align:right">단가(회비)</div><div style="text-align:right; padding-right:10px;">합계</div></div>
+          ${DEPTS.map(d => `<div class="roster-row clickable" style="grid-template-columns: 1fr 42px 72px 96px;" onclick="openDeptSheet('${esc(d)}')"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(d)}</div><div style="text-align:center; white-space:nowrap;">${depts[d]||0}명</div><div style="text-align:right;color:var(--ink-mute); white-space:nowrap;">${won(DB.fees[d]||0)}</div><div style="text-align:right;font-weight:600;color:var(--gold-soft); padding-right:10px; white-space:nowrap;">${won(deptFees[d]||0)}</div></div>`).join('')}
       </div>
     </div>
 
@@ -3453,7 +3460,7 @@ function renderTransport() {
   let html = `
     <div class="transport-tabs" id="ttTabs" style="margin-top:10px;">
       ${TYPES.map(t => `<button class="tt-pill ${t===type?'active':''}" data-t="${esc(t)}">${esc(t)}</button>`).join('')}
-      <button class="tt-pill" data-action="unassigned" style="margin-left:auto; border-color:var(--accent-teal,#46c8c0); color:var(--accent-teal,#46c8c0);">미배차</button>
+      <button class="tt-pill" data-action="unassigned">미배차</button>
     </div>
     <div class="card">
       <div class="card-head"><div class="card-title">${esc(type)} 탑승 명단</div><div style="display:flex;gap:6px;"><button class="card-action" onclick="openTransportFull()">전체보기</button><button class="card-action" onclick="execPrintTransport()">인쇄</button></div></div>
@@ -3916,13 +3923,30 @@ function openIntakeStatus() {
     '</div>';
   openSheet('접수 현황', html, null, { hideSave: true });
 }
+// 접수 단계별 인쇄 (번호·구역·성명·회·차수)
+function execPrintIntake(key) {
+  const g = intakeGroups();
+  const list = g[key] || [];
+  const titleText = `${getYearPrefix()} 하계수양회 - ${INTAKE_LABELS[key]}`;
+  const trs = list.map((m, i) => `<tr><td>${i+1}</td><td>${esc(m.zone)}</td><td>${esc(m.name)}</td><td>${esc(m.dept)}</td><td>${esc(m.session||'')}</td></tr>`).join('');
+  const body = `<div class="print-title">${titleText} (${list.length}명)</div>
+    <table class="print-table">
+      <colgroup><col style="width:48px"><col style="width:80px"><col><col style="width:90px"><col style="width:70px"></colgroup>
+      <thead><tr><th>번호</th><th>구역</th><th>성명</th><th>회(부서)</th><th>차수</th></tr></thead>
+      <tbody>${trs}</tbody>
+    </table>`;
+  doPrint(titleText, body);
+}
 function openIntakeGroup(key, isReopen) {
   const g = intakeGroups();
   const list = g[key] || [];
   const isOnsite = key === 'onsite';
   const html =
     (isOnsite ? '<div class="notice">\'등록\'을 누르면 해당 인원이 즉시 정식 등록되어 모든 집계에 반영됩니다.</div>' : '') +
-    '<div class="section-title">' + INTAKE_LABELS[key] + ' (' + list.length + '명)</div>' +
+    '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">' +
+      '<div class="section-title" style="margin:0;">' + INTAKE_LABELS[key] + ' (' + list.length + '명)</div>' +
+      '<button class="card-action" onclick="execPrintIntake(\'' + key + '\')">인쇄</button>' +
+    '</div>' +
     intakeTable(list, isOnsite, key);
   openSheet(INTAKE_LABELS[key], html, null, { hideSave: true, replaceTop:!!isReopen, reopener:()=>openIntakeGroup(key, true) });
 }
@@ -5395,6 +5419,17 @@ function bindViewHandlers() {
     const tt2 = document.getElementById('ttTabs');
     if (tt2) tt2.scrollLeft = sl;  // 가로 스크롤 위치 복원
   });
+  // PC: 칩 줄 위에서 마우스 휠(세로)을 가로 스크롤로 변환 (한 번만 바인딩)
+  const ttBar = document.getElementById('ttTabs');
+  if (ttBar && !ttBar._wheelBound) {
+    ttBar._wheelBound = true;
+    ttBar.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        ttBar.scrollLeft += e.deltaY;
+        e.preventDefault();
+      }
+    }, { passive: false });
+  }
   // 차편 날짜·시각 입력 저장 (change 시 transportInfo에 기록)
   function saveTransInfoField(el) {
     if (guardViewOnly()) { render(); return; }

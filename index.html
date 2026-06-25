@@ -207,6 +207,7 @@ nav.tabbar {
 .roster-row { display: grid; grid-template-columns: 28px 1fr 56px 60px; gap: 8px; padding: 9px 12px; align-items: center; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
 .roster-row:last-child { border-bottom: none; }
 .roster-row.head { background: var(--bg-2); font-size: 11px; color: var(--ink-mute); font-weight: 600; }
+.roster-row.head > div { text-align: center !important; }
 .roster-row .no { color: var(--ink-mute); font-size: 12px; }
 .roster-row .nm { font-weight: 500; }
 .roster-row .zo { color: var(--ink-soft); font-size: 12px; }
@@ -214,7 +215,8 @@ nav.tabbar {
 /* 홈 카드 내부 세로 스크롤 (N줄 높이 고정, 헤더 sticky) */
 /* overscroll-behavior는 두지 않음 → 내부 스크롤이 끝에 닿으면 페이지 스크롤로 자연스럽게 이어짐 */
 .vscroll { overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.vscroll .roster-row.head { position: sticky; top: 0; z-index: 5; background: var(--bg-2); box-shadow: 0 1px 0 var(--line); }
+.vscroll .roster-row.head { position: sticky; top: 0; z-index: 5; background: var(--bg-3); box-shadow: 0 2px 4px rgba(0,0,0,0.4), 0 1px 0 var(--line); }
+.vscroll .roster-row.head > div { background: var(--bg-3); }
 .vscroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .vscroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 
@@ -1656,6 +1658,136 @@ function execResetZone() {
   }, '초기화');
 }
 
+// ===== 미배차자 관리 (차편 미정 인원 배차) =====
+// 가나다순 배차 옵션: 기타 교통편(OTHER_TRANSPORTS) + 개인차 차주(PRIVATE_CAR_LIST)
+function unassignedVehicleOptions() {
+  const others = (OTHER_TRANSPORTS || []).map(v => ({ name: v, kind: kindOfVehicle(v) || 'etc' }));
+  const drivers = (PRIVATE_CAR_LIST || []).map(v => ({ name: v, kind: 'private' }));
+  return [...others, ...drivers].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+}
+// 특정 차수·방향이 미배차인지 (차편 종류 kind 비어있음)
+function isDirUnassigned(m, sname, dir) {
+  const st = (m.sessionTrans && m.sessionTrans[sname]) || null;
+  if (!st) return true;
+  return dir === 'up' ? !st.upKind : !st.downKind;
+}
+// 미배차 항목: 차수·방향별 {m, sname, dir, date}
+function unassignedItems(sname, dir) {
+  const items = [];
+  registeredMembers().forEach(m => {
+    if (!memberSessions(m).includes(sname)) return;
+    if (isDirUnassigned(m, sname, dir)) {
+      const st = (m.sessionTrans && m.sessionTrans[sname]) || {};
+      const date = dir === 'up' ? (st.upDate || '') : (st.downDate || '');
+      items.push({ m, sname, dir, date });
+    }
+  });
+  return items;
+}
+// 출발 가능 시간 저장
+function setDepartTime(memberId, sname, dir, val) {
+  const m = DB.members.find(x => x.id === memberId);
+  if (!m) return;
+  if (!m.sessionTrans) m.sessionTrans = {};
+  if (!m.sessionTrans[sname]) m.sessionTrans[sname] = {};
+  m.sessionTrans[sname][dir === 'up' ? 'upDepartTime' : 'downDepartTime'] = val;
+  saveVault();
+}
+// 배차: 선택한 차편으로 배정 (kind 자동 판정). 배정되면 목록에서 사라지고 해당 차편 명단에 들어감.
+function assignUnassigned(memberId, sname, dir, vehicle) {
+  const m = DB.members.find(x => x.id === memberId);
+  if (!m || !vehicle) return;
+  if (!m.sessionTrans) m.sessionTrans = {};
+  if (!m.sessionTrans[sname]) m.sessionTrans[sname] = {};
+  const st = m.sessionTrans[sname];
+  const kind = kindOfVehicle(vehicle) || 'etc';
+  if (dir === 'up') { st.upKind = kind; st.upVehicle = vehicle; }
+  else { st.downKind = kind; st.downVehicle = vehicle; }
+  recalcMemberRepTrans(m);
+  saveVault();
+}
+
+function openUnassignedSheet(isReopen) {
+  const opts = unassignedVehicleOptions();
+  const optHtml = () => ['', ...opts.map(o=>o.name)].map(v =>
+    `<option value="${esc(v)}">${esc(v||'─ 배차 ─')}</option>`).join('');
+  const sessions = getSessionDefs().map(d => d.name);
+  const gridCols = '24px 44px 50px 44px 58px 84px';  // 번호·구역·성명·부서·출발·교통편
+
+  // 한 방향(상/하행) 명단: 날짜별 그룹
+  const buildSide = (sname, dir, label) => {
+    const items = unassignedItems(sname, dir);
+    if (!items.length) {
+      return `<div style="flex:1; min-width:0;">
+        <div style="font-weight:700; color:var(--gold-soft); margin-bottom:4px; text-align:center; font-size:12px;">${label}</div>
+        <div style="padding:12px; text-align:center; color:var(--ink-mute); font-size:11px;">없음</div>
+      </div>`;
+    }
+    const byDate = {};
+    items.forEach(it => { const k = it.date || '___'; (byDate[k] = byDate[k] || []).push(it); });
+    const dateKeys = Object.keys(byDate).sort((a,b)=>{ if(a==='___')return 1; if(b==='___')return -1; return a.localeCompare(b); });
+    let blocks = '';
+    dateKeys.forEach(dk => {
+      const list = byDate[dk].slice().sort((x,y)=>memberSortCmp(x.m, y.m));
+      const dateLabel = dk==='___' ? '날짜 미정' : fmtMDw(dk);
+      let rows = '';
+      list.forEach((it, i) => {
+        const m = it.m;
+        const st = (m.sessionTrans && m.sessionTrans[sname]) || {};
+        const depart = (dir==='up' ? st.upDepartTime : st.downDepartTime) || '';
+        rows += `<div class="roster-row" style="grid-template-columns:${gridCols};">
+          <div class="no">${i+1}</div>
+          <div style="font-size:10px; white-space:nowrap;">${esc(m.zone)}</div>
+          <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:11px;" onclick="openMemberById('${esc(m.id)}', {fn:'openUnassignedSheet'})">${esc(m.name)}</div>
+          <div style="font-size:10px;">${esc(m.dept)}</div>
+          <div><input type="text" class="ua-depart" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" value="${esc(depart)}" placeholder="시간" style="width:100%; font-size:10px; padding:3px;"/></div>
+          <div><select class="ua-assign" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" style="width:100%; font-size:10px;">${optHtml()}</select></div>
+        </div>`;
+      });
+      blocks += `<div style="margin-top:6px;">
+        <div style="font-size:10px; font-weight:700; color:var(--ink-soft); background:var(--bg-2); padding:3px 6px; border-radius:5px;">${esc(dateLabel)} · ${list.length}명</div>
+        <div class="roster-table" style="min-width:304px; width:max-content; margin-top:3px;">
+          <div class="roster-row head" style="grid-template-columns:${gridCols};"><div class="no">번호</div><div>구역</div><div>성명</div><div>부서</div><div>출발</div><div>교통편</div></div>
+          ${rows}
+        </div>
+      </div>`;
+    });
+    return `<div style="flex:1; min-width:0;">
+      <div style="font-weight:700; color:var(--gold-soft); margin-bottom:4px; text-align:center; font-size:12px;">${label} (${items.length})</div>
+      <div style="overflow-x:auto;">${blocks}</div>
+    </div>`;
+  };
+
+  let body = `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:10px;">아직 차편이 정해지지 않은 인원입니다. 출발 가능 시간을 적고 교통편을 선택해 배차하세요. 배차하면 해당 차편 명단으로 이동합니다.</div>`;
+  sessions.forEach(sname => {
+    const upN = unassignedItems(sname, 'up').length;
+    const downN = unassignedItems(sname, 'down').length;
+    if (upN === 0 && downN === 0) return;  // 미배차 없는 차수는 생략
+    body += `<div style="margin-bottom:16px;">
+      <div style="font-size:13px; font-weight:800; color:var(--gold); border-bottom:1px solid var(--line); padding-bottom:4px; margin-bottom:8px;">${esc(sname)}</div>
+      <div style="display:flex; gap:10px; align-items:flex-start;">
+        ${buildSide(sname,'up','상행')}
+        ${buildSide(sname,'down','하행')}
+      </div>
+    </div>`;
+  });
+  if (sessions.every(sn => unassignedItems(sn,'up').length===0 && unassignedItems(sn,'down').length===0)) {
+    body += `<div style="text-align:center; padding:20px; color:var(--ink-mute); font-size:13px;">모든 인원이 배차되었습니다.</div>`;
+  }
+
+  openSheet('미배차자 배차', body, null, {
+    hideSave:true, replaceTop:!!isReopen, reopener:()=>openUnassignedSheet(true),
+    afterPaint:()=>{
+      document.querySelectorAll('.ua-depart').forEach(inp => {
+        inp.addEventListener('change', () => { if(guardViewOnly()){return;} setDepartTime(inp.dataset.id, inp.dataset.s, inp.dataset.dir, inp.value); });
+      });
+      document.querySelectorAll('.ua-assign').forEach(sel => {
+        sel.onchange = () => { if(guardViewOnly()){return;} if(sel.value){ assignUnassigned(sel.dataset.id, sel.dataset.s, sel.dataset.dir, sel.value); openUnassignedSheet(true); } };
+      });
+    }
+  });
+}
+
 function openTransportFull() {
   const type = transportTab.type;
   let body = '';
@@ -2815,6 +2947,13 @@ function openLodgingQuickEdit(memberId) {
   `;
   openSheet('숙소 입력 · ' + m.name, html, function () {
     m.lodging = ($('#qLodging').value || '').trim();
+    // 숙소 연동: 연결된 전도대상자의 숙소도 함께 갱신 (숙소를 비우면 전도 숙소도 비워짐)
+    DB.evangelism.forEach(e => {
+      if (e.memberId === m.id || (!e.memberId && e.name === m.name && e.zone === m.zone && e.name !== '')) {
+        if (!e.memberId) e.memberId = m.id;
+        e.lodging = m.lodging;
+      }
+    });
     saveDB(); render();
     return true;  // closeSheet가 이어서 처리(스택 복귀)
   }, { saveLabel: '저장' });
@@ -3314,6 +3453,7 @@ function renderTransport() {
   let html = `
     <div class="transport-tabs" id="ttTabs" style="margin-top:10px;">
       ${TYPES.map(t => `<button class="tt-pill ${t===type?'active':''}" data-t="${esc(t)}">${esc(t)}</button>`).join('')}
+      <button class="tt-pill" data-action="unassigned" style="margin-left:auto; border-color:var(--accent-teal,#46c8c0); color:var(--accent-teal,#46c8c0);">미배차</button>
     </div>
     <div class="card">
       <div class="card-head"><div class="card-title">${esc(type)} 탑승 명단</div><div style="display:flex;gap:6px;"><button class="card-action" onclick="openTransportFull()">전체보기</button><button class="card-action" onclick="execPrintTransport()">인쇄</button></div></div>
@@ -4614,9 +4754,9 @@ function renderEvangelismSheet(isReopen) {
       <button class="btn btn-secondary" onclick="execPrintEvangelism()" style="flex:1">인쇄</button>
     </div>
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:640px;">
-        <div class="roster-row head" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div style="text-align:center">상태</div><div>비고</div></div>
-        ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px 1fr;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openMemberFromRef('${esc(e.memberId||'')}','${esc(e.name)}','${esc(e.zone)}','renderEvangelismSheet')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
+      <div class="roster-table" style="min-width:640px; width:max-content;">
+        <div class="roster-row head" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div style="text-align:center">상태</div><div>비고</div></div>
+        ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px max-content;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openMemberFromRef('${esc(e.memberId||'')}','${esc(e.name)}','${esc(e.zone)}','renderEvangelismSheet')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
         ${DB.evangelism.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>
@@ -5247,6 +5387,7 @@ function bindViewHandlers() {
     openMemberSheet(emptyMember(startZone), true);
   };
   $$('#ttTabs .tt-pill').forEach(b => b.onclick = () => {
+    if (b.dataset.action === 'unassigned') { openUnassignedSheet(); return; }  // 미배차 칩 → 배차 시트
     transportTab.type = b.dataset.t;
     const tt = document.getElementById('ttTabs');
     const sl = tt ? tt.scrollLeft : 0;

@@ -296,6 +296,7 @@ nav.tabbar {
   .print-title { text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 15px; padding-bottom: 10px;}
   
   .print-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; border: 2px solid #000 !important; }
+  .print-table.fixed-cols { table-layout: fixed; }
   .print-table th, .print-table td { border: 1px solid #000 !important; padding: 4px 3px; text-align: center; vertical-align: middle; word-break: break-all; }
   .print-table th { background: #eee !important; font-weight: bold; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   /* 교통편 셀 — 한 줄에 들어가도록 폰트·간격 최적화 (정 안 들어가면 자연 줄바꿈) */
@@ -2233,7 +2234,7 @@ function openZoneSheet(zone, isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:670px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 50px 50px 52px 250px max-content max-content;"><div class="no">번호</div><div>성명</div><div>부서(회)</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 50px 50px 52px 250px minmax(64px,max-content) minmax(80px,max-content);"><div class="no">번호</div><div>성명</div><div>부서(회)</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
           const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
@@ -2241,7 +2242,7 @@ function openZoneSheet(zone, isReopen) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 50px 50px 52px 250px max-content max-content;"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.lodging)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 50px 50px 52px 250px minmax(64px,max-content) minmax(80px,max-content);"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.lodging)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -2258,7 +2259,7 @@ function openDeptSheet(dept, isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:682px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 42px 52px 40px 250px max-content max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 42px 52px 40px 250px minmax(64px,max-content) minmax(80px,max-content);"><div class="no">번호</div><div>구역</div><div>성명</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
           const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
@@ -2266,7 +2267,7 @@ function openDeptSheet(dept, isReopen) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 42px 52px 40px 250px max-content max-content;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div style="white-space:nowrap;">${esc(m.session)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.lodging)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 42px 52px 40px 250px minmax(64px,max-content) minmax(80px,max-content);"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div style="white-space:nowrap;">${esc(m.session)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.lodging)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -3897,13 +3898,13 @@ function intakeGroups() {
 
 function intakeTable(list, withRegister, groupKey) {
   if (!list.length) return '<div style="text-align:center;padding:16px;font-size:12px;color:var(--ink-mute)">해당 없음</div>';
-  const cols = withRegister ? '28px 44px 1fr 60px 50px 52px' : '28px 44px 1fr 60px 50px';
+  const cols = withRegister ? '28px 58px 1fr 100px 48px 52px' : '28px 58px 1fr 100px 48px';
   let head = '<div class="roster-row head" style="grid-template-columns:' + cols + '"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>차수</div>' + (withRegister ? '<div style="text-align:center">등록</div>' : '') + '</div>';
   let rows = list.map(function (m, i) {
     const reg = withRegister ? '<div style="text-align:center"><button class="card-action" style="font-size:11px;padding:2px 8px" onclick="intakeRegister(\'' + esc(m.id) + '\')">등록</button></div>' : '';
     return '<div class="roster-row" style="grid-template-columns:' + cols + '"><div class="no">' + (i + 1) + '</div><div>' + esc(m.zone) + '</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById(\'' + esc(m.id) + '\', {fn:\'openIntakeGroup\', arg:\'' + esc(groupKey || '') + '\'})">' + esc(m.name) + '</div><div>' + esc(m.dept) + '</div><div>' + esc(m.session || '') + '</div>' + reg + '</div>';
   }).join('');
-  return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + (withRegister ? '330' : '280') + 'px">' + head + rows + '</div></div>';
+  return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + (withRegister ? '386' : '334') + 'px">' + head + rows + '</div></div>';
 }
 
 var INTAKE_LABELS = { pre1: '사전 1단계 접수 · 명찰 수령', pre2: '사전 2단계 접수 · 명찰 현장 수령', onsite: '현장 접수' };
@@ -3930,8 +3931,8 @@ function execPrintIntake(key) {
   const titleText = `${getYearPrefix()} 하계수양회 - ${INTAKE_LABELS[key]}`;
   const trs = list.map((m, i) => `<tr><td>${i+1}</td><td>${esc(m.zone)}</td><td>${esc(m.name)}</td><td>${esc(m.dept)}</td><td>${esc(m.session||'')}</td></tr>`).join('');
   const body = `<div class="print-title">${titleText} (${list.length}명)</div>
-    <table class="print-table">
-      <colgroup><col style="width:48px"><col style="width:80px"><col><col style="width:90px"><col style="width:70px"></colgroup>
+    <table class="print-table fixed-cols">
+      <colgroup><col style="width:48px"><col><col><col><col></colgroup>
       <thead><tr><th>번호</th><th>구역</th><th>성명</th><th>회(부서)</th><th>차수</th></tr></thead>
       <tbody>${trs}</tbody>
     </table>`;

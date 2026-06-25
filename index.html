@@ -2278,109 +2278,130 @@ function openDeptSheet(dept, isReopen) {
 
 // ===== 본대(호차) 배정 =====
 // 본 교회 차수의 상행이 버스인 사람 = 본대 탑승 대상. 호차는 그 차수 상행 차편(upVehicle)에 저장.
-function busAssignMembers() {
+function busAssignMembers(dir) {
   const ch = churchSessionName();
   if (!ch) return [];
+  const kindKey = dir === 'down' ? 'downKind' : 'upKind';
   return registeredMembers().filter(m => {
     if (!memberSessions(m).includes(ch)) return false;
     const st = (m.sessionTrans && m.sessionTrans[ch]) || null;
-    return st && st.upKind === 'bus';
+    return st && st[kindKey] === 'bus';
   }).sort(memberSortCmp);
 }
-// 특정 멤버의 본 차수 상행 호차를 변경 (배정 화면 / 인원폼 공통 경로)
-function setMemberBus(memberId, busName) {
+// 특정 멤버의 본 차수 상행/하행 호차를 변경 (배정 화면 / 인원폼 공통 경로)
+function setMemberBus(memberId, busName, dir) {
   const ch = churchSessionName();
   const m = DB.members.find(x => x.id === memberId);
   if (!m || !ch) return;
   if (!m.sessionTrans) m.sessionTrans = {};
   if (!m.sessionTrans[ch]) m.sessionTrans[ch] = {};
   const st = m.sessionTrans[ch];
-  st.upKind = 'bus';
-  st.upVehicle = busName || '';
-  if (!st.upDate) { const def = sessionDefByName(ch); if (def && def.upDate) st.upDate = def.upDate; }
+  const def = sessionDefByName(ch);
+  if (dir === 'down') {
+    st.downKind = 'bus';
+    st.downVehicle = busName || '';
+    if (!st.downDate && def && def.downDate) st.downDate = def.downDate;
+  } else {
+    st.upKind = 'bus';
+    st.upVehicle = busName || '';
+    if (!st.upDate && def && def.upDate) st.upDate = def.upDate;
+  }
   recalcMemberRepTrans(m);
   saveVault();
 }
-// 구역 일괄: 그 구역의 본대 대상 전원에게 호차 배정
-function setZoneBus(zone, busName) {
-  busAssignMembers().filter(m => m.zone === zone).forEach(m => setMemberBus(m.id, busName));
+// 구역 일괄: 그 구역의 본대 대상(해당 방향) 전원에게 호차 배정
+function setZoneBus(zone, busName, dir) {
+  busAssignMembers(dir).filter(m => m.zone === zone).forEach(m => setMemberBus(m.id, busName, dir));
 }
 
 function openBusAssignSheet(isReopen) {
   const ch = churchSessionName();
   const buses = BUSES.slice();
-  const list = busAssignMembers();
-  // 구역순으로 그룹화 (zoneRank 순서)
-  const zoneOrder = [];
-  list.forEach(m => { if (!zoneOrder.includes(m.zone)) zoneOrder.push(m.zone); });
-  zoneOrder.sort((a,b) => zoneRank(a) - zoneRank(b));
+  const upList = busAssignMembers('up');
+  const downList = busAssignMembers('down');
 
   const busOpts = (cur) => ['', ...buses].map(b =>
     `<option value="${esc(b)}" ${cur===b?'selected':''}>${esc(b||'─ 미배정 ─')}</option>`).join('');
+  const gridCols = '26px 50px 56px 64px 78px';  // 번호·구역·성명·부서·호차
 
-  let rows = '';
-  let no = 0;
-  if (!ch) {
-    rows = `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본 교회 차수가 설정되지 않았습니다.</div>`;
-  } else if (!list.length) {
-    rows = `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본대(버스) 탑승 대상이 없습니다.<br/><span style="font-size:11px;">인원 편집에서 본 교회 차수 상행을 '버스'로 선택하면 여기에 나타납니다.</span></div>`;
-  } else {
+  // 한 방향(상/하행) 명단: 구역별 그룹 + 구역 일괄 + 개별 호차
+  const buildSide = (list, dir, label) => {
+    if (!list.length) {
+      return `<div style="flex:1; min-width:0;">
+        <div style="font-weight:700; color:var(--gold-soft); margin-bottom:4px; text-align:center; font-size:12px;">${label} (0)</div>
+        <div style="padding:12px; text-align:center; color:var(--ink-mute); font-size:11px;">없음</div>
+      </div>`;
+    }
+    const zoneOrder = [];
+    list.forEach(m => { if (!zoneOrder.includes(m.zone)) zoneOrder.push(m.zone); });
+    zoneOrder.sort((a,b) => zoneRank(a) - zoneRank(b));
+    let blocks = '';
+    let no = 0;
     zoneOrder.forEach(zone => {
       const zoneMembers = list.filter(m => m.zone === zone);
-      // 구역 헤더 + 구역 일괄 배정 드롭다운
-      rows += `<div style="display:flex; align-items:center; gap:8px; margin:12px 0 4px; padding:6px 8px; background:var(--bg-2); border-radius:8px;">
-        <span style="font-weight:800; color:var(--gold-soft);">${esc(zone)}</span>
-        <span style="font-size:12px; color:var(--ink-soft);">${zoneMembers.length}명</span>
-        <span style="font-size:11px; color:var(--ink-mute); margin-left:auto;">구역 일괄</span>
-        <select class="zone-bus-select sel-compact" data-zone="${esc(zone)}" style="width:120px; font-size:12px;"><option value="">─ 선택 ─</option>${buses.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('')}</select>
+      blocks += `<div style="display:flex; align-items:center; gap:6px; margin:8px 0 3px; padding:5px 7px; background:var(--bg-2); border-radius:7px;">
+        <span style="font-weight:800; color:var(--gold-soft); font-size:12px;">${esc(zone)}</span>
+        <span style="font-size:11px; color:var(--ink-soft);">${zoneMembers.length}명</span>
+        <select class="zone-bus-select sel-compact" data-zone="${esc(zone)}" data-dir="${dir}" style="width:88px; font-size:11px; margin-left:auto;"><option value="">일괄</option>${buses.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('')}</select>
       </div>`;
-      // 표 헤더 (구역마다)
-      rows += `<div class="roster-row head" style="grid-template-columns: 34px 70px 70px 80px 110px;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>호차</div></div>`;
+      blocks += `<div class="roster-table" style="min-width:274px; width:max-content;">
+        <div class="roster-row head" style="grid-template-columns:${gridCols};"><div class="no">번호</div><div>구역</div><div>성명</div><div>부서</div><div>호차</div></div>`;
       zoneMembers.forEach(m => {
         no++;
         const st = (m.sessionTrans && m.sessionTrans[ch]) || {};
-        const cur = st.upVehicle || '';
-        rows += `<div class="roster-row" style="grid-template-columns: 34px 70px 70px 80px 110px;">
+        const cur = (dir === 'down' ? st.downVehicle : st.upVehicle) || '';
+        blocks += `<div class="roster-row" style="grid-template-columns:${gridCols};">
           <div class="no">${no}</div>
-          <div style="white-space:nowrap;">${esc(m.zone)}</div>
-          <div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openBusAssignSheet'})">${esc(m.name)}</div>
+          <div style="white-space:nowrap; font-size:12px;">${esc(m.zone)}</div>
+          <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:13px;" onclick="openMemberById('${esc(m.id)}', {fn:'openBusAssignSheet'})">${esc(m.name)}</div>
           <div style="font-size:12px;">${esc(m.dept)}</div>
-          <div><select class="member-bus-select sel-compact" data-id="${esc(m.id)}" style="width:100%; font-size:12px;">${busOpts(cur)}</select></div>
+          <div><select class="member-bus-select sel-compact" data-id="${esc(m.id)}" data-dir="${dir}" style="width:100%; font-size:11px;">${busOpts(cur)}</select></div>
         </div>`;
       });
+      blocks += `</div>`;
     });
-  }
+    return `<div style="flex:1; min-width:0;">
+      <div style="font-weight:700; color:var(--gold-soft); margin-bottom:4px; text-align:center; font-size:12px;">${label} (${list.length})</div>
+      ${blocks}
+    </div>`;
+  };
 
-  // 호차별 인원 요약
-  let summary = '';
-  if (ch && list.length) {
-    const counts = {};
-    buses.forEach(b => counts[b] = 0);
-    let unassigned = 0;
-    list.forEach(m => { const st=(m.sessionTrans&&m.sessionTrans[ch])||{}; const v=st.upVehicle; if(v&&counts[v]!==undefined)counts[v]++; else unassigned++; });
-    const parts = buses.map(b => `${esc(b)} ${counts[b]}명`).join(' · ');
-    summary = `<div style="font-size:12px; color:var(--ink-soft); margin-bottom:10px; padding:8px 10px; background:var(--bg-2); border-radius:8px;">${parts}${unassigned?` · <span style="color:var(--rose);">미배정 ${unassigned}명</span>`:''}</div>`;
-  }
+  // 호차별 인원 요약 (상/하행 각각)
+  const summaryOf = (list, dir) => {
+    if (!ch || !list.length) return '';
+    const counts = {}; buses.forEach(b => counts[b] = 0); let un = 0;
+    list.forEach(m => { const st=(m.sessionTrans&&m.sessionTrans[ch])||{}; const v=dir==='down'?st.downVehicle:st.upVehicle; if(v&&counts[v]!==undefined)counts[v]++; else un++; });
+    const parts = buses.map(b => `${esc(b)} ${counts[b]}`).join(' · ');
+    return `${parts}${un?` · <span style="color:var(--rose);">미배정 ${un}</span>`:''}`;
+  };
 
-  const html = `
-    <div style="font-size:12px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수(${esc(ch||'-')}) 상행을 '버스'로 선택한 인원입니다. 호차를 선택해 각 호차에 배정하세요.</div>
-    ${summary}
-    <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:374px; width:max-content;">
-        ${rows}
+  let body;
+  if (!ch) {
+    body = `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본 교회 차수가 설정되지 않았습니다.</div>`;
+  } else if (!upList.length && !downList.length) {
+    body = `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본대(버스) 탑승 대상이 없습니다.<br/><span style="font-size:11px;">인원 편집에서 본 교회 차수의 상행 또는 하행을 '버스'로 선택하면 여기에 나타납니다.</span></div>`;
+  } else {
+    const upSum = summaryOf(upList, 'up');
+    const downSum = summaryOf(downList, 'down');
+    body = `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수(${esc(ch)})에 버스로 가는 인원입니다. 상행·하행 각각 호차를 배정하세요.</div>
+      <div style="display:flex; gap:8px; margin-bottom:10px; font-size:11px;">
+        <div style="flex:1; padding:6px 8px; background:var(--bg-2); border-radius:7px;"><b style="color:var(--gold-soft)">상행</b> ${upSum||'-'}</div>
+        <div style="flex:1; padding:6px 8px; background:var(--bg-2); border-radius:7px;"><b style="color:var(--gold-soft)">하행</b> ${downSum||'-'}</div>
       </div>
-    </div>
-  `;
-  openSheet('본대 배정', html, null, {
+      <div style="overflow-x:auto;"><div style="display:flex; gap:10px; align-items:flex-start; width:max-content; min-width:100%;">
+        ${buildSide(upList, 'up', '상행')}
+        ${buildSide(downList, 'down', '하행')}
+      </div></div>`;
+  }
+
+  openSheet('본대 배정', body, null, {
     hideSave:true, replaceTop:!!isReopen, reopener:()=>openBusAssignSheet(true),
     afterPaint:()=>{
-      // 개별 호차 select
       document.querySelectorAll('.member-bus-select').forEach(sel => {
-        sel.onchange = () => { setMemberBus(sel.dataset.id, sel.value); openBusAssignSheet(true); };
+        sel.onchange = () => { setMemberBus(sel.dataset.id, sel.value, sel.dataset.dir); openBusAssignSheet(true); };
       });
-      // 구역 일괄 select
       document.querySelectorAll('.zone-bus-select').forEach(sel => {
-        sel.onchange = () => { if(sel.value){ setZoneBus(sel.dataset.zone, sel.value); openBusAssignSheet(true); } };
+        sel.onchange = () => { if(sel.value){ setZoneBus(sel.dataset.zone, sel.value, sel.dataset.dir); openBusAssignSheet(true); } };
       });
     }
   });

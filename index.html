@@ -1785,7 +1785,7 @@ function openUnassignedSheet(isReopen) {
     body += `<div style="text-align:center; padding:20px; color:var(--ink-mute); font-size:13px;">모든 인원이 배차되었습니다.</div>`;
   }
 
-  openSheet('미배차자 배차', body, null, {
+  openSheet('미배정자 배차', body, null, {
     hideSave:true, replaceTop:!!isReopen, reopener:()=>openUnassignedSheet(true),
     afterPaint:()=>{
       document.querySelectorAll('.ua-depart').forEach(inp => {
@@ -2481,6 +2481,7 @@ let rosterFilter = { zone: ALL_ZONES, q: '' };
 let transportTab = { type: BUSES[0] || '1호차' };
 
 function setTab(tab, skipHistory=false) {
+  const prevTab = currentTab;
   currentTab = tab;
   $$('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   render();
@@ -2488,6 +2489,10 @@ function setTab(tab, skipHistory=false) {
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
+  // 차편 탭에 (다른 탭에서) 처음 진입하면 '본대 배정'을 기본으로 열어줌
+  if (tab === 'transport' && prevTab !== 'transport') {
+    setTimeout(() => { if (currentTab === 'transport' && !document.body.classList.contains('sheet-open')) openBusAssignSheet(); }, 80);
+  }
   // 탭 전환은 히스토리에 쌓지 않음 → 탭 화면에서 뒤로가기 누르면 앱이 바로 종료됨
 }
 $$('.tabbar button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
@@ -2721,7 +2726,7 @@ function renderHome() {
     ${lodgingHtml}
 
     <div class="card">
-      <div class="card-head"><div class="card-title">차편 분포</div><div style="display:flex; gap:6px;"><button class="card-action" data-action="open-bus-assign">본대 배정</button><button class="card-action" data-action="goto-transport">자세히</button></div></div>
+      <div class="card-head"><div class="card-title">차편 분포</div><div style="display:flex; gap:6px;"><button class="card-action" data-action="goto-transport">자세히</button></div></div>
       <div class="dist-dual">
         <div class="dist-col">
           <div class="dist-col-title">상행</div>
@@ -3482,8 +3487,8 @@ function renderTransport() {
   let html = `
     <div class="transport-tabs" id="ttTabs" style="margin-top:10px;">
       <button class="tt-pill" data-action="bus-assign">본대 배정</button>
+      <button class="tt-pill" data-action="unassigned">미배정</button>
       ${TYPES.map(t => `<button class="tt-pill ${t===type?'active':''}" data-t="${esc(t)}">${esc(t)}</button>`).join('')}
-      <button class="tt-pill" data-action="unassigned">미배차</button>
     </div>
     <div class="card">
       <div class="card-head"><div class="card-title">${esc(type)} 탑승 명단</div><div style="display:flex;gap:6px;"><button class="card-action" onclick="openTransportFull()">전체보기</button><button class="card-action" onclick="execPrintTransport()">인쇄</button></div></div>
@@ -5410,7 +5415,6 @@ async function exportToExcel() {
 
 function bindViewHandlers() {
   $$('[data-action="goto-transport"]').forEach(b => b.onclick = () => setTab('transport'));
-  $$('[data-action="open-bus-assign"]').forEach(b => b.onclick = () => openBusAssignSheet());
   bindMemberSearch();
   $$('[data-action="goto-evangelism"]').forEach(b => b.onclick = renderEvangelismSheet);
   $$('[data-action="goto-lodging"]').forEach(b => b.onclick = renderLodgingSheet);

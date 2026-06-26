@@ -2694,9 +2694,11 @@ function renderHome() {
 
     <div class="card">
       <div class="card-head"><div class="card-title">회별(부서별) 인원 및 회비</div></div>
-      <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0;">
-          <div class="roster-row head" style="grid-template-columns: 1fr 42px 72px 96px;"><div>회(부서)</div><div style="text-align:center">인원</div><div style="text-align:right">단가(회비)</div><div style="text-align:right; padding-right:10px;">합계</div></div>
-          ${DEPTS.map(d => `<div class="roster-row clickable" style="grid-template-columns: 1fr 42px 72px 96px;" onclick="openDeptSheet('${esc(d)}')"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(d)}</div><div style="text-align:center; white-space:nowrap;">${depts[d]||0}명</div><div style="text-align:right;color:var(--ink-mute); white-space:nowrap;">${won(DB.fees[d]||0)}</div><div style="text-align:right;font-weight:600;color:var(--gold-soft); padding-right:10px; white-space:nowrap;">${won(deptFees[d]||0)}</div></div>`).join('')}
+      <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0; overflow-x:auto;">
+        <div style="min-width:320px;">
+          <div class="roster-row head" style="grid-template-columns: 96px 48px 78px 1fr;"><div>회(부서)</div><div style="text-align:center">인원</div><div style="text-align:right">단가(회비)</div><div style="text-align:right; padding-right:10px;">합계</div></div>
+          ${DEPTS.map(d => `<div class="roster-row clickable" style="grid-template-columns: 96px 48px 78px 1fr;" onclick="openDeptSheet('${esc(d)}')"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(d)}</div><div style="text-align:center; white-space:nowrap;">${depts[d]||0}명</div><div style="text-align:right;color:var(--ink-mute); white-space:nowrap;">${won(DB.fees[d]||0)}</div><div style="text-align:right;font-weight:600;color:var(--gold-soft); padding-right:10px; white-space:nowrap;">${won(deptFees[d]||0)}</div></div>`).join('')}
+        </div>
       </div>
     </div>
 

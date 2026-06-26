@@ -455,7 +455,7 @@ function emptyMember(zone) {
     id: uid(), zone: zone || '', dept: '', name: '', session: '',
     transUp: '', transDown: '', privateUp: '', privateDown: '',
     extraUp: {}, extraDown: {}, sessionTrans: {}, boardUp: false, boardDown: false,
-    leaderName: '', leaderRel: '', lodging: '', salvation: false, baptism: false, note: '', regType: '', status: ''
+    leaderName: '', leaderRel: '', contact: '', lodging: '', salvation: false, baptism: false, note: '', regType: '', status: ''
   };
 }
 function emptyEvangelism() {
@@ -3162,6 +3162,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       <div class="field"><label id="mLeaderLabel">인도자</label><input id="mLeaderName" value="${esc(m.leaderName)}"/></div>
       <div class="field"><label>관계</label><input id="mLeaderRel" value="${esc(m.leaderRel)}"/></div>
     </div>
+    <div class="field"><label>연락처</label><input id="mContact" type="tel" inputmode="tel" value="${esc(m.contact||'')}" placeholder="예: 010-1234-5678"/></div>
     <div class="field"><label>숙소</label><input id="mLodging" value="${esc(m.lodging||'')}" placeholder="예: A동 101호"/></div>
     <div class="field"><label>비고</label><textarea id="mNote" rows="2">${esc(m.note)}</textarea></div>
     ${!isNew ? `<button class="btn btn-danger btn-block" id="mDelete" style="margin-top:8px">삭제</button>` : ''}
@@ -3197,6 +3198,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       transUp: '', transDown: '',
       extraUp: {}, extraDown: {}, sessionTrans: sessionTrans,
       leaderName: $('#mLeaderName').value.trim(), leaderRel: $('#mLeaderRel').value.trim(),
+      contact: ($('#mContact') ? $('#mContact').value.trim() : (m.contact||'')),
       lodging: $('#mLodging').value.trim(),
       salvation: m.salvation || false,
       baptism: m.baptism || false,

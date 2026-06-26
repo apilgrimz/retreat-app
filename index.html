@@ -2666,7 +2666,7 @@ function renderHome() {
         <div class="card-title">구역별 인원 <span style="color:var(--ink-mute);font-weight:500">·</span> <span style="color:var(--gold);cursor:pointer" onclick="addMemberInZone('')">추가</span> <span style="color:var(--ink-mute);font-weight:500">·</span> 총 회비 <span style="color:var(--gold);font-weight:700">${won(feeTotal)}원</span></div>
         <button class="card-action" onclick="execPrintRosterAll()">인쇄</button>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(96px, 1fr));gap:8px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(96px, 1fr));gap:8px">
         ${ZONES.map(z => {
           const ct = membersByZone(z).filter(m => !isInfantDept(m.dept)).length;  // 영유아 제외
           const fee = feeTotalByZone(z);
@@ -2687,7 +2687,7 @@ function renderHome() {
 
     <div class="card">
       <div class="card-head"><div class="card-title">차수별 인원</div></div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(72px, 1fr));gap:8px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(72px, 1fr));gap:8px">
         ${SESSIONS.map(s => `<div class="clickable" style="background:var(--bg-2);border-radius:10px;padding:10px 8px;text-align:center" onclick="openSessionSheet('${esc(s)}')"><div style="font-size:11px;color:var(--ink-mute)">${esc(s)}</div><div style="font-size:18px;font-weight:700;margin-top:2px">${sess[s]||0}</div></div>`).join('')}
       </div>
     </div>
@@ -2695,9 +2695,9 @@ function renderHome() {
     <div class="card">
       <div class="card-head"><div class="card-title">회별(부서별) 인원 및 회비</div></div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0; overflow-x:auto;">
-        <div style="min-width:330px;">
-          <div class="roster-row head" style="grid-template-columns: 96px 48px 66px minmax(96px,1fr);"><div>회(부서)</div><div style="text-align:center">인원</div><div style="text-align:right">단가(회비)</div><div style="text-align:right; padding-right:10px;">합계</div></div>
-          ${DEPTS.map(d => `<div class="roster-row clickable" style="grid-template-columns: 96px 48px 66px minmax(96px,1fr);" onclick="openDeptSheet('${esc(d)}')"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(d)}</div><div style="text-align:center; white-space:nowrap;">${depts[d]||0}명</div><div style="text-align:right;color:var(--ink-mute); white-space:nowrap;">${won(DB.fees[d]||0)}</div><div style="text-align:right;font-weight:600;color:var(--gold-soft); padding-right:10px; white-space:nowrap;">${won(deptFees[d]||0)}</div></div>`).join('')}
+        <div style="min-width:0;">
+          <div class="roster-row head" style="grid-template-columns: minmax(64px,1fr) 44px 74px 92px;"><div>회(부서)</div><div style="text-align:center">인원</div><div style="text-align:right">단가(회비)</div><div style="text-align:right; padding-right:10px;">합계</div></div>
+          ${DEPTS.map(d => `<div class="roster-row clickable" style="grid-template-columns: minmax(64px,1fr) 44px 74px 92px;" onclick="openDeptSheet('${esc(d)}')"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(d)}</div><div style="text-align:center; white-space:nowrap;">${depts[d]||0}명</div><div style="text-align:right;color:var(--ink-mute); white-space:nowrap;">${won(DB.fees[d]||0)}</div><div style="text-align:right;font-weight:600;color:var(--gold-soft); padding-right:10px; white-space:nowrap;">${won(deptFees[d]||0)}</div></div>`).join('')}
         </div>
       </div>
     </div>

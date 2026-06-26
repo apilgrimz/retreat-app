@@ -1717,12 +1717,14 @@ function assignUnassigned(memberId, sname, dir, vehicle) {
   saveVault();
 }
 
-function openUnassignedSheet(isReopen) {
+// 미배정 본문 HTML만 생성 (인라인/시트 공용)
+function unassignedBodyHtml(inline) {
   const opts = unassignedVehicleOptions();
   const optHtml = () => ['', ...opts.map(o=>o.name)].map(v =>
     `<option value="${esc(v)}">${esc(v||'─ 배차 ─')}</option>`).join('');
   const sessions = getSessionDefs().map(d => d.name);
   const gridCols = '28px 52px 58px 52px 56px 92px';  // 번호·구역·성명·부서·출발·교통편
+  const backFn = inline ? 'gotoUnassigned' : 'openUnassignedSheet';
 
   // 한 방향(상/하행) 명단: 날짜별 그룹
   const buildSide = (sname, dir, label) => {
@@ -1748,7 +1750,7 @@ function openUnassignedSheet(isReopen) {
         rows += `<div class="roster-row" style="grid-template-columns:${gridCols};">
           <div class="no">${i+1}</div>
           <div style="font-size:12px; white-space:nowrap;">${esc(m.zone)}</div>
-          <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:13px;" onclick="openMemberById('${esc(m.id)}', {fn:'openUnassignedSheet'})">${esc(m.name)}</div>
+          <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:13px;" onclick="openMemberById('${esc(m.id)}', {fn:'${backFn}'})">${esc(m.name)}</div>
           <div style="font-size:12px;">${esc(m.dept)}</div>
           <div><input type="text" class="ua-depart" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" value="${esc(depart)}" placeholder="시간" style="width:100%; font-size:11px; padding:4px;"/></div>
           <div><select class="ua-assign sel-compact" data-id="${esc(m.id)}" data-s="${esc(sname)}" data-dir="${dir}" style="width:100%; font-size:11px;">${optHtml()}</select></div>
@@ -1784,17 +1786,23 @@ function openUnassignedSheet(isReopen) {
   if (sessions.every(sn => unassignedItems(sn,'up').length===0 && unassignedItems(sn,'down').length===0)) {
     body += `<div style="text-align:center; padding:20px; color:var(--ink-mute); font-size:13px;">모든 인원이 배차되었습니다.</div>`;
   }
+  return body;
+}
+// 미배정 이벤트 바인딩. onUpdate: 배차 후 갱신 방법
+function bindUnassigned(root, onUpdate) {
+  (root || document).querySelectorAll('.ua-depart').forEach(inp => {
+    inp.addEventListener('change', () => { if(guardViewOnly()){return;} setDepartTime(inp.dataset.id, inp.dataset.s, inp.dataset.dir, inp.value); });
+  });
+  (root || document).querySelectorAll('.ua-assign').forEach(sel => {
+    sel.onchange = () => { if(guardViewOnly()){return;} if(sel.value){ assignUnassigned(sel.dataset.id, sel.dataset.s, sel.dataset.dir, sel.value); onUpdate(); } };
+  });
+}
 
+function openUnassignedSheet(isReopen) {
+  const body = unassignedBodyHtml(false);
   openSheet('미배정자 배차', body, null, {
     hideSave:true, replaceTop:!!isReopen, reopener:()=>openUnassignedSheet(true),
-    afterPaint:()=>{
-      document.querySelectorAll('.ua-depart').forEach(inp => {
-        inp.addEventListener('change', () => { if(guardViewOnly()){return;} setDepartTime(inp.dataset.id, inp.dataset.s, inp.dataset.dir, inp.value); });
-      });
-      document.querySelectorAll('.ua-assign').forEach(sel => {
-        sel.onchange = () => { if(guardViewOnly()){return;} if(sel.value){ assignUnassigned(sel.dataset.id, sel.dataset.s, sel.dataset.dir, sel.value); openUnassignedSheet(true); } };
-      });
-    }
+    afterPaint:()=>{ bindUnassigned(document, ()=>openUnassignedSheet(true)); }
   });
 }
 
@@ -2314,11 +2322,13 @@ function setZoneBus(zone, busName, dir) {
   busAssignMembers(dir).filter(m => m.zone === zone).forEach(m => setMemberBus(m.id, busName, dir));
 }
 
-function openBusAssignSheet(isReopen) {
+// 본대 배정 본문 HTML만 생성 (인라인/시트 공용). inline=true면 멤버 클릭 back 함수가 인라인 렌더용
+function busAssignBodyHtml(inline) {
   const ch = churchSessionName();
   const buses = BUSES.slice();
   const upList = busAssignMembers('up');
   const downList = busAssignMembers('down');
+  const backFn = inline ? 'gotoBusAssign' : 'openBusAssignSheet';
 
   const busOpts = (cur) => ['', ...buses].map(b =>
     `<option value="${esc(b)}" ${cur===b?'selected':''}>${esc(b||'─ 미배정 ─')}</option>`).join('');
@@ -2353,7 +2363,7 @@ function openBusAssignSheet(isReopen) {
         blocks += `<div class="roster-row" style="grid-template-columns:${gridCols};">
           <div class="no">${no}</div>
           <div style="white-space:nowrap; font-size:12px;">${esc(m.zone)}</div>
-          <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:13px;" onclick="openMemberById('${esc(m.id)}', {fn:'openBusAssignSheet'})">${esc(m.name)}</div>
+          <div class="nm" style="cursor:pointer;color:var(--gold-soft);font-size:13px;" onclick="openMemberById('${esc(m.id)}', {fn:'${backFn}'})">${esc(m.name)}</div>
           <div style="font-size:12px;">${esc(m.dept)}</div>
           <div><select class="member-bus-select sel-compact" data-id="${esc(m.id)}" data-dir="${dir}" style="width:100%; font-size:11px;">${busOpts(cur)}</select></div>
         </div>`;
@@ -2375,37 +2385,43 @@ function openBusAssignSheet(isReopen) {
     return `${parts}${un?` · <span style="color:var(--rose);">미배정 ${un}</span>`:''}`;
   };
 
-  let body;
   if (!ch) {
-    body = `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본 교회 차수가 설정되지 않았습니다.</div>`;
+    return `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본 교회 차수가 설정되지 않았습니다.</div>`;
   } else if (!upList.length && !downList.length) {
-    body = `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본대(버스) 탑승 대상이 없습니다.<br/><span style="font-size:11px;">인원 편집에서 본 교회 차수의 상행 또는 하행을 '버스'로 선택하면 여기에 나타납니다.</span></div>`;
-  } else {
-    const upSum = summaryOf(upList, 'up');
-    const downSum = summaryOf(downList, 'down');
-    body = `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수(${esc(ch)})에 버스로 가는 인원입니다. 상행·하행 각각 호차를 배정하세요.</div>
-      <div style="display:flex; gap:8px; margin-bottom:10px; font-size:11px;">
-        <div style="flex:1; padding:6px 8px; background:var(--bg-2); border-radius:7px;"><b style="color:var(--gold-soft)">상행</b> ${upSum||'-'}</div>
-        <div style="flex:1; padding:6px 8px; background:var(--bg-2); border-radius:7px;"><b style="color:var(--gold-soft)">하행</b> ${downSum||'-'}</div>
-      </div>
-      <div style="overflow-x:auto;"><div style="display:flex; gap:10px; align-items:flex-start; width:max-content; min-width:100%;">
-        ${buildSide(upList, 'up', '상행')}
-        ${buildSide(downList, 'down', '하행')}
-      </div></div>`;
+    return `<div style="padding:20px;text-align:center;color:var(--ink-mute)">본대(버스) 탑승 대상이 없습니다.<br/><span style="font-size:11px;">인원 편집에서 본 교회 차수의 상행 또는 하행을 '버스'로 선택하면 여기에 나타납니다.</span></div>`;
   }
-
-  openSheet('본대 배정', body, null, {
-    hideSave:true, replaceTop:!!isReopen, reopener:()=>openBusAssignSheet(true),
-    afterPaint:()=>{
-      document.querySelectorAll('.member-bus-select').forEach(sel => {
-        sel.onchange = () => { setMemberBus(sel.dataset.id, sel.value, sel.dataset.dir); openBusAssignSheet(true); };
-      });
-      document.querySelectorAll('.zone-bus-select').forEach(sel => {
-        sel.onchange = () => { if(sel.value){ setZoneBus(sel.dataset.zone, sel.value, sel.dataset.dir); openBusAssignSheet(true); } };
-      });
-    }
+  const upSum = summaryOf(upList, 'up');
+  const downSum = summaryOf(downList, 'down');
+  return `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수(${esc(ch)})에 버스로 가는 인원입니다. 상행·하행 각각 호차를 배정하세요.</div>
+    <div style="display:flex; gap:8px; margin-bottom:10px; font-size:11px;">
+      <div style="flex:1; padding:6px 8px; background:var(--bg-2); border-radius:7px;"><b style="color:var(--gold-soft)">상행</b> ${upSum||'-'}</div>
+      <div style="flex:1; padding:6px 8px; background:var(--bg-2); border-radius:7px;"><b style="color:var(--gold-soft)">하행</b> ${downSum||'-'}</div>
+    </div>
+    <div style="overflow-x:auto;"><div style="display:flex; gap:10px; align-items:flex-start; width:max-content; min-width:100%;">
+      ${buildSide(upList, 'up', '상행')}
+      ${buildSide(downList, 'down', '하행')}
+    </div></div>`;
+}
+// 본대 배정 select 이벤트 바인딩. onUpdate: 갱신 방법(시트 재열기 또는 인라인 render)
+function bindBusAssign(root, onUpdate) {
+  (root || document).querySelectorAll('.member-bus-select').forEach(sel => {
+    sel.onchange = () => { setMemberBus(sel.dataset.id, sel.value, sel.dataset.dir); onUpdate(); };
+  });
+  (root || document).querySelectorAll('.zone-bus-select').forEach(sel => {
+    sel.onchange = () => { if(sel.value){ setZoneBus(sel.dataset.zone, sel.value, sel.dataset.dir); onUpdate(); } };
   });
 }
+
+function openBusAssignSheet(isReopen) {
+  const body = busAssignBodyHtml(false);
+  openSheet('본대 배정', body, null, {
+    hideSave:true, replaceTop:!!isReopen, reopener:()=>openBusAssignSheet(true),
+    afterPaint:()=>{ bindBusAssign(document, ()=>openBusAssignSheet(true)); }
+  });
+}
+// 차편 탭의 본대 배정/미배정 인라인 화면으로 전환 (멤버 상세에서 돌아올 때 등)
+function gotoBusAssign() { transportTab.type = '__busassign__'; setTab('transport'); }
+function gotoUnassigned() { transportTab.type = '__unassigned__'; setTab('transport'); }
 
 function isReg(m){ return m.regType !== 'onsite'; }
 function registeredMembers(){ return DB.members.filter(isReg); }
@@ -2478,7 +2494,7 @@ function feeTotalByZone(zone) {
 let currentTab = 'home';
 const ALL_ZONES = '__ALL__';
 let rosterFilter = { zone: ALL_ZONES, q: '' };
-let transportTab = { type: BUSES[0] || '1호차' };
+let transportTab = { type: '__busassign__' };
 
 function setTab(tab, skipHistory=false) {
   currentTab = tab;
@@ -3476,15 +3492,37 @@ function busExtraEditor(busName) {
 
 function renderTransport() {
   const TYPES = [...BUSES, ...CHURCH_CARS, '개인차', ...OTHER_TRANSPORTS];
+  const SPECIAL = ['__busassign__', '__unassigned__'];
   let type = transportTab.type;
-  if (!TYPES.includes(type)) { transportTab.type = TYPES[0]; type = TYPES[0]; }
+  if (!TYPES.includes(type) && !SPECIAL.includes(type)) { transportTab.type = SPECIAL[0]; type = SPECIAL[0]; }
+  const isBA = type === '__busassign__';
+  const isUA = type === '__unassigned__';
 
   let html = `
     <div class="transport-tabs" id="ttTabs" style="margin-top:10px;">
-      <button class="tt-pill" data-action="bus-assign">본대 배정</button>
-      <button class="tt-pill" data-action="unassigned">미배정</button>
+      <button class="tt-pill ${isBA?'active':''}" data-t="__busassign__">본대 배정</button>
+      <button class="tt-pill ${isUA?'active':''}" data-t="__unassigned__">미배정</button>
       ${TYPES.map(t => `<button class="tt-pill ${t===type?'active':''}" data-t="${esc(t)}">${esc(t)}</button>`).join('')}
     </div>
+  `;
+
+  // 본대 배정 / 미배정: 차편 탭 안에 인라인으로 표시 (다른 차편과 동일한 느낌)
+  if (isBA) {
+    html += `<div class="card">
+      <div class="card-head"><div class="card-title">본대 배정</div></div>
+      <div id="baInline">${busAssignBodyHtml(true)}</div>
+    </div>`;
+    return html;
+  }
+  if (isUA) {
+    html += `<div class="card">
+      <div class="card-head"><div class="card-title">미배정자 배차</div></div>
+      <div id="uaInline">${unassignedBodyHtml(true)}</div>
+    </div>`;
+    return html;
+  }
+
+  html += `
     <div class="card">
       <div class="card-head"><div class="card-title">${esc(type)} 탑승 명단</div><div style="display:flex;gap:6px;"><button class="card-action" onclick="openTransportFull()">전체보기</button><button class="card-action" onclick="execPrintTransport()">인쇄</button></div></div>
   `;
@@ -5441,8 +5479,6 @@ function bindViewHandlers() {
     openMemberSheet(emptyMember(startZone), true);
   };
   $$('#ttTabs .tt-pill').forEach(b => b.onclick = () => {
-    if (b.dataset.action === 'bus-assign') { openBusAssignSheet(); return; }  // 본대 배정 칩 → 배정 시트
-    if (b.dataset.action === 'unassigned') { openUnassignedSheet(); return; }  // 미배차 칩 → 배차 시트
     transportTab.type = b.dataset.t;
     const tt = document.getElementById('ttTabs');
     const sl = tt ? tt.scrollLeft : 0;
@@ -5460,6 +5496,13 @@ function bindViewHandlers() {
         e.preventDefault();
       }
     }, { passive: false });
+  }
+  // 인라인 본대 배정 / 미배정 화면의 이벤트 바인딩 (배차 후 차편 탭 인라인으로 재렌더)
+  if (document.getElementById('baInline')) {
+    bindBusAssign(document.getElementById('baInline'), () => { const tt=document.getElementById('ttTabs'); const sl=tt?tt.scrollLeft:0; render(); const tt2=document.getElementById('ttTabs'); if(tt2)tt2.scrollLeft=sl; });
+  }
+  if (document.getElementById('uaInline')) {
+    bindUnassigned(document.getElementById('uaInline'), () => { const tt=document.getElementById('ttTabs'); const sl=tt?tt.scrollLeft:0; render(); const tt2=document.getElementById('ttTabs'); if(tt2)tt2.scrollLeft=sl; });
   }
   // 차편 날짜·시각 입력 저장 (change 시 transportInfo에 기록)
   function saveTransInfoField(el) {

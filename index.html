@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css"/>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/12.13.0/firebase-app-compat.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/12.13.0/firebase-auth-compat.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore-compat.js" defer></script>
@@ -201,6 +202,11 @@ nav.tabbar {
 /* 토스트 */
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(100px + var(--safe-bot)); z-index: 200; background: var(--bg-3); color: var(--ink); padding: 11px 18px; border-radius: 12px; font-size: 13px; font-weight: 500; border: 1px solid var(--line); box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+.toast-undo { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(100px + var(--safe-bot)); z-index: 201; background: var(--bg-3); color: var(--ink); padding: 10px 12px 10px 16px; border-radius: 12px; font-size: 13px; font-weight: 500; border: 1px solid var(--line); box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 32px); }
+.toast-undo.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(-4px); }
+.toast-undo .tu-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast-undo .tu-btn { flex-shrink: 0; background: var(--gold-soft); color: #1a1205; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.toast-undo .tu-btn:active { opacity: .8; }
 
 /* 차편/표/회비 */
 .transport-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 14px; padding: 10px 16px; scrollbar-width: none;
@@ -323,6 +329,13 @@ nav.tabbar {
   .split-print-table th { background: #eee !important; font-weight: bold; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .split-print-table th.side-head { font-size: 12px; padding: 5px 4px; }
   .split-print-table td.check-cell { background: #fff !important; }
+  /* 차편(버스·타교회) 인쇄에서 최대 45명을 A4 한 장에: 행 높이 압축 */
+  .compact-print .split-print-table { font-size: 10px; }
+  .compact-print .split-print-table th, .compact-print .split-print-table td { padding: 1.2px 2px; line-height: 1.15; }
+  .compact-print .split-print-table td.print-name, .compact-print .split-print-table td.nm { font-size: 10.5px; }
+  .compact-print .split-print-table th.side-head { font-size: 11px; padding: 3px 4px; }
+  .compact-print .split-print-table td.check-cell input,
+  .compact-print .split-print-table td.check-cell { height: auto; }
   
   @page { size: A4 portrait; margin: 12mm 10mm; }
 }
@@ -388,6 +401,7 @@ nav.tabbar {
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="toast-undo" id="toastUndo"><span class="tu-msg" id="tuMsg"></span><button class="tu-btn" id="tuBtn">되돌리기</button></div>
 <input type="file" id="jsonInput" accept=".json" style="display:none"/>
 
 <script>
@@ -475,6 +489,33 @@ function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toStr
    런타임에는 DB = vault.events.find(e => e.id === vault.activeId) 로 alias. */
 const VAULT_KEY = 'retreat-vault-v1';
 let VAULT = null; // { events: [evt, ...], activeId }
+
+/* ===== IndexedDB 안전망 (localforage 래핑) =====
+   localStorage(5MB 한도) 외에 용량이 훨씬 큰 IndexedDB에도 항상 저장한다.
+   localforage CDN이 로드 안 됐거나 IDB 미지원 환경에서도 무해하게 통과(가드). */
+let _idbReady = false;
+function idbInit() {
+  try {
+    if (typeof localforage === 'undefined') return false;
+    localforage.config({ name: 'retreat-sync', storeName: 'vault' });
+    _idbReady = true;
+    return true;
+  } catch (e) { return false; }
+}
+// 백그라운드 저장 (await 안 함 → 호출부는 동기처럼 동작). 실패해도 앱 흐름에 영향 없음.
+function idbSet(key, value) {
+  try {
+    if (!_idbReady && !idbInit()) return;
+    localforage.setItem(key, value).catch(() => {});
+  } catch (e) {}
+}
+async function idbGet(key) {
+  try {
+    if (!_idbReady && !idbInit()) return null;
+    return await localforage.getItem(key);
+  } catch (e) { return null; }
+}
+
 let DB = loadDB();
 syncEvFsLinks();
 
@@ -581,8 +622,20 @@ function hydrateEvent(d) {
 }
 
 function saveVault() {
-  try { localStorage.setItem(VAULT_KEY, JSON.stringify(VAULT)); }
-  catch(e) { toast('저장 실패: 저장 공간 부족 가능성', true); }
+  // 저장 시각 기록 (부팅 후 localStorage vs IndexedDB 최신 비교용)
+  try { if (VAULT) VAULT._savedAt = Date.now(); } catch(e) {}
+  // IndexedDB(용량 큼)에는 항상 저장 — 백그라운드, 실패해도 흐름 영향 없음
+  idbSet(VAULT_KEY, VAULT);
+  // localStorage(빠르지만 5MB 한도)에도 저장 시도. 용량 초과면 조용히 넘어감(IDB에 이미 안전).
+  try {
+    localStorage.setItem(VAULT_KEY, JSON.stringify(VAULT));
+  } catch(e) {
+    // QuotaExceededError 등 — IndexedDB에 저장됐으므로 데이터는 안전. 1회성 안내만.
+    if (!saveVault._warnedQuota) {
+      saveVault._warnedQuota = true;
+      try { toast('저장 공간이 가득 차 안전 저장소로 전환했습니다(데이터는 보존됨).'); } catch(_) {}
+    }
+  }
   try { if (typeof syncPushIfLinked === 'function') syncPushIfLinked(); } catch(e) {}
 }
 function saveDB() {
@@ -789,6 +842,26 @@ function toast(msg, isError=false) {
   const el = $('#toast');
   el.textContent = msg; el.className = 'toast show' + (isError ? ' error' : '');
   clearTimeout(toast._t); toast._t = setTimeout(() => el.className = 'toast' + (isError ? ' error' : ''), 2200);
+}
+// 되돌리기 버튼이 있는 토스트 (대량 삭제 등 실수 방지용). onUndo: 클릭 시 복구 함수
+function toastUndo(msg, onUndo, ms=6000) {
+  const box = document.getElementById('toastUndo');
+  const msgEl = document.getElementById('tuMsg');
+  const btn = document.getElementById('tuBtn');
+  if (!box || !msgEl || !btn) { toast(msg); return; }
+  msgEl.textContent = msg;
+  const hide = () => { box.className = 'toast-undo'; };
+  // 이전 핸들러 제거 위해 버튼 복제
+  const fresh = btn.cloneNode(true);
+  btn.parentNode.replaceChild(fresh, btn);
+  fresh.onclick = () => {
+    clearTimeout(toastUndo._t);
+    hide();
+    try { onUndo(); } catch(e) {}
+  };
+  box.className = 'toast-undo show';
+  clearTimeout(toastUndo._t);
+  toastUndo._t = setTimeout(hide, ms);
 }
 // === 기간 선택 달력 모달 (두 날짜 토글 → 빠른 날=시작, 늦은 날=끝) ===
 let _dateRangePicker = { year: 0, month: 0, selected: [], onSave: null };
@@ -1336,10 +1409,13 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
            const md = memberDateOf(m, dateKey);
            const showTag = group && md && baseDate && md !== baseDate;
            const dateTag = showTag ? `<div style="font-size:10px; color:var(--rose); margin-top:1px; white-space:nowrap;">${fmtDateKo(md)}</div>` : '';
+           const nameCell = isPrint
+             ? `<td class="nm print-name">${esc(m.name)}${dateTag}</td>`
+             : `<td class="nm print-name" style="cursor:pointer; color:var(--gold-soft);" onclick="openMemberById('${esc(m.id)}', {fn:'gotoTransportType', arg:'${esc(type||'')}'})">${esc(m.name)}${dateTag}</td>`;
            return `<tr>
            <td>${i+1}</td>
            <td>${esc(m.zone)}</td>
-           <td class="nm print-name">${esc(m.name)}${dateTag}</td>
+           ${nameCell}
            <td>${esc(m.dept)}</td>
            ${checkCell}
          </tr>`;
@@ -1471,6 +1547,11 @@ function buildPrintDocument(title, bodyHtml) {
   .split-print-table th.side-head { font-size: 12px; padding: 5px 4px; }
   .split-print-table td.check-cell { background: #fff; }
   .split-print-table td.print-name, .split-print-table td.nm { font-size: 12.5px; font-weight: 700; letter-spacing: -0.1px; word-break: keep-all; white-space: nowrap; }
+  /* 차편(버스·타교회) 인쇄: 최대 45명을 A4 한 장에 — 행 높이 압축 */
+  .compact-print .split-print-table { font-size: 10px; }
+  .compact-print .split-print-table th, .compact-print .split-print-table td { padding: 1.2px 2px; line-height: 1.15; }
+  .compact-print .split-print-table td.print-name, .compact-print .split-print-table td.nm { font-size: 10.5px; }
+  .compact-print .split-print-table th.side-head { font-size: 11px; padding: 3px 4px; }
   .split-print-wrap { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 14px; table-layout: fixed; border: none; }
   .split-print-wrap > tbody > tr > td { border: none; padding: 0; vertical-align: top; }
   .lodging-print-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 12px; table-layout: fixed; border: none; }
@@ -1654,9 +1735,15 @@ function execResetZone() {
   if (zone === ALL_ZONES) { toast('전체 보기에서는 구역을 선택해 주세요', true); return; }
   const count = membersByZone(zone).length;
   if (count === 0) { toast('해당 구역에 인원이 없습니다.'); return; }
-  confirmModal(`${zone} 초기화`, `${zone}의 ${count}명을 모두 삭제합니다. 되돌릴 수 없습니다.`, () => {
+  confirmModal(`${zone} 초기화`, `${zone}의 ${count}명을 모두 삭제합니다.`, () => {
     // 해당 구역 멤버 ID 모음
     const removedIds = new Set(DB.members.filter(m => m.zone === zone).map(m => m.id));
+    // 삭제될 데이터 스냅샷 (되돌리기용) — 깊은 복사로 보관
+    const snapshot = {
+      members: DB.members.filter(m => m.zone === zone).map(m => JSON.parse(JSON.stringify(m))),
+      evangelism: DB.evangelism.filter(e => removedIds.has(e.memberId) || e.zone === zone).map(e => JSON.parse(JSON.stringify(e))),
+      feeSupport: DB.feeSupport.filter(f => removedIds.has(f.memberId) || f.zone === zone).map(f => JSON.parse(JSON.stringify(f))),
+    };
     // 명단에서 삭제
     DB.members = DB.members.filter(m => m.zone !== zone);
     // 전도대상자/회비지원도 함께 정리 (memberId 또는 zone+name 매칭)
@@ -1664,7 +1751,15 @@ function execResetZone() {
     DB.feeSupport = DB.feeSupport.filter(f => !removedIds.has(f.memberId) && f.zone !== zone);
     saveDB();
     render();
-    toast(`${zone} ${count}명이 삭제됐어요`);
+    // 되돌리기 토스트 — 클릭 시 스냅샷 복원
+    toastUndo(`${zone} ${count}명을 삭제했어요`, () => {
+      DB.members.push(...snapshot.members);
+      DB.evangelism.push(...snapshot.evangelism);
+      DB.feeSupport.push(...snapshot.feeSupport);
+      saveDB();
+      render();
+      toast(`${zone} ${count}명을 복구했어요`);
+    });
   }, '초기화');
 }
 
@@ -1867,6 +1962,7 @@ function execPrintTransport() {
   const type = transportTab.type;
   const titleText = `${getYearPrefix()} 하계수양회 - ${esc(type)} 탑승 명단`;
   let body = `<div class="print-title">${titleText}</div>`;
+  let maxCount = 0;  // 한 표(상/하행 중 많은 쪽)의 최대 인원 — 45명 이하면 압축 인쇄로 한 장에
 
   if (BUSES.includes(type)) {
     const u = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
@@ -1874,6 +1970,7 @@ function execPrintTransport() {
     const churchN = churchSessionName();
     if (churchN) body += `<div style="font-size:12px; color:#555; margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     body += buildSplitTable(null, u, d, true, null, type);
+    maxCount = Math.max(u.length + busExtraCount(type,'up'), d.length + busExtraCount(type,'down'));
   } else if (type === '개인차') {
     const drv2 = privateDriversWithGroups();
     if (drv2.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">개인차로 가는 사람이 없습니다.</div>`;
@@ -1887,8 +1984,12 @@ function execPrintTransport() {
     if (groups.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">해당 차편 등록자가 없습니다.</div>`;
     else groups.forEach(g => {
       body += buildSplitTable(`${esc(type)} · ${esc(g.session)}`, g.uList, g.dList, true, null, type, g);
+      maxCount = Math.max(maxCount, g.uList.length, g.dList.length);
     });
   }
+  // 버스·타교회(기타) 인쇄에서 최대 45명까지는 A4 한 장에 들어가도록 압축
+  const compact = (BUSES.includes(type) || (type !== '개인차' && !BUSES.includes(type))) && maxCount > 0 && maxCount <= 45;
+  if (compact) body = `<div class="compact-print">${body}</div>`;
   doPrint(titleText, body);
 }
 
@@ -2349,10 +2450,13 @@ function busAssignBodyHtml(inline) {
     let no = 0;
     zoneOrder.forEach(zone => {
       const zoneMembers = list.filter(m => m.zone === zone);
+      // 이 구역 전원이 같은 호차면 그 호차를, 아니면(섞임/없음) 미배정을 드롭다운에 표시
+      const zoneVehicles = zoneMembers.map(m => { const st=(m.sessionTrans&&m.sessionTrans[ch])||{}; return (dir==='down'?st.downVehicle:st.upVehicle)||''; });
+      const uniformBus = (zoneVehicles.length && zoneVehicles.every(v => v && v === zoneVehicles[0])) ? zoneVehicles[0] : '';
       blocks += `<div style="display:flex; align-items:center; gap:6px; margin:8px 0 3px; padding:5px 7px; background:var(--bg-2); border-radius:7px;">
         <span style="font-weight:800; color:var(--gold-soft); font-size:12px;">${esc(zone)}</span>
         <span style="font-size:11px; color:var(--ink-soft);">${zoneMembers.length}명</span>
-        <select class="zone-bus-select sel-compact" data-zone="${esc(zone)}" data-dir="${dir}" style="width:88px; font-size:11px; margin-left:auto;"><option value="">일괄</option>${buses.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('')}</select>
+        <select class="zone-bus-select sel-compact" data-zone="${esc(zone)}" data-dir="${dir}" style="width:88px; font-size:11px; margin-left:auto;"><option value="" ${uniformBus===''?'selected':''}>미배정</option>${buses.map(b=>`<option value="${esc(b)}" ${uniformBus===b?'selected':''}>${esc(b)}</option>`).join('')}</select>
       </div>`;
       blocks += `<div class="roster-table" style="min-width:274px; width:max-content;">
         <div class="roster-row head" style="grid-template-columns:${gridCols};"><div class="no">번호</div><div>구역</div><div>성명</div><div>부서</div><div>호차</div></div>`;
@@ -2408,7 +2512,8 @@ function bindBusAssign(root, onUpdate) {
     sel.onchange = () => { setMemberBus(sel.dataset.id, sel.value, sel.dataset.dir); onUpdate(); };
   });
   (root || document).querySelectorAll('.zone-bus-select').forEach(sel => {
-    sel.onchange = () => { if(sel.value){ setZoneBus(sel.dataset.zone, sel.value, sel.dataset.dir); onUpdate(); } };
+    // 호차 선택 → 구역 전원 그 호차로 / '미배정'(빈값) 선택 → 구역 전원 호차 해제
+    sel.onchange = () => { setZoneBus(sel.dataset.zone, sel.value, sel.dataset.dir); onUpdate(); };
   });
 }
 
@@ -2422,6 +2527,8 @@ function openBusAssignSheet(isReopen) {
 // 차편 탭의 본대 배정/미배정 인라인 화면으로 전환 (멤버 상세에서 돌아올 때 등)
 function gotoBusAssign() { transportTab.type = '__busassign__'; setTab('transport'); }
 function gotoUnassigned() { transportTab.type = '__unassigned__'; setTab('transport'); }
+// 특정 차편(호차/교회차/개인차/타교회) 탭으로 복귀 — 명단에서 성명 클릭 후 돌아올 때
+function gotoTransportType(type) { if(type) transportTab.type = type; setTab('transport'); }
 
 function isReg(m){ return m.regType !== 'onsite'; }
 function registeredMembers(){ return DB.members.filter(isReg); }
@@ -2729,8 +2836,8 @@ function renderHome() {
       </div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:202px; min-width:0;">
         <div style="min-width:562px; width:max-content;">
-          <div class="roster-row head" style="grid-template-columns: 28px 68px 55px 60px 65px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div style="text-align:right">금액</div><div>비고</div></div>
-          ${sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row clickable" onclick="openFeeSupportSheetById('${esc(fs.id)}')" style="grid-template-columns: 28px 68px 55px 60px 65px max-content;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join('')}
+          <div class="roster-row head" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div style="text-align:right">금액</div><div>비고</div></div>
+          ${sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row clickable" onclick="openFeeSupportSheetById('${esc(fs.id)}')" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join('')}
           ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">회비 지원자가 없습니다.</div>` : ''}
         </div>
       </div>
@@ -3389,10 +3496,21 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
 
   if (!isNew) {
     setTimeout(() => { $('#mDelete').onclick = () => { confirmModal('삭제', `${m.name}을(를) 삭제합니다.`, () => { 
+      // 삭제될 데이터 스냅샷 (되돌리기용)
+      const snapMember = JSON.parse(JSON.stringify(m));
+      const snapEv = DB.evangelism.filter(x => x.memberId === m.id || (!x.memberId && x.name === m.name && x.zone === m.zone)).map(x => JSON.parse(JSON.stringify(x)));
+      const snapFee = DB.feeSupport.filter(x => x.memberId === m.id || (!x.memberId && x.name === m.name && x.zone === m.zone)).map(x => JSON.parse(JSON.stringify(x)));
       DB.members = DB.members.filter(x => x.id !== m.id); 
       DB.evangelism = DB.evangelism.filter(x => x.memberId !== m.id && !(!x.memberId && x.name === m.name && x.zone === m.zone));
       DB.feeSupport = DB.feeSupport.filter(x => x.memberId !== m.id && !(!x.memberId && x.name === m.name && x.zone === m.zone));
-      saveDB(); closeSheet(); render(); toast('삭제됐어요'); 
+      saveDB(); closeSheet(); render();
+      toastUndo(`${m.name}을(를) 삭제했어요`, () => {
+        DB.members.push(snapMember);
+        DB.evangelism.push(...snapEv);
+        DB.feeSupport.push(...snapFee);
+        saveDB(); render();
+        toast(`${m.name}을(를) 복구했어요`);
+      });
     }); }; }, 50);
   }
 }
@@ -3599,9 +3717,9 @@ function renderFeeSupportSheet(isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="margin-bottom:0; min-width:562px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 68px 55px 60px 65px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div style="text-align:right">금액</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div style="text-align:right">금액</div><div>비고</div></div>
         ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : 
-          sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 68px 55px 60px 65px max-content;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="event.stopPropagation(); openMemberFromRef('${esc(fs.memberId||'')}','${esc(fs.name)}','${esc(fs.zone)}','renderFeeSupportSheet')">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join('')}
+          sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="event.stopPropagation(); openMemberFromRef('${esc(fs.memberId||'')}','${esc(fs.name)}','${esc(fs.zone)}','renderFeeSupportSheet')">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join('')}
       </div>
     </div>
   `;
@@ -5586,6 +5704,31 @@ if ('serviceWorker' in navigator) {
   });
 }
 render();
+
+/* ===== 부팅 후 IndexedDB 동기화 =====
+   localStorage로 빠르게 화면을 띄운 뒤, IndexedDB에 더 최신(또는 localStorage 용량초과로
+   IDB에만 저장된) 데이터가 있으면 그것을 채택하고 다시 그린다. 메모리 미러 패턴. */
+(function syncFromIdbOnBoot() {
+  setTimeout(async () => {
+    try {
+      const idbVault = await idbGet(VAULT_KEY);
+      if (!idbVault || !idbVault.events) return;
+      const localSavedAt = (VAULT && VAULT._savedAt) || 0;
+      const idbSavedAt = idbVault._savedAt || 0;
+      // IDB가 더 최신일 때만 채택 (동률/구버전이면 무시 — 사용자가 방금 한 작업 보존)
+      if (idbSavedAt > localSavedAt) {
+        VAULT = idbVault;
+        const active = VAULT.events.find(e => e.id === VAULT.activeId) || VAULT.events[0];
+        VAULT.activeId = active.id;
+        DB = active;
+        hydrateEvent(active);
+        if (!isSheetOpen() && !isEditingFocused()) {
+          try { render(); } catch(e) {}
+        }
+      }
+    } catch (e) { /* IDB 미지원/실패 — localStorage 데이터 그대로 사용 */ }
+  }, 400);
+})();
 
 /* ===== Firebase 실시간 동기화 부팅 ===== */
 window.addEventListener('load', function(){ try{ fbInit(); }catch(e){ console.error(e); } });

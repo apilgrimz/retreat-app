@@ -1113,7 +1113,7 @@ function transSessionGroups(type, driver) {
   defs.forEach(def => {
     const sname = def.name;
     const uList = [], dList = [];
-    registeredMembers().forEach(m => {
+    boardableMembers().forEach(m => {
       const st = (m.sessionTrans && m.sessionTrans[sname]) || null;
       if (!st) return;
       const upKindV = st.upKind || kindOfVehicle(st.upVehicle);
@@ -1274,7 +1274,7 @@ function transDatesFor(type, driver) {
   }
   // 개인차: 차주 본인의 상하행 날짜
   if (driver) {
-    const drvMember = registeredMembers().find(m => (m.name||'').trim() === String(driver).trim());
+    const drvMember = boardableMembers().find(m => (m.name||'').trim() === String(driver).trim());
     if (drvMember) {
       const rt = memberRepTrans(drvMember);
       return { upDate: rt.upDate || '', downDate: rt.downDate || '' };
@@ -1621,7 +1621,7 @@ function getTransportStats() {
   if (countUp['기타'] === undefined) countUp['기타'] = 0;
   if (countDown['기타'] === undefined) countDown['기타'] = 0;
 
-  registeredMembers().forEach(m => {
+  boardableMembers().forEach(m => {
     // 대표 차수(본차수 또는 빠른차수)의 상/하행 차편 — 집계용은 날짜 없는 순수 라벨(vehLabel) 사용
     const rep = representativeSession(m);
     const st = (rep && m.sessionTrans && m.sessionTrans[rep]) || null;
@@ -1766,9 +1766,12 @@ function execResetZone() {
 // ===== 미배차자 관리 (차편 미정 인원 배차) =====
 // 가나다순 배차 옵션: 기타 교통편(OTHER_TRANSPORTS) + 개인차 차주(PRIVATE_CAR_LIST)
 function unassignedVehicleOptions() {
-  const others = (OTHER_TRANSPORTS || []).map(v => ({ name: v, kind: kindOfVehicle(v) || 'etc' }));
-  const drivers = (PRIVATE_CAR_LIST || []).map(v => ({ name: v, kind: 'private' }));
-  return [...others, ...drivers].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  // 순서: 본대 버스(호차) → 교회차 → 기타(타교회·대중교통 등) → 개인차(가나다순)
+  const buses = (BUSES || []).map(v => ({ name: v, kind: 'bus' }));
+  const churchCars = (CHURCH_CARS || []).map(v => ({ name: v, kind: 'etc' }));
+  const others = (OTHER_TRANSPORTS || []).map(v => ({ name: v, kind: 'etc' }));
+  const drivers = (PRIVATE_CAR_LIST || []).slice().sort((a, b) => a.localeCompare(b, 'ko')).map(v => ({ name: v, kind: 'private' }));
+  return [...buses, ...churchCars, ...others, ...drivers];
 }
 // 특정 차수·방향이 미배정인지.
 //  - 교통수단 종류(kind)를 아예 안 정했거나
@@ -1786,7 +1789,7 @@ function isDirUnassigned(m, sname, dir) {
 // 미배차 항목: 차수·방향별 {m, sname, dir, date}
 function unassignedItems(sname, dir) {
   const items = [];
-  registeredMembers().forEach(m => {
+  boardableMembers().forEach(m => {
     if (!memberSessions(m).includes(sname)) return;
     if (isDirUnassigned(m, sname, dir)) {
       const st = (m.sessionTrans && m.sessionTrans[sname]) || {};
@@ -1806,24 +1809,37 @@ function setDepartTime(memberId, sname, dir, val) {
   saveVault();
 }
 // 배차: 선택한 차편으로 배정 (kind 자동 판정). 배정되면 목록에서 사라지고 해당 차편 명단에 들어감.
+//  특수값 '__bus__' = 본대 버스로 지정(호차는 아직 미정) → 본대 배정 화면에서 호차를 정함
 function assignUnassigned(memberId, sname, dir, vehicle) {
   const m = DB.members.find(x => x.id === memberId);
   if (!m || !vehicle) return;
   if (!m.sessionTrans) m.sessionTrans = {};
   if (!m.sessionTrans[sname]) m.sessionTrans[sname] = {};
   const st = m.sessionTrans[sname];
-  const kind = kindOfVehicle(vehicle) || 'etc';
-  if (dir === 'up') { st.upKind = kind; st.upVehicle = vehicle; }
-  else { st.downKind = kind; st.downVehicle = vehicle; }
+  let kind, veh;
+  if (vehicle === '__bus__') { kind = 'bus'; veh = ''; }  // 본대 버스(호차 미정) → 본대 배정으로
+  else { kind = kindOfVehicle(vehicle) || 'etc'; veh = vehicle; }
+  if (dir === 'up') { st.upKind = kind; st.upVehicle = veh; }
+  else { st.downKind = kind; st.downVehicle = veh; }
   recalcMemberRepTrans(m);
   saveVault();
 }
 
 // 미배정 본문 HTML만 생성 (인라인/시트 공용)
 function unassignedBodyHtml(inline) {
-  const opts = unassignedVehicleOptions();
-  const optHtml = () => ['', ...opts.map(o=>o.name)].map(v =>
-    `<option value="${esc(v)}">${esc(v||'─ 배차 ─')}</option>`).join('');
+  // 드롭다운: 본대 버스(한 항목) → 교회차 → 기타 → 개인차(가나다순).
+  //  본대 버스를 고르면 호차 미정 상태로 본대 배정 대상이 됨(호차는 본대 배정에서 지정)
+  const optHtml = () => {
+    const churchCars = (CHURCH_CARS || []);
+    const others = (OTHER_TRANSPORTS || []);
+    const drivers = (PRIVATE_CAR_LIST || []).slice().sort((a, b) => a.localeCompare(b, 'ko'));
+    const grp = (label, arr) => arr.length ? `<optgroup label="${esc(label)}">${arr.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</optgroup>` : '';
+    return `<option value="">─ 배차 ─</option>`
+      + `<option value="__bus__">본대 버스</option>`
+      + grp('교회차', churchCars)
+      + grp('기타', others)
+      + grp('개인차', drivers);
+  };
   const sessions = getSessionDefs().map(d => d.name);
   const gridCols = '28px 52px 58px 52px 56px 92px';  // 번호·구역·성명·부서·출발·교통편
   const backFn = inline ? 'gotoUnassigned' : 'openUnassignedSheet';
@@ -1913,8 +1929,8 @@ function openTransportFull() {
   let body = '';
   if (BUSES.includes(type)) {
     // 본대 버스: 본 교회 차수 탑승자만
-    const u = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
-    const d = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
+    const u = boardableMembers().filter(m => m.transUp === type).sort(memberSortCmp);
+    const d = boardableMembers().filter(m => m.transDown === type).sort(memberSortCmp);
     const churchN = churchSessionName();
     if (churchN) body += `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     if (u.length===0 && d.length===0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
@@ -1972,8 +1988,8 @@ function execPrintTransport() {
   let maxCount = 0;  // 한 표(상/하행 중 많은 쪽)의 최대 인원 — 45명 이하면 압축 인쇄로 한 장에
 
   if (BUSES.includes(type)) {
-    const u = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
-    const d = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
+    const u = boardableMembers().filter(m => m.transUp === type).sort(memberSortCmp);
+    const d = boardableMembers().filter(m => m.transDown === type).sort(memberSortCmp);
     const churchN = churchSessionName();
     if (churchN) body += `<div style="font-size:12px; color:#555; margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
     body += buildSplitTable(null, u, d, true, null, type);
@@ -2041,7 +2057,7 @@ function execPrintDept(dept) {
 
 function execPrintEvangelism() {
   const titleText = `${getYearPrefix()} 하계수양회 - 전도대상자 명단`;
-  let trs = sortMembers(DB.evangelism).map((e, i) => `<tr>
+  let trs = sortMembers(evangelismVisible()).map((e, i) => `<tr>
     <td>${i+1}</td>
     <td style="white-space:nowrap;">${esc(e.zone)}</td>
     <td class="print-name">${esc(e.name)}</td>
@@ -2081,8 +2097,8 @@ function execPrintEvangelism() {
 
 function execPrintFeeSupport() {
   const titleText = `${getYearPrefix()} 하계수양회 - 회비 지원 명단`;
-  const fsTotal = DB.feeSupport.reduce((s, fs) => s + (fs.amount||0), 0);
-  let trs = sortMembers(DB.feeSupport).map((fs, i) => `<tr>
+  const fsTotal = feeSupportVisible().reduce((s, fs) => s + (fs.amount||0), 0);
+  let trs = sortMembers(feeSupportVisible()).map((fs, i) => `<tr>
     <td>${i+1}</td><td>${esc(fs.zone)}</td>
     <td class="print-name">${esc(fs.name)}</td>
     <td>${esc(fs.dept)}</td>
@@ -2165,7 +2181,7 @@ function execPrintHome() {
   const sess = sessionCounts();
   const depts = deptCounts();
   const feeTotal = Object.values(feeTotalByDept()).reduce((a,b)=>a+b, 0);
-  const evCount = DB.evangelism.length;
+  const evCount = evangelismVisible().length;
   const deptFees = feeTotalByDept();
   const tStats = getTransportStats();
 
@@ -2316,7 +2332,7 @@ function openSessionSheet(session, isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:620px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 45px 58px 58px 250px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>교통편</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 45px 58px 58px 250px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>교통편</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
           const eu = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
@@ -2324,7 +2340,7 @@ function openSessionSheet(session, isReopen) {
           if (eu) up = `${m.extraUp[eu]} (${eu})`;
           if (ed) down = `${m.extraDown[ed]} (${ed})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 58px 58px 250px max-content;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openSessionSheet', arg:'${esc(session)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 45px 58px 58px 250px minmax(60px,1fr); ${statusRowStyle(m)}"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openSessionSheet', arg:'${esc(session)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${noteWithStatus(m)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -2350,7 +2366,7 @@ function openZoneSheet(zone, isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:670px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 50px 50px 52px 250px minmax(64px,max-content) minmax(80px,max-content);"><div class="no">번호</div><div>성명</div><div>부서(회)</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 50px 50px 52px 250px minmax(64px,max-content) minmax(80px,1fr);"><div class="no">번호</div><div>성명</div><div>부서(회)</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
           const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
@@ -2358,7 +2374,7 @@ function openZoneSheet(zone, isReopen) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 50px 50px 52px 250px minmax(64px,max-content) minmax(80px,max-content);"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${esc(m.session)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.lodging)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 50px 50px 52px 250px minmax(64px,max-content) minmax(80px,1fr);"><div class="no">${i+1}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openZoneSheet', arg:'${esc(zone)}'})">${esc(m.name)}${zone===OTHER_CHURCH_ZONE?`<div style="font-size:10px;color:var(--ink-mute);font-weight:400;line-height:1.2">${esc(m.zone)}</div>`:''}</div><div>${esc(m.dept)}</div><div>${sessionCell(m)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.lodging)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -2375,7 +2391,7 @@ function openDeptSheet(dept, isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:708px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 68px 52px 40px 250px minmax(64px,max-content) minmax(80px,max-content);"><div class="no">번호</div><div>구역</div><div>성명</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
+        <div class="roster-row head" style="grid-template-columns: 28px 68px 52px 40px 250px minmax(64px,max-content) minmax(80px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>차수</div><div>교통편</div><div>숙소</div><div>비고</div></div>
         ${list.map((m, i) => {
           let up = m.transUp || ''; let down = m.transDown || '';
           const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
@@ -2383,7 +2399,7 @@ function openDeptSheet(dept, isReopen) {
           if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
           if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
           const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 68px 52px 40px 250px minmax(64px,max-content) minmax(80px,max-content);"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div style="white-space:nowrap;">${esc(m.session)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.lodging)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
+          return `<div class="roster-row" style="grid-template-columns: 28px 68px 52px 40px 250px minmax(64px,max-content) minmax(80px,1fr);"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openDeptSheet', arg:'${esc(dept)}'})">${esc(m.name)}</div><div style="white-space:nowrap;">${sessionCell(m)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${esc(m.lodging)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`;
         }).join('')}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>
@@ -2398,7 +2414,7 @@ function busAssignMembers(dir) {
   const ch = churchSessionName();
   if (!ch) return [];
   const kindKey = dir === 'down' ? 'downKind' : 'upKind';
-  return registeredMembers().filter(m => {
+  return boardableMembers().filter(m => {
     if (!memberSessions(m).includes(ch)) return false;
     const st = (m.sessionTrans && m.sessionTrans[ch]) || null;
     return st && st[kindKey] === 'bus';
@@ -2537,12 +2553,40 @@ function gotoUnassigned() { transportTab.type = '__unassigned__'; setTab('transp
 // 특정 차편(호차/교회차/개인차/타교회) 탭으로 복귀 — 명단에서 성명 클릭 후 돌아올 때
 function gotoTransportType(type) { if(type) transportTab.type = type; setTab('transport'); }
 
+// 참석 상태: status = '' 정상 / 'noshow' 불참 / 'refund' 환불
+function isNoShow(m){ return m && m.status === 'noshow'; }
+function isRefund(m){ return m && m.status === 'refund'; }
+// 명단 대상: 현장접수만 제외 (불참·환불자도 명단에는 '불참'/'환불' 표기하며 남김)
 function isReg(m){ return m.regType !== 'onsite'; }
 function registeredMembers(){ return DB.members.filter(isReg); }
+// 집계(인원수·회비합계) 대상: 명단 대상 중 환불 제외 (불참은 집계 포함)
+function isCounted(m){ return isReg(m) && m.status !== 'refund'; }
+function countedMembers(){ return DB.members.filter(isCounted); }
+// 차편 명단용: 등록자 중 불참·환불 제외
+function boardableMembers(){ return DB.members.filter(isBoardable); }
+// 차편·전도 명단 대상: 불참·환불 모두 제외
+function isBoardable(m){ return isReg(m) && m.status !== 'noshow' && m.status !== 'refund'; }
+// 명단 차수란 표시: 불참→'불참', 환불→'환불', 정상→실제 차수
+function sessionCell(m){
+  if (m.status === 'noshow') return '<span style="color:var(--rose);font-weight:700">불참</span>';
+  if (m.status === 'refund') return '<span style="color:var(--rose);font-weight:700">환불</span>';
+  return esc(m.session || '');
+}
+// 불참·환불자 행에 밑줄(취소선 느낌) 스타일
+function statusRowStyle(m){
+  return (m.status === 'noshow' || m.status === 'refund') ? 'text-decoration:underline; text-decoration-color:var(--rose); text-underline-offset:3px;' : '';
+}
+// 비고란에 불참/환불 라벨을 앞에 붙임
+function noteWithStatus(m){
+  const label = m.status === 'noshow' ? '불참' : (m.status === 'refund' ? '환불' : '');
+  const note = m.note || '';
+  if (!label) return esc(note);
+  return '<span style="color:var(--rose);font-weight:700">' + label + '</span>' + (note ? ' · ' + esc(note) : '');
+}
 // "영유아" 부서: 회별 카드와 차편에는 포함하되, 그 외 모든 인원 집계(총원/차수별/구역별/접수현황)에서는 제외한다.
 function isInfantDept(dept) { return (dept || '').indexOf('영유아') >= 0; }
 // 집계용 등록 인원: 영유아 제외 (회별·차편은 registeredMembers를 그대로 쓰므로 영향 없음)
-function countableMembers(){ return registeredMembers().filter(m => !isInfantDept(m.dept)); }
+function countableMembers(){ return countedMembers().filter(m => !isInfantDept(m.dept)); }
 function membersByZone(zone) {
   // '타교회' 구역을 누르면 실제 교회명으로 저장된 모든 타교회 인원을 모아서 보여준다.
   if (zone === OTHER_CHURCH_ZONE) {
@@ -2568,6 +2612,21 @@ function memberSortCmp(a, b) {
 }
 // 명단 배열을 표준 순서로 정렬해 반환 (원본 불변)
 function sortMembers(list) { return list.slice().sort(memberSortCmp); }
+// 전도/회비 항목에 연결된 멤버 찾기 (memberId 우선, 없으면 이름+구역)
+function linkedMember(item){
+  if (!item) return null;
+  if (item.memberId) { const m = DB.members.find(x => x.id === item.memberId); if (m) return m; }
+  if (item.name) { const m = DB.members.find(x => x.name === item.name && x.zone === item.zone && x.name !== ''); if (m) return m; }
+  return null;
+}
+// 전도대상자 화면 명단: 연결 멤버가 불참·환불이면 제외 (자료·체크는 보존)
+function evangelismVisible(){
+  return DB.evangelism.filter(e => { const m = linkedMember(e); return !m || (m.status !== 'noshow' && m.status !== 'refund'); });
+}
+// 회비지원 화면 명단: 연결 멤버가 환불이면 제외 (불참은 유지, 자료·체크는 보존)
+function feeSupportVisible(){
+  return DB.feeSupport.filter(f => { const m = linkedMember(f); return !m || m.status !== 'refund'; });
+}
 // 개인차 차주 우선 + 표준 정렬
 function sortMembersDriverFirst(list, driver) {
   const drv = String(driver||'').trim();
@@ -2592,11 +2651,11 @@ function sessionCounts() {
 }
 function deptCounts() {
   const r = Object.fromEntries(DEPTS.map(d => [d, 0]));
-  registeredMembers().forEach(m => { if (r.hasOwnProperty(m.dept)) r[m.dept]++; }); return r;
+  countedMembers().forEach(m => { if (r.hasOwnProperty(m.dept)) r[m.dept]++; }); return r;
 }
 function feeTotalByDept() {
   const totals = Object.fromEntries(DEPTS.map(d => [d, 0]));
-  registeredMembers().forEach(m => { if (totals.hasOwnProperty(m.dept)) totals[m.dept] += (DB.fees[m.dept] || 0); }); return totals;
+  countedMembers().forEach(m => { if (totals.hasOwnProperty(m.dept)) totals[m.dept] += (DB.fees[m.dept] || 0); }); return totals;
 }
 function feeTotalByZone(zone) {
   const inZone = (zone === OTHER_CHURCH_ZONE)
@@ -2718,8 +2777,8 @@ function renderHome() {
   const sess = sessionCounts();
   const depts = deptCounts();
   const feeTotal = Object.values(feeTotalByDept()).reduce((a,b)=>a+b, 0);
-  const fsTotal = DB.feeSupport.reduce((s, fs) => s + (fs.amount||0), 0);
-  const evCount = DB.evangelism.length;
+  const fsTotal = feeSupportVisible().reduce((s, fs) => s + (fs.amount||0), 0);
+  const evCount = evangelismVisible().length;
   const deptFees = feeTotalByDept();
   const tStats = getTransportStats();
 
@@ -2826,8 +2885,8 @@ function renderHome() {
       </div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0;">
         <div style="min-width:732px; width:max-content;">
-          <div class="roster-row head" style="grid-template-columns: 28px 68px 58px 48px 80px 48px 38px 30px 30px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div></div>
-          ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 68px 58px 48px 80px 48px 38px 30px 30px max-content;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer; ${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')" title="${e.status?'상태/메모 있음 — 눌러서 보기':'눌러서 상태/메모 입력'}">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
+          <div class="roster-row head" style="grid-template-columns: 28px 68px 58px 48px 80px 48px 38px 30px 30px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div></div>
+          ${sortMembers(evangelismVisible()).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 68px 58px 48px 80px 48px 38px 30px 30px minmax(60px,1fr);"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer; ${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')" title="${e.status?'상태/메모 있음 — 눌러서 보기':'눌러서 상태/메모 입력'}">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
           ${evCount === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 전도대상자가 없습니다.</div>` : ''}
         </div>
       </div>
@@ -2835,17 +2894,17 @@ function renderHome() {
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">회비 지원 명단 (${DB.feeSupport.length}명 · <span style="color:var(--gold)">${won(fsTotal)}원</span>)</div>
+        <div class="card-title">회비 지원 명단 (${feeSupportVisible().length}명 · <span style="color:var(--gold)">${won(fsTotal)}원</span>)</div>
         <div style="display:flex; gap:8px;">
           <button class="card-action" onclick="execPrintFeeSupport()">인쇄</button>
           <button class="card-action" data-action="goto-fee-sheet">전체보기</button>
         </div>
       </div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:202px; min-width:0;">
-        <div style="min-width:562px; width:max-content;">
+        <div style="min-width:562px;">
           <div class="roster-row head" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div style="text-align:right">금액</div><div>비고</div></div>
-          ${sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row clickable" onclick="openFeeSupportSheetById('${esc(fs.id)}')" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join('')}
-          ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">회비 지원자가 없습니다.</div>` : ''}
+          ${sortMembers(feeSupportVisible()).map((fs, i) => `<div class="roster-row clickable" onclick="openFeeSupportSheetById('${esc(fs.id)}')" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join('')}
+          ${feeSupportVisible().length === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">회비 지원자가 없습니다.</div>` : ''}
         </div>
       </div>
     </div>
@@ -3198,12 +3257,22 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     <div class="field">
       <label>접수 구분</label>
       <div class="time-pill-row" id="mRegTypeRow">
-        ${[['pre1','사전 1단계'],['pre2','사전 2단계'],['onsite','현장 접수']].map(([v,lb]) => {
+        ${[['pre1','사전 1단계'],['pre2','사전 2단계'],['onsite','현장 접수'],['other','타차수 접수']].map(([v,lb]) => {
           const sel = (m.regType||'')===v;
           return `<label class="time-pill ${sel?'active':''}"><input type="radio" name="mRegType" value="${v}" ${sel?'checked':''}/><span>${lb}</span></label>`;
         }).join('')}
       </div>
-      <div class="helper">현장 접수는 접수 현황에만 표시되며, 접수 현황에서 '등록'을 누르면 정식 등록됩니다.</div>
+      <div class="helper">현장 접수는 접수 현황에만 표시되며, 접수 현황에서 '등록'을 누르면 정식 등록됩니다. 타차수 접수는 일반 접수자와 동일하게 처리됩니다.</div>
+    </div>
+    <div class="field">
+      <label>참석 상태 <span style="font-weight:400;color:var(--ink-mute);font-size:11px">(선택 안 하면 정상 참석)</span></label>
+      <div class="time-pill-row" id="mStatusRow">
+        ${[['noshow','불참'],['refund','환불']].map(([v,lb]) => {
+          const sel = (m.status||'')===v;
+          return `<label class="time-pill ${sel?'active':''}"><input type="radio" name="mStatus" value="${v}" ${sel?'checked':''}/><span>${lb}</span></label>`;
+        }).join('')}
+      </div>
+      <div class="helper">불참: 자료·회비는 유지하고 명단에 '불참' 표시, 차편·전도 명단에서 제외. 환불: 집계·회비·전도에서도 제외(자료는 보존).</div>
     </div>
     <div class="field">
       <label>차수 · 상행/하행 <span style="font-weight:400;color:var(--ink-mute);font-size:11px">(참여할 차수를 체크하세요. 복수 가능)</span></label>
@@ -3320,6 +3389,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       baptism: m.baptism || false,
       note: $('#mNote').value.trim(),
       regType: (document.querySelector('input[name="mRegType"]:checked')||{}).value || '',
+      status: (document.querySelector('input[name="mStatus"]:checked')||{}).value || '',
     };
 
     // 필수 입력 검증 — 차수는 필수, 상하행 시점·차편은 선택(본교회 차수 아닌 사람 허용)
@@ -3402,6 +3472,18 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       radio.onclick = () => {
         if (radio._was) radio.checked = false;  // 이미 선택돼 있던 것 → 해제
         document.querySelectorAll('#mRegTypeRow input[name="mRegType"]').forEach(r => {
+          r.closest('.time-pill').classList.toggle('active', r.checked);
+          r._was = r.checked;
+        });
+      };
+    });
+
+    // 참석 상태: 라디오지만 다시 누르면 해제(=정상). 미선택이면 정상 참석.
+    document.querySelectorAll('#mStatusRow input[name="mStatus"]').forEach(r => { r._was = r.checked; });
+    document.querySelectorAll('#mStatusRow input[name="mStatus"]').forEach(radio => {
+      radio.onclick = () => {
+        if (radio._was) radio.checked = false;
+        document.querySelectorAll('#mStatusRow input[name="mStatus"]').forEach(r => {
           r.closest('.time-pill').classList.toggle('active', r.checked);
           r._was = r.checked;
         });
@@ -3523,7 +3605,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
 }
 
 function driverList(driver, direction) {
-  return registeredMembers().filter(m => {
+  return boardableMembers().filter(m => {
     if (direction === 'up') {
       if (m.extraUp && Object.values(m.extraUp).includes(driver)) return true;
     } else {
@@ -3541,7 +3623,7 @@ function sortDriverList(list, driver) {
 function allPrivateDrivers() {
   const set = new Set(PRIVATE_CAR_LIST);
   const known = new Set([...BUSES, ...CHURCH_CARS, ...OTHER_TRANSPORTS, ...PRIVATE_CARS, '']);
-  registeredMembers().forEach(m => {
+  boardableMembers().forEach(m => {
     if (m.extraUp) Object.values(m.extraUp).forEach(v => { if (v && !known.has(v)) set.add(v); });
     if (m.extraDown) Object.values(m.extraDown).forEach(v => { if (v && !known.has(v)) set.add(v); });
   });
@@ -3658,8 +3740,8 @@ function renderTransport() {
 
   if (BUSES.includes(type)) {
     // 본대 버스: 본 교회 차수에 버스로 가는 사람만 (대표 상하행 = applyRepTrans가 본교회차수만 채움)
-    const uList = registeredMembers().filter(m => m.transUp === type).sort(memberSortCmp);
-    const dList = registeredMembers().filter(m => m.transDown === type).sort(memberSortCmp);
+    const uList = boardableMembers().filter(m => m.transUp === type).sort(memberSortCmp);
+    const dList = boardableMembers().filter(m => m.transDown === type).sort(memberSortCmp);
     html += transInfoEditor(type, null);
     const churchN = churchSessionName();
     if (churchN) html += `<div style="font-size:12px; color:var(--ink-mute); margin-bottom:6px;">본 교회 차수(${esc(churchN)}) 탑승자</div>`;
@@ -3707,7 +3789,7 @@ function renderTransport() {
 }
 
 function renderFeeSupportSheet(isReopen) {
-  const fsTotal = DB.feeSupport.reduce((s, fs) => s + (fs.amount||0), 0);
+  const fsTotal = feeSupportVisible().reduce((s, fs) => s + (fs.amount||0), 0);
   const html = `
     <div style="background:linear-gradient(135deg, rgba(255,200,87,.15), rgba(255,200,87,.05));border:1px solid rgba(255,200,87,.3);border-radius:12px;padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
       <div>
@@ -3716,7 +3798,7 @@ function renderFeeSupportSheet(isReopen) {
       </div>
       <div style="text-align:right">
         <div style="font-size:11px;color:var(--ink-mute)">인원</div>
-        <div style="font-size:18px;font-weight:700">${DB.feeSupport.length}<span style="font-size:12px;color:var(--ink-mute);margin-left:2px">명</span></div>
+        <div style="font-size:18px;font-weight:700">${feeSupportVisible().length}<span style="font-size:12px;color:var(--ink-mute);margin-left:2px">명</span></div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:12px;">
@@ -3725,8 +3807,8 @@ function renderFeeSupportSheet(isReopen) {
     <div style="overflow-x:auto;">
       <div class="roster-table" style="margin-bottom:0; min-width:562px; width:max-content;">
         <div class="roster-row head" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div style="text-align:right">금액</div><div>비고</div></div>
-        ${DB.feeSupport.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : 
-          sortMembers(DB.feeSupport).map((fs, i) => `<div class="roster-row" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="event.stopPropagation(); openMemberFromRef('${esc(fs.memberId||'')}','${esc(fs.name)}','${esc(fs.zone)}','renderFeeSupportSheet')">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join('')}
+        ${feeSupportVisible().length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : 
+          sortMembers(feeSupportVisible()).map((fs, i) => `<div class="roster-row" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="event.stopPropagation(); openMemberFromRef('${esc(fs.memberId||'')}','${esc(fs.name)}','${esc(fs.zone)}','renderFeeSupportSheet')">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join('')}
       </div>
     </div>
   `;
@@ -4107,14 +4189,17 @@ function openStatusMemo(listName, id) {
 
 /* ===== 접수 현황 ===== */
 function intakeGroups() {
-  const g = { pre1: [], pre2: [], onsite: [] };
+  const g = { pre1: [], pre2: [], onsite: [], other: [], noshow: [], refund: [] };
   (DB.members || []).forEach(function (m) {
     if (isInfantDept(m.dept)) return;  // 영유아는 접수 현황 집계에서 제외
+    // 참석 상태(불참·환불)가 우선 — 접수 경로와 무관하게 별도 집계
+    if (m.status === 'refund') { g.refund.push(m); return; }
+    if (m.status === 'noshow') { g.noshow.push(m); return; }
     const t = m.regType || 'pre1';
     (g[t] || g.pre1).push(m);
   });
   const byZone = memberSortCmp;
-  g.pre1.sort(byZone); g.pre2.sort(byZone); g.onsite.sort(byZone);
+  Object.keys(g).forEach(function (k) { g[k].sort(byZone); });
   return g;
 }
 
@@ -4129,7 +4214,7 @@ function intakeTable(list, withRegister, groupKey) {
   return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + (withRegister ? '386' : '334') + 'px">' + head + rows + '</div></div>';
 }
 
-var INTAKE_LABELS = { pre1: '사전 1단계 접수 · 명찰 수령', pre2: '사전 2단계 접수 · 명찰 현장 수령', onsite: '현장 접수' };
+var INTAKE_LABELS = { pre1: '사전 1단계 접수 · 명찰 수령', pre2: '사전 2단계 접수 · 명찰 현장 수령', onsite: '현장 접수', other: '타차수 접수', noshow: '불참', refund: '환불' };
 function intakeMenuButton(key, count, desc) {
   return '<button class="menu-item" onclick="openIntakeGroup(\'' + key + '\')">' +
     '<div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>' +
@@ -4137,12 +4222,16 @@ function intakeMenuButton(key, count, desc) {
 }
 function openIntakeStatus() {
   const g = intakeGroups();
+  const btn = (key, desc) => (g[key].length ? intakeMenuButton(key, g[key].length, desc) : '');
   const html =
-    '<div class="notice">사전 1·2단계 접수자는 등록 인원에 집계됩니다. 현장 접수자는 명단에서 \'등록\'을 누르면 즉시 정식 등록됩니다.</div>' +
+    '<div class="notice">사전 1·2단계와 타차수 접수자는 등록 인원에 집계됩니다. 현장 접수자는 명단에서 \'등록\'을 누르면 즉시 정식 등록됩니다. 불참은 집계에 포함, 환불은 집계에서 제외됩니다.</div>' +
     '<div class="menu-list">' +
     intakeMenuButton('pre1', g.pre1.length, '미리 접수하고 명찰을 받은 인원') +
     intakeMenuButton('pre2', g.pre2.length, '미리 접수했으나 명찰은 현장 수령') +
     intakeMenuButton('onsite', g.onsite.length, '현장에서 접수 — 등록 시 집계 반영') +
+    btn('other', '다른 차수로 접수한 인원 — 일반 접수자와 동일 집계') +
+    btn('noshow', '참석하지 않은 인원 — 집계 포함, 차편·전도 제외') +
+    btn('refund', '환불한 인원 — 집계·회비·전도에서 제외(자료 보존)') +
     '</div>';
   openSheet('접수 현황', html, null, { hideSave: true });
 }
@@ -5002,9 +5091,9 @@ function renderEvangelismSheet(isReopen) {
     </div>
     <div style="overflow-x:auto;">
       <div class="roster-table" style="min-width:640px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px max-content;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div style="text-align:center">상태</div><div>비고</div></div>
-        ${sortMembers(DB.evangelism).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px max-content;"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openMemberFromRef('${esc(e.memberId||'')}','${esc(e.name)}','${esc(e.zone)}','renderEvangelismSheet')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
-        ${DB.evangelism.length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
+        <div class="roster-row head" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div style="text-align:center">상태</div><div>비고</div></div>
+        ${sortMembers(evangelismVisible()).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px minmax(60px,1fr);"><div class="no">${i+1}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openMemberFromRef('${esc(e.memberId||'')}','${esc(e.name)}','${esc(e.zone)}','renderEvangelismSheet')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join('')}
+        ${evangelismVisible().length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>
   `;
@@ -5328,7 +5417,7 @@ async function exportToExcel() {
   //    전도현황 컬럼: A=NO B=구역 C=성명 D=회(부서) E=인도자 F=관계 G=구원시인 H=침례여부 I=비고
   {
     const edits = {};
-    const evSorted = sortMembers(DB.evangelism);
+    const evSorted = sortMembers(evangelismVisible());
     for (let i = 0; i < 200; i++) {
       const e = evSorted[i];
       const row = 3 + i;
@@ -5348,7 +5437,7 @@ async function exportToExcel() {
   // 6) 회비지원 — 3행부터, E열은 VLOOKUP 공식이라 건드리지 않음
   {
     const edits = {};
-    const fsSorted = sortMembers(DB.feeSupport);
+    const fsSorted = sortMembers(feeSupportVisible());
     for (let i = 0; i < 150; i++) {
       const fs = fsSorted[i];
       const row = 3 + i;

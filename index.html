@@ -3901,7 +3901,7 @@ function openMetaEditSheet() {
 }
 
 /* ---------- 입력 점검 ---------- */
-function openInputCheckSheet() {
+function openInputCheckSheet(isReopen) {
   const defs = getSessionDefs();
   const church = churchSessionName();
   const regs = registeredMembers();
@@ -3962,15 +3962,12 @@ function openInputCheckSheet() {
   const total = noTrans.length + noDate.length;
   if (!total && !noDateDefs.length) html += '<div style="text-align:center; padding:14px; color:var(--green); font-weight:800;">✓ 점검 완료 — 빠진 입력이 없습니다.</div>';
 
-  openSheet('입력 점검', html, null, { hideSave: true });
+  openSheet('입력 점검', html, null, { hideSave: true, replaceTop: !!isReopen, reopener: () => openInputCheckSheet(true) });
   setTimeout(function () {
     document.querySelectorAll('#sheetBody .chk-name').forEach(function (b) {
       b.onclick = function () {
-        const mm = DB.members.find(function (x) { return x.id === b.dataset.mid; });
-        if (!mm) return;
-        closeSheet(true);
-        // 인원 수정 후 저장하면 입력 점검 화면으로 다시 돌아와 이어서 처리
-        setTimeout(function () { openMemberSheet(mm, false, function () { openInputCheckSheet(); }); }, 120);
+        // 편집창을 위에 쌓아서, 저장이든 취소든 닫히면 입력 점검이 자동으로 다시 열림(reopener)
+        openMemberById(b.dataset.mid);
       };
     });
   }, 50);

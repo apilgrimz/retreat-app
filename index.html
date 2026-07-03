@@ -1310,7 +1310,8 @@ function transNeedsTimeInput(type) {
 
 function getLodgings() {
   const dict = {};
-  registeredMembers().forEach(m => {
+  // 숙소 명단도 차편과 동일하게 불참·환불자는 제외
+  boardableMembers().forEach(m => {
     const l = m.lodging ? m.lodging.trim() : '';
     if (!l) return; 
     if (!dict[l]) dict[l] = [];
@@ -2219,7 +2220,7 @@ function execPrintHome() {
         <thead><tr><th style="width:50px">구역</th><th style="width:40px">인원</th><th style="width:65px">회비</th></tr></thead>
         <tbody>
           ${ZONES.map(z => {
-            const ct = membersByZone(z).filter(m => !isInfantDept(m.dept)).length;  // 영유아 제외
+            const ct = zoneCount(z);  // 환불·영유아 제외
             const fee = feeTotalByZone(z);
             return `<tr><td><b>${esc(z)}</b></td><td>${ct}</td><td style="text-align:right;padding-right:10px">${won(fee)}원</td></tr>`;
           }).join('')}
@@ -2594,6 +2595,13 @@ function membersByZone(zone) {
   }
   return registeredMembers().filter(m => m.zone === zone).sort(memberSortCmp);
 }
+// 구역 카드/칩의 인원수 집계용 — 환불 제외, 영유아 제외 (명단과 달리 카운트는 집계 기준)
+function zoneCount(zone) {
+  const inZone = (zone === OTHER_CHURCH_ZONE)
+    ? countedMembers().filter(m => isOtherChurchZone(m.zone))
+    : countedMembers().filter(m => m.zone === zone);
+  return inZone.filter(m => !isInfantDept(m.dept)).length;
+}
 
 // ===== 통합 명단 정렬 =====
 // 우선순위: 1)구역순(ZONES 배열 순서) 2)회(부서)순(DEPTS 배열 순서) 3)이름 가나다순
@@ -2658,9 +2666,10 @@ function feeTotalByDept() {
   countedMembers().forEach(m => { if (totals.hasOwnProperty(m.dept)) totals[m.dept] += (DB.fees[m.dept] || 0); }); return totals;
 }
 function feeTotalByZone(zone) {
+  // 회비 합계 — 환불자 제외 (집계 기준)
   const inZone = (zone === OTHER_CHURCH_ZONE)
-    ? registeredMembers().filter(m => isOtherChurchZone(m.zone))
-    : registeredMembers().filter(m => m.zone === zone);
+    ? countedMembers().filter(m => isOtherChurchZone(m.zone))
+    : countedMembers().filter(m => m.zone === zone);
   return inZone.reduce((s, m) => s + (DB.fees[m.dept] || 0), 0);
 }
 
@@ -2841,7 +2850,7 @@ function renderHome() {
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(96px, 1fr));gap:8px">
         ${ZONES.map(z => {
-          const ct = membersByZone(z).filter(m => !isInfantDept(m.dept)).length;  // 영유아 제외
+          const ct = zoneCount(z);  // 환불·영유아 제외
           const fee = feeTotalByZone(z);
           return `<div class="clickable" style="background:var(--bg-2);border-radius:10px;padding:10px 8px;text-align:center" onclick="openZoneSheet('${esc(z)}')">
             <div style="font-size:11px;color:var(--ink-mute)">${esc(z)}</div>
@@ -3005,7 +3014,7 @@ function renderRoster() {
   return `
     <div class="zone-scroll" id="zoneScroll">
       <button class="zone-pill ${isAll?'active':''}" data-zone="${ALL_ZONES}">전체<span class="ct">${registeredMembers().length}</span></button>
-      ${ZONES.map(zn => `<button class="zone-pill ${zn===z?'active':''}" data-zone="${esc(zn)}">${esc(zn)}<span class="ct">${membersByZone(zn).length}</span></button>`).join('')}
+      ${ZONES.map(zn => `<button class="zone-pill ${zn===z?'active':''}" data-zone="${esc(zn)}">${esc(zn)}<span class="ct">${zoneCount(zn)}</span></button>`).join('')}
     </div>
     <div class="searchbar">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
@@ -3904,7 +3913,8 @@ function openMetaEditSheet() {
 function openInputCheckSheet(isReopen) {
   const defs = getSessionDefs();
   const church = churchSessionName();
-  const regs = registeredMembers();
+  // 차편·날짜 점검 대상 — 불참·환불자는 차편이 필요 없으므로 제외
+  const regs = boardableMembers();
   const defOf = {}; defs.forEach(d => { defOf[d.name] = d; });
 
   // 1) 차수 날짜 미설정 (설정 차원 경고)

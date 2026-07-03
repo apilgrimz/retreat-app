@@ -2557,15 +2557,19 @@ function gotoTransportType(type) { if(type) transportTab.type = type; setTab('tr
 // 참석 상태: status = '' 정상 / 'noshow' 불참 / 'refund' 환불
 function isNoShow(m){ return m && m.status === 'noshow'; }
 function isRefund(m){ return m && m.status === 'refund'; }
-// 명단 대상: 현장접수만 제외 (불참·환불자도 명단에는 '불참'/'환불' 표기하며 남김)
-function isReg(m){ return m.regType !== 'onsite'; }
+function isOnsite(m){ return m && m.regType === 'onsite'; }
+// 현장 접수자가 '등록'되었는지 (등록해도 regType은 onsite로 유지 — 현장 접수 이력 보존)
+function isOnsiteRegistered(m){ return m && m.regType === 'onsite' && m.registered === true; }
+// 명단 대상: 모두 포함 (현장접수자도 '오는 것 전제'로 명단에 넣음. 불참·환불은 표기하며 남김)
+//  단, 현장접수자가 '불참'이면 명단에서도 제외 (접수현황 현장접수 명단에만 남김)
+function isReg(m){ return !(m.regType === 'onsite' && m.status === 'noshow'); }
 function registeredMembers(){ return DB.members.filter(isReg); }
-// 집계(인원수·회비합계) 대상: 명단 대상 중 환불 제외 (불참은 집계 포함)
-function isCounted(m){ return isReg(m) && m.status !== 'refund'; }
+// 집계(인원수·회비합계) 대상: 환불 제외 + 현장접수자는 '등록'된 경우만 포함 (미등록 현장접수는 집계 제외)
+function isCounted(m){ return isReg(m) && m.status !== 'refund' && (m.regType !== 'onsite' || m.registered === true); }
 function countedMembers(){ return DB.members.filter(isCounted); }
-// 차편 명단용: 등록자 중 불참·환불 제외
+// 차편 명단용: 등록자 중 불참·환불 제외 (현장접수는 차편 포함 — 오는 것 전제로 준비)
 function boardableMembers(){ return DB.members.filter(isBoardable); }
-// 차편·전도 명단 대상: 불참·환불 모두 제외
+// 차편·숙소·전도 명단 대상: 불참·환불 제외 (현장접수는 포함)
 function isBoardable(m){ return isReg(m) && m.status !== 'noshow' && m.status !== 'refund'; }
 // 명단 차수란 표시: 불참→'불참', 환불→'환불', 정상→실제 차수
 function sessionCell(m){
@@ -2631,9 +2635,15 @@ function linkedMember(item){
 function evangelismVisible(){
   return DB.evangelism.filter(e => { const m = linkedMember(e); return !m || (m.status !== 'noshow' && m.status !== 'refund'); });
 }
-// 회비지원 화면 명단: 연결 멤버가 환불이면 제외 (불참은 유지, 자료·체크는 보존)
+// 회비지원 화면 명단: 환불 제외. 일반 불참은 회비 유지하되, 현장접수 불참자는 제외(오지 않아 접수 자체가 없음)
 function feeSupportVisible(){
-  return DB.feeSupport.filter(f => { const m = linkedMember(f); return !m || m.status !== 'refund'; });
+  return DB.feeSupport.filter(f => {
+    const m = linkedMember(f);
+    if (!m) return true;
+    if (m.status === 'refund') return false;
+    if (m.regType === 'onsite' && m.status === 'noshow') return false;  // 현장접수 불참 → 회비 제외
+    return true;
+  });
 }
 // 개인차 차주 우선 + 표준 정렬
 function sortMembersDriverFirst(list, driver) {
@@ -3271,7 +3281,8 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           return `<label class="time-pill ${sel?'active':''}"><input type="radio" name="mRegType" value="${v}" ${sel?'checked':''}/><span>${lb}</span></label>`;
         }).join('')}
       </div>
-      <div class="helper">현장 접수는 접수 현황에만 표시되며, 접수 현황에서 '등록'을 누르면 정식 등록됩니다. 타차수 접수는 일반 접수자와 동일하게 처리됩니다.</div>
+      ${m.regType==='onsite' ? `<div style="margin-top:6px">${m.registered===true ? `<button type="button" class="card-action" style="font-size:12px;padding:4px 12px;color:var(--gold);border-color:var(--gold);opacity:0.7" disabled>정식 등록됨 ✓ (집계 반영)</button>` : `<button type="button" class="card-action" style="font-size:12px;padding:4px 12px" onclick="memberFormRegister('${esc(m.id)}')">이 인원 정식 등록 (집계 반영)</button>`}</div>` : ''}
+      <div class="helper">현장 접수자는 명단에는 포함되지만 집계(인원수·회비)에서는 제외됩니다. 당일 참석하면 '정식 등록'을 눌러 집계에 반영하세요. 타차수 접수는 일반 접수자와 동일하게 처리됩니다.</div>
     </div>
     <div class="field">
       <label>참석 상태 <span style="font-weight:400;color:var(--ink-mute);font-size:11px">(선택 안 하면 정상 참석)</span></label>
@@ -3400,6 +3411,8 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       regType: (document.querySelector('input[name="mRegType"]:checked')||{}).value || '',
       status: (document.querySelector('input[name="mStatus"]:checked')||{}).value || '',
     };
+    // 현장 접수가 아니면 registered 플래그는 의미 없음 — 정리 (registered는 현장 접수 전용)
+    if (updated.regType !== 'onsite') delete updated.registered;
 
     // 필수 입력 검증 — 차수는 필수, 상하행 시점·차편은 선택(본교회 차수 아닌 사람 허용)
     if (!updated.zone) { toast('구역을 선택해 주세요', true); return false; }
@@ -4199,7 +4212,9 @@ function intakeGroups() {
   const g = { pre1: [], pre2: [], onsite: [], other: [], noshow: [], refund: [] };
   (DB.members || []).forEach(function (m) {
     if (isInfantDept(m.dept)) return;  // 영유아는 접수 현황 집계에서 제외
-    // 참석 상태(불참·환불)가 우선 — 접수 경로와 무관하게 별도 집계
+    // 현장접수자는 불참이어도 '현장 접수' 명단에 남긴다 (자료 보존 + 등록/불참 관리)
+    if (m.regType === 'onsite') { g.onsite.push(m); return; }
+    // 그 외: 참석 상태(불참·환불)가 우선 — 접수 경로와 무관하게 별도 집계
     if (m.status === 'refund') { g.refund.push(m); return; }
     if (m.status === 'noshow') { g.noshow.push(m); return; }
     const t = m.regType || 'pre1';
@@ -4212,13 +4227,30 @@ function intakeGroups() {
 
 function intakeTable(list, withRegister, groupKey) {
   if (!list.length) return '<div style="text-align:center;padding:16px;font-size:12px;color:var(--ink-mute)">해당 없음</div>';
-  const cols = withRegister ? '28px 58px 1fr 100px 48px 52px' : '28px 58px 1fr 100px 48px';
-  let head = '<div class="roster-row head" style="grid-template-columns:' + cols + '"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>차수</div>' + (withRegister ? '<div style="text-align:center">등록</div>' : '') + '</div>';
+  const isOnsite = groupKey === 'onsite';
+  // 현장 접수 명단은 등록+불참 두 버튼(넓게), 그 외 등록 대상은 등록 버튼만
+  const actCol = isOnsite ? '96px' : (withRegister ? '52px' : '');
+  const cols = (withRegister || isOnsite) ? ('28px 58px 1fr 92px 44px ' + actCol) : '28px 58px 1fr 100px 48px';
+  const actHead = isOnsite ? '<div style="text-align:center">등록 · 불참</div>' : (withRegister ? '<div style="text-align:center">등록</div>' : '');
+  let head = '<div class="roster-row head" style="grid-template-columns:' + cols + '"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>차수</div>' + actHead + '</div>';
   let rows = list.map(function (m, i) {
-    const reg = withRegister ? '<div style="text-align:center"><button class="card-action" style="font-size:11px;padding:2px 8px" onclick="intakeRegister(\'' + esc(m.id) + '\')">등록</button></div>' : '';
-    return '<div class="roster-row" style="grid-template-columns:' + cols + '"><div class="no">' + (i + 1) + '</div><div>' + esc(m.zone) + '</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById(\'' + esc(m.id) + '\', {fn:\'openIntakeGroup\', arg:\'' + esc(groupKey || '') + '\'})">' + esc(m.name) + '</div><div>' + esc(m.dept) + '</div><div>' + esc(m.session || '') + '</div>' + reg + '</div>';
+    let act = '';
+    if (isOnsite) {
+      const isNo = m.status === 'noshow';
+      const isRegd = m.registered === true;
+      // 등록 버튼(등록됨이면 ✓ 강조, 불참이면 비활성) + 불참 토글
+      act = '<div style="display:flex;gap:4px;justify-content:center">'
+        + '<button class="card-action" style="font-size:11px;padding:2px 7px;' + (isRegd ? 'color:var(--gold);border-color:var(--gold);font-weight:800' : '') + (isNo ? 'opacity:0.4' : '') + '" ' + (isNo ? 'disabled' : '') + ' onclick="intakeRegister(\'' + esc(m.id) + '\')">' + (isRegd ? '등록✓' : '등록') + '</button>'
+        + '<button class="card-action" style="font-size:11px;padding:2px 7px;' + (isNo ? 'color:var(--rose);border-color:var(--rose)' : '') + '" onclick="intakeToggleNoShow(\'' + esc(m.id) + '\')">' + (isNo ? '불참✓' : '불참') + '</button>'
+        + '</div>';
+    } else if (withRegister) {
+      act = '<div style="text-align:center"><button class="card-action" style="font-size:11px;padding:2px 8px" onclick="intakeRegister(\'' + esc(m.id) + '\')">등록</button></div>';
+    }
+    const rowStyle = (isOnsite && m.status === 'noshow') ? 'text-decoration:underline;text-decoration-color:var(--rose);text-underline-offset:3px;' : '';
+    return '<div class="roster-row" style="grid-template-columns:' + cols + ';' + rowStyle + '"><div class="no">' + (i + 1) + '</div><div>' + esc(m.zone) + '</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById(\'' + esc(m.id) + '\', {fn:\'openIntakeGroup\', arg:\'' + esc(groupKey || '') + '\'})">' + esc(m.name) + '</div><div>' + esc(m.dept) + '</div><div>' + esc(m.session || '') + '</div>' + act + '</div>';
   }).join('');
-  return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + (withRegister ? '386' : '334') + 'px">' + head + rows + '</div></div>';
+  const minW = isOnsite ? '418' : (withRegister ? '386' : '334');
+  return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + minW + 'px">' + head + rows + '</div></div>';
 }
 
 var INTAKE_LABELS = { pre1: '사전 1단계 접수 · 명찰 수령', pre2: '사전 2단계 접수 · 명찰 현장 수령', onsite: '현장 접수', other: '타차수 접수', noshow: '불참', refund: '환불' };
@@ -4231,11 +4263,11 @@ function openIntakeStatus() {
   const g = intakeGroups();
   const btn = (key, desc) => (g[key].length ? intakeMenuButton(key, g[key].length, desc) : '');
   const html =
-    '<div class="notice">사전 1·2단계와 타차수 접수자는 등록 인원에 집계됩니다. 현장 접수자는 명단에서 \'등록\'을 누르면 즉시 정식 등록됩니다. 불참은 집계에 포함, 환불은 집계에서 제외됩니다.</div>' +
+    '<div class="notice">사전 1·2단계와 타차수 접수자는 등록 인원에 집계됩니다. 현장 접수자는 명단에는 포함되지만 집계에서는 제외되며, 당일 참석 시 \'등록\'을 눌러 집계에 반영합니다(현장 접수 명단에는 계속 표시). 불참은 집계에 포함, 환불은 집계에서 제외됩니다.</div>' +
     '<div class="menu-list">' +
     intakeMenuButton('pre1', g.pre1.length, '미리 접수하고 명찰을 받은 인원') +
     intakeMenuButton('pre2', g.pre2.length, '미리 접수했으나 명찰은 현장 수령') +
-    intakeMenuButton('onsite', g.onsite.length, '현장에서 접수 — 등록 시 집계 반영') +
+    intakeMenuButton('onsite', g.onsite.length, '현장 접수 — 명단 포함·집계 제외, 등록 시 집계 반영') +
     btn('other', '다른 차수로 접수한 인원 — 일반 접수자와 동일 집계') +
     btn('noshow', '참석하지 않은 인원 — 집계 포함, 차편·전도 제외') +
     btn('refund', '환불한 인원 — 집계·회비·전도에서 제외(자료 보존)') +
@@ -4273,12 +4305,54 @@ function openIntakeGroup(key, isReopen) {
 function intakeRegister(id) {
   const m = (DB.members || []).find(function (x) { return x.id === id; });
   if (!m) return;
-  confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (사전 1단계로 전환)', function () {
-    m.regType = 'pre1';
+  const already = m.registered === true;
+  if (already) {
+    // 이미 등록됨 → 등록 취소(집계에서 다시 빼기)
+    confirmModal('등록 취소', esc(m.name) + '의 정식 등록을 취소합니다. (집계에서 제외, 현장 접수 명단에는 그대로 유지)', function () {
+      m.registered = false;
+      saveDB(); render(); toast('등록을 취소했어요');
+      setTimeout(function(){ openIntakeGroup('onsite', true); }, 120);
+    }, '등록 취소');
+  } else {
+    confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (집계에 반영, 현장 접수 명단에는 그대로 유지)', function () {
+      m.registered = true;
+      if (m.status === 'noshow') m.status = '';  // 등록하면 불참 표시는 해제(왔으므로)
+      saveDB(); render(); toast('등록됐어요 (집계 반영)');
+      setTimeout(function(){ openIntakeGroup('onsite', true); }, 120);
+    }, '등록');
+  }
+}
+// 현장 접수자 불참 토글 — 불참이면 모든 명단에서 빠지고, 접수현황 현장접수 명단에만 남음
+function intakeToggleNoShow(id) {
+  const m = (DB.members || []).find(function (x) { return x.id === id; });
+  if (!m) return;
+  if (m.status === 'noshow') {
+    m.status = '';
+  } else {
+    m.status = 'noshow';
+    m.registered = false;  // 불참이면 등록도 자동 해제(집계에서 제외)
+  }
+  saveDB();
+  render();
+  toast(m.status === 'noshow' ? '불참 처리했어요 (명단·집계에서 제외)' : '불참을 해제했어요');
+  setTimeout(function(){ openIntakeGroup('onsite', true); }, 100);
+}
+// 인원 편집창에서 현장 접수자를 정식 등록 (접수 현황의 '등록'과 동일 동작 — 양쪽 연동)
+function memberFormRegister(id) {
+  const m = (DB.members || []).find(function (x) { return x.id === id; });
+  if (!m) return;
+  confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (집계에 반영, 현장 접수 이력은 유지)', function () {
+    m.registered = true;
+    if (m.status === 'noshow') m.status = '';
     saveDB();
     render();
-    toast('등록됐어요');
-    setTimeout(function(){ openIntakeGroup('onsite'); }, 150);
+    // 편집창의 등록 버튼을 '등록됨' 상태로 갱신
+    const row = document.getElementById('mRegTypeRow');
+    if (row && row.parentNode) {
+      const btn = row.parentNode.querySelector('button.card-action');
+      if (btn) { btn.textContent = '정식 등록됨 ✓ (집계 반영)'; btn.disabled = true; btn.style.opacity = '0.6'; }
+    }
+    toast('등록됐어요 (집계 반영)');
   }, '등록');
 }
 

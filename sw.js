@@ -1,6 +1,6 @@
 // 하계수양회 PWA Service Worker
 // v1.1.1 — 회별 카드: 좁은 화면 가로 스크롤 복원 + 단가 가운데 정렬
-const CACHE_VERSION = 'retreat-sync-v10.7.3';
+const CACHE_VERSION = 'retreat-sync-v10.7.5';
 const CORE_ASSETS = [
   './',
   './index.html',

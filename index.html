@@ -3310,7 +3310,11 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           return `<label class="time-pill ${sel?'active':''}"><input type="radio" name="mRegType" value="${v}" ${sel?'checked':''}/><span>${lb}</span></label>`;
         }).join('')}
       </div>
-      ${m.regType==='onsite' ? `<div style="margin-top:6px">${m.registered===true ? `<button type="button" class="card-action" style="font-size:12px;padding:4px 12px;color:var(--gold);border-color:var(--gold);opacity:0.7" disabled>정식 등록됨 ✓ (집계 반영)</button>` : `<button type="button" class="card-action" style="font-size:12px;padding:4px 12px" onclick="memberFormRegister('${esc(m.id)}')">이 인원 정식 등록 (집계 반영)</button>`}</div>` : ''}
+      <div id="mRegisterBtnWrap" style="margin-top:6px; display:${m.regType==='onsite' ? 'block' : 'none'};">
+        ${m.registered===true
+          ? `<button type="button" class="card-action" style="font-size:12px;padding:4px 12px;color:var(--gold);border-color:var(--gold);opacity:0.7" disabled>정식 등록됨 ✓ (집계 반영)</button>`
+          : `<button type="button" class="card-action" style="font-size:12px;padding:4px 12px" onclick="memberFormRegister('${esc(m.id)}')">이 인원 정식 등록 (집계 반영)</button>`}
+      </div>
       <div class="helper">현장 접수자는 명단에는 포함되지만 집계(인원수·회비)에서는 제외됩니다. 당일 참석하면 '정식 등록'을 눌러 집계에 반영하세요. 타차수 접수는 일반 접수자와 동일하게 처리됩니다.</div>
     </div>
     <div class="field">
@@ -3526,6 +3530,10 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           r.closest('.time-pill').classList.toggle('active', r.checked);
           r._was = r.checked;
         });
+        // 현장 접수를 선택하면 등록 버튼을 보이고, 아니면 숨김 (접수현황 등록과 동일 동작)
+        const onsiteChecked = (document.querySelector('#mRegTypeRow input[name="mRegType"]:checked')||{}).value === 'onsite';
+        const wrap = document.getElementById('mRegisterBtnWrap');
+        if (wrap) wrap.style.display = onsiteChecked ? 'block' : 'none';
       };
     });
 
@@ -4376,10 +4384,9 @@ function memberFormRegister(id) {
     saveDB();
     render();
     // 편집창의 등록 버튼을 '등록됨' 상태로 갱신
-    const row = document.getElementById('mRegTypeRow');
-    if (row && row.parentNode) {
-      const btn = row.parentNode.querySelector('button.card-action');
-      if (btn) { btn.textContent = '정식 등록됨 ✓ (집계 반영)'; btn.disabled = true; btn.style.opacity = '0.6'; }
+    const wrap = document.getElementById('mRegisterBtnWrap');
+    if (wrap) {
+      wrap.innerHTML = '<button type="button" class="card-action" style="font-size:12px;padding:4px 12px;color:var(--gold);border-color:var(--gold);opacity:0.7" disabled>정식 등록됨 ✓ (집계 반영)</button>';
     }
     toast('등록됐어요 (집계 반영)');
   }, '등록');

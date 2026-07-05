@@ -336,10 +336,10 @@ nav.tabbar {
   .split-print-table th.side-head { font-size: 12px; padding: 5px 4px; }
   .split-print-table td.check-cell { background: #fff !important; }
   /* 차편(버스·타교회) 인쇄에서 최대 45명을 A4 한 장에: 행 높이 압축 */
-  .compact-print .split-print-table { font-size: 10px; }
-  .compact-print .split-print-table th, .compact-print .split-print-table td { padding: 1.2px 2px; line-height: 1.15; }
-  .compact-print .split-print-table td.print-name, .compact-print .split-print-table td.nm { font-size: 10.5px; }
-  .compact-print .split-print-table th.side-head { font-size: 11px; padding: 3px 4px; }
+  .compact-print .split-print-table { font-size: 11px; }
+  .compact-print .split-print-table th, .compact-print .split-print-table td { padding: 1.9px 3px; line-height: 1.22; }
+  .compact-print .split-print-table td.print-name, .compact-print .split-print-table td.nm { font-size: 11.5px; }
+  .compact-print .split-print-table th.side-head { font-size: 11.5px; padding: 3.5px 4px; }
   .compact-print .split-print-table td.check-cell input,
   .compact-print .split-print-table td.check-cell { height: auto; }
   
@@ -1555,10 +1555,10 @@ function buildPrintDocument(title, bodyHtml) {
   .split-print-table td.check-cell { background: #fff; }
   .split-print-table td.print-name, .split-print-table td.nm { font-size: 12.5px; font-weight: 700; letter-spacing: -0.1px; word-break: keep-all; white-space: nowrap; }
   /* 차편(버스·타교회) 인쇄: 최대 45명을 A4 한 장에 — 행 높이 압축 */
-  .compact-print .split-print-table { font-size: 10px; }
-  .compact-print .split-print-table th, .compact-print .split-print-table td { padding: 1.2px 2px; line-height: 1.15; }
-  .compact-print .split-print-table td.print-name, .compact-print .split-print-table td.nm { font-size: 10.5px; }
-  .compact-print .split-print-table th.side-head { font-size: 11px; padding: 3px 4px; }
+  .compact-print .split-print-table { font-size: 11px; }
+  .compact-print .split-print-table th, .compact-print .split-print-table td { padding: 1.9px 3px; line-height: 1.22; }
+  .compact-print .split-print-table td.print-name, .compact-print .split-print-table td.nm { font-size: 11.5px; }
+  .compact-print .split-print-table th.side-head { font-size: 11.5px; padding: 3.5px 4px; }
   .split-print-wrap { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 14px; table-layout: fixed; border: none; }
   .split-print-wrap > tbody > tr > td { border: none; padding: 0; vertical-align: top; }
   .lodging-print-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 12px; table-layout: fixed; border: none; }
@@ -2215,12 +2215,23 @@ function execPrintHome() {
   const feeTotal = Object.values(feeTotalByDept()).reduce((a,b)=>a+b, 0);
   const evCount = evangelismCounted().length;
   const deptFees = feeTotalByDept();
-  const tStats = getTransportStats();
+  const tStats = getTransportStats('main');  // 인쇄 차편 분포는 본 차수만
+
+  // 상단 일정: 본 교회 차수의 상행~하행 날짜를 요일과 함께 한 줄로 (예: 7/10(금) ~ 7/13(월))
+  const mainSession = churchSessionName();
+  const defs = (DB.settings && DB.settings.sessionDefs) || [];
+  const mainDef = defs.find(d => d.name === mainSession) || null;
+  let dateLine = '';
+  if (mainDef && (mainDef.upDate || mainDef.downDate)) {
+    const up = mainDef.upDate ? fmtDateKo(mainDef.upDate) : '';
+    const dn = mainDef.downDate ? fmtDateKo(mainDef.downDate) : '';
+    dateLine = (up && dn) ? `${up} ~ ${dn}` : (up || dn);
+  }
 
   let body = `<div class="print-title">${titleText}</div>
-    <div class="meta-row" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;">
+    <div class="meta-row" style="display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:12px;">
       <div style="text-align:left;font-size:15px;font-weight:700;"><b>차수:</b> ${esc(DB.meta.session||'2차')}</div>
-      <div style="text-align:right;font-size:12px;"><b>상행:</b> ${esc(DB.meta.upTime)}<br/><b>하행:</b> ${esc(DB.meta.downTime)}</div>
+      <div style="text-align:right;font-size:14px;font-weight:700;">${esc(dateLine)}</div>
     </div>
     <div class="grid-stat" style="grid-template-columns:repeat(3, 1fr)">
       <div class="stat-cell"><div class="lbl">등록 인원</div><div class="val">${total} 명</div></div>
@@ -2233,41 +2244,43 @@ function execPrintHome() {
       ${SESSIONS.map(s => `<div class="stat-cell"><div class="lbl">${esc(s)}</div><div class="val">${sess[s]||0}</div></div>`).join('')}
     </div>
 
-    <div class="print-section-title">차편 분포</div>
-    <div style="display:flex; gap:4%; margin-bottom:12px;">
-      <table class="print-table" style="width:48%; margin:0;">
-        <thead><tr><th colspan="2">상행</th></tr></thead>
-        <tbody>${tStats.up.map(d => `<tr><td>${d[0]}</td><td>${d[1]}명</td></tr>`).join('')}</tbody>
-      </table>
-      <table class="print-table" style="width:48%; margin:0;">
-        <thead><tr><th colspan="2">하행</th></tr></thead>
-        <tbody>${tStats.down.map(d => `<tr><td>${d[0]}</td><td>${d[1]}명</td></tr>`).join('')}</tbody>
-      </table>
-    </div>
-
     <div class="print-section-title">인원 분포 및 회비 결산</div>
     <div style="display:flex; gap:4%; align-items:flex-start;">
       <table class="print-table" style="width:48%; margin:0;">
-        <thead><tr><th style="width:50px">구역</th><th style="width:40px">인원</th><th style="width:65px">회비</th></tr></thead>
+        <thead><tr><th style="width:46px">구역</th><th style="width:34px">인원</th><th style="width:34px">전도</th><th style="width:60px">회비</th></tr></thead>
         <tbody>
           ${ZONES.map(z => {
             const ct = zoneCount(z);  // 환불·영유아 제외
+            const ev = evangelismCountByZone(z);
             const fee = feeTotalByZone(z);
-            return `<tr><td><b>${esc(z)}</b></td><td>${ct}</td><td style="text-align:right;padding-right:10px">${won(fee)}원</td></tr>`;
+            return `<tr><td><b>${esc(z)}</b></td><td>${ct}</td><td>${ev}</td><td style="text-align:right;padding-right:8px">${won(fee)}원</td></tr>`;
           }).join('')}
-          <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${total}</td><td style="text-align:right;padding-right:10px">${won(feeTotal)}원</td></tr>
+          <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${total}</td><td>${evCount}</td><td style="text-align:right;padding-right:8px">${won(feeTotal)}원</td></tr>
         </tbody>
       </table>
       <table class="print-table" style="width:48%; margin:0;">
-        <thead><tr><th style="width:65px">회(부서)</th><th style="width:40px">인원</th><th style="width:70px">회비</th></tr></thead>
+        <thead><tr><th style="width:60px">회(부서)</th><th style="width:34px">인원</th><th style="width:34px">전도</th><th style="width:60px">회비</th></tr></thead>
         <tbody>
           ${DEPTS.map(d => {
             const c = depts[d]||0;
+            const ev = evangelismCountByDept(d);
             const fee = deptFees[d]||0;
-            return `<tr><td><b>${esc(d)}</b></td><td>${c}</td><td style="text-align:right;padding-right:10px">${won(fee)}원</td></tr>`;
+            return `<tr><td><b>${esc(d)}</b></td><td>${c}</td><td>${ev}</td><td style="text-align:right;padding-right:8px">${won(fee)}원</td></tr>`;
           }).join('')}
-          <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${total}</td><td style="text-align:right;padding-right:10px">${won(feeTotal)}원</td></tr>
+          <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${total}</td><td>${evCount}</td><td style="text-align:right;padding-right:8px">${won(feeTotal)}원</td></tr>
         </tbody>
+      </table>
+    </div>
+
+    <div class="print-section-title">차편 분포 <span style="font-weight:400;font-size:11px;color:#666;">· 본 교회 차수(${esc(mainSession)})</span></div>
+    <div style="display:flex; gap:4%; margin-bottom:12px;">
+      <table class="print-table" style="width:48%; margin:0;">
+        <thead><tr><th colspan="2">상행</th></tr></thead>
+        <tbody>${tStats.up.length ? tStats.up.map(d => `<tr><td>${d[0]}</td><td>${d[1]}명</td></tr>`).join('') : '<tr><td colspan="2" style="color:#666">없음</td></tr>'}</tbody>
+      </table>
+      <table class="print-table" style="width:48%; margin:0;">
+        <thead><tr><th colspan="2">하행</th></tr></thead>
+        <tbody>${tStats.down.length ? tStats.down.map(d => `<tr><td>${d[0]}</td><td>${d[1]}명</td></tr>`).join('') : '<tr><td colspan="2" style="color:#666">없음</td></tr>'}</tbody>
       </table>
     </div>
   `;
@@ -2704,6 +2717,14 @@ function evangelismCounted(){
 }
 function feeSupportCounted(){
   return feeSupportVisible().filter(f => { const m = linkedMember(f); return !(m && m.regType === 'onsite' && m.registered !== true); });
+}
+// 구역별 전도대상자 수 (집계 기준: 미등록 현장접수·불참·환불 제외). 연결 멤버가 있으면 멤버의 구역을, 없으면 항목의 zone을 사용
+function evangelismCountByZone(zone){
+  return evangelismCounted().filter(e => { const m = linkedMember(e); const z = (m && m.zone) || e.zone || ''; return z === zone; }).length;
+}
+// 회(부서)별 전도대상자 수
+function evangelismCountByDept(dept){
+  return evangelismCounted().filter(e => { const m = linkedMember(e); const d = (m && m.dept) || e.dept || ''; return d === dept; }).length;
 }
 // 개인차 차주 우선 + 표준 정렬
 function sortMembersDriverFirst(list, driver) {

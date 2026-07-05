@@ -167,6 +167,9 @@ nav.tabbar {
   .dist-col .bar-row { grid-template-columns: 48px 1fr 28px; gap: 6px; }
   .dist-col .bar-row .name { font-size: 11px; }
 }
+/* 차편 분포 본/타 차수 전환 버튼 */
+.dist-scope-btn { flex: 1; padding: 6px 8px; border-radius: 8px; background: var(--bg-1); border: 1px solid var(--line); color: var(--ink-soft); font-size: 12px; font-weight: 600; cursor: pointer; }
+.dist-scope-btn.active { background: linear-gradient(180deg, var(--gold-soft), var(--gold)); color: #2A1F0A; border-color: transparent; font-weight: 700; }
 
 /* ============ 명단(구역) ============ */
 .zone-scroll { display: flex; gap: 6px; overflow-x: auto; padding: 8px 16px; margin: 0 -16px 12px; scrollbar-width: none;
@@ -1605,7 +1608,11 @@ function doPrint(title, bodyHtml) {
   catch (e) { const doc = iframe.contentDocument || iframe.contentWindow.document; doc.open(); doc.write(fullHtml); doc.close(); }
 }
 
-function getTransportStats() {
+// scope: 'all'(전체·기본) | 'main'(본 차수만) | 'other'(타 차수만)
+//  본 차수 = 교회 공식 차수(churchSessionName). 멤버가 여러 차수에 참여하면 각 차수의 차편을 그 차수 집계에 반영.
+function getTransportStats(scope) {
+  scope = scope || 'all';
+  const mainSession = churchSessionName();
   let countUp = { '본대버스': 0, '개인차': 0 };
   let countDown = { '본대버스': 0, '개인차': 0 };
   CHURCH_CARS.forEach(c => { countUp[c] = 0; countDown[c] = 0; });
@@ -1626,14 +1633,32 @@ function getTransportStats() {
   if (countDown['기타'] === undefined) countDown['기타'] = 0;
 
   boardableMembers().forEach(m => {
-    // 대표 차수(본차수 또는 빠른차수)의 상/하행 차편 — 집계용은 날짜 없는 순수 라벨(vehLabel) 사용
-    const rep = representativeSession(m);
-    const st = (rep && m.sessionTrans && m.sessionTrans[rep]) || null;
-    if (!st) return;
-    let mUp = mapT(vehLabel(st.upVehicle, st.upKind));
-    if (mUp && countUp[mUp] !== undefined) countUp[mUp]++;
-    let mDn = mapT(vehLabel(st.downVehicle, st.downKind));
-    if (mDn && countDown[mDn] !== undefined) countDown[mDn]++;
+    // 이 멤버가 참여하는 차수들 중, scope에 해당하는 차수만 골라 각 차수의 차편을 집계
+    const mySessions = (m.session || '').split(',').map(x => x.trim()).filter(Boolean);
+    let targetSessions;
+    if (scope === 'main') targetSessions = mySessions.filter(s => s === mainSession);
+    else if (scope === 'other') targetSessions = mySessions.filter(s => s !== mainSession);
+    else targetSessions = null;  // 전체: 대표 차수 하나만
+
+    if (scope === 'all') {
+      const rep = representativeSession(m);
+      const st = (rep && m.sessionTrans && m.sessionTrans[rep]) || null;
+      if (!st) return;
+      let mUp = mapT(vehLabel(st.upVehicle, st.upKind));
+      if (mUp && countUp[mUp] !== undefined) countUp[mUp]++;
+      let mDn = mapT(vehLabel(st.downVehicle, st.downKind));
+      if (mDn && countDown[mDn] !== undefined) countDown[mDn]++;
+    } else {
+      // 본/타 차수: 해당하는 각 차수의 차편을 개별 집계
+      targetSessions.forEach(s => {
+        const st = (m.sessionTrans && m.sessionTrans[s]) || null;
+        if (!st) return;
+        let mUp = mapT(vehLabel(st.upVehicle, st.upKind));
+        if (mUp && countUp[mUp] !== undefined) countUp[mUp]++;
+        let mDn = mapT(vehLabel(st.downVehicle, st.downKind));
+        if (mDn && countDown[mDn] !== undefined) countDown[mDn]++;
+      });
+    }
   });
 
   const keys = ['본대버스', ...CHURCH_CARS, '개인차', '기타', ...OTHER_TRANSPORTS];
@@ -1831,15 +1856,18 @@ function assignUnassigned(memberId, sname, dir, vehicle) {
 
 // 미배정 본문 HTML만 생성 (인라인/시트 공용)
 function unassignedBodyHtml(inline) {
-  // 드롭다운: 본대 버스(한 항목) → 교회차 → 기타 → 개인차(가나다순).
-  //  본대 버스를 고르면 호차 미정 상태로 본대 배정 대상이 됨(호차는 본대 배정에서 지정)
+  // 드롭다운: 본대 버스(호차 미정) + 각 호차 → 교회차 → 기타 → 개인차(가나다순).
+  //  호차가 정해졌으면 특정 호차를, 아직이면 '본대 버스'를 선택 (호차는 나중에 본대 배정에서 지정)
   const optHtml = () => {
+    const buses = (BUSES || []);
     const churchCars = (CHURCH_CARS || []);
     const others = (OTHER_TRANSPORTS || []);
     const drivers = (PRIVATE_CAR_LIST || []).slice().sort((a, b) => a.localeCompare(b, 'ko'));
     const grp = (label, arr) => arr.length ? `<optgroup label="${esc(label)}">${arr.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</optgroup>` : '';
+    // 본대 버스 그룹: 맨 위에 '본대 버스(호차 미정)' + 각 호차
+    const busGrp = `<optgroup label="본대 버스"><option value="__bus__">본대 버스 (호차 미정)</option>${buses.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</optgroup>`;
     return `<option value="">─ 배차 ─</option>`
-      + `<option value="__bus__">본대 버스</option>`
+      + busGrp
       + grp('교회차', churchCars)
       + grp('기타', others)
       + grp('개인차', drivers);
@@ -2719,6 +2747,8 @@ let currentTab = 'home';
 const ALL_ZONES = '__ALL__';
 let rosterFilter = { zone: ALL_ZONES, q: '' };
 let transportTab = { type: '__busassign__' };
+// 홈 차편 분포 카드 보기 범위: 'all' 전체 / 'main' 본 차수 / 'other' 타 차수
+let TRANSPORT_DIST_SCOPE = 'all';
 
 function setTab(tab, skipHistory=false) {
   currentTab = tab;
@@ -2831,7 +2861,7 @@ function renderHome() {
   const fsTotal = feeSupportCounted().reduce((s, fs) => s + (fs.amount||0), 0);
   const evCount = evangelismCounted().length;
   const deptFees = feeTotalByDept();
-  const tStats = getTransportStats();
+  const tStats = getTransportStats(TRANSPORT_DIST_SCOPE);
 
   const lodgings = getLodgings();
   const lodgingKeys = Object.keys(lodgings).sort();
@@ -2964,6 +2994,9 @@ function renderHome() {
 
     <div class="card">
       <div class="card-head"><div class="card-title">차편 분포</div><div style="display:flex; gap:6px;"><button class="card-action" data-action="goto-transport">자세히</button></div></div>
+      <div class="dist-scope-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
+        ${[['all','전체'],['main','본 차수'],['other','타 차수']].map(([v,lb]) => `<button class="dist-scope-btn${(TRANSPORT_DIST_SCOPE===v)?' active':''}" data-dist-scope="${v}">${lb}</button>`).join('')}
+      </div>
       <div class="dist-dual">
         <div class="dist-col">
           <div class="dist-col-title">상행</div>
@@ -5814,6 +5847,8 @@ async function exportToExcel() {
 
 function bindViewHandlers() {
   $$('[data-action="goto-transport"]').forEach(b => b.onclick = () => setTab('transport'));
+  // 차편 분포 본/타 차수 전환
+  $$('[data-dist-scope]').forEach(b => b.onclick = () => { TRANSPORT_DIST_SCOPE = b.dataset.distScope; render(); });
   bindMemberSearch();
   $$('[data-action="goto-evangelism"]').forEach(b => b.onclick = renderEvangelismSheet);
   $$('[data-action="goto-lodging"]').forEach(b => b.onclick = renderLodgingSheet);

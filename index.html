@@ -543,6 +543,7 @@ function freshEvent(title) {
                 privateCarList: [] },
     fees: { ...DEFAULT_FEES },
     members: [], evangelism: [], feeSupport: [], prayList: [],
+    history: [],  // 변경 이력(최근 50건). 데이터에 포함되어 클라우드로 함께 동기화됨
     createdAt: Date.now(),
   };
 }
@@ -621,6 +622,7 @@ function hydrateEvent(d) {
   if (!d.evangelism) d.evangelism = [];
   if (!d.feeSupport) d.feeSupport = [];
   if (!d.prayList) d.prayList = [];
+  if (!Array.isArray(d.history)) d.history = [];  // 변경 이력(이전 데이터엔 없으므로 보강)
   d.members.forEach(m => { if (!m.regType) m.regType = 'pre1'; if (m.status === undefined) m.status = ''; });
   d.evangelism.forEach(e => { if (e.status === undefined) e.status = ''; });
   d.prayList.forEach(p => { if (p.status === undefined) p.status = ''; });
@@ -648,6 +650,30 @@ function saveDB() {
   if (!VAULT) return;
   // DB(활성 행사 참조)는 항상 VAULT.events 안의 객체와 동일 → 그냥 vault 전체 저장
   saveVault();
+}
+
+// ── 변경 이력 ─────────────────────────────────────────────
+// 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
+//  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
+const HISTORY_MAX = 50;
+function logHistory(action, target) {
+  if (!DB) return;
+  if (!Array.isArray(DB.history)) DB.history = [];
+  DB.history.unshift({ t: Date.now(), a: String(action || ''), o: String(target || '') });
+  if (DB.history.length > HISTORY_MAX) DB.history.length = HISTORY_MAX;
+  saveDB();
+}
+// 이력용 시각 포맷: 오늘이면 'HH:MM', 올해면 'M/D HH:MM', 그 외 'YYYY. M/D HH:MM'
+function fmtHistoryTime(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const sameDay = d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth() && d.getDate()===now.getDate();
+  if (sameDay) return '오늘 ' + hm;
+  const md = (d.getMonth()+1) + '/' + d.getDate();
+  if (d.getFullYear()===now.getFullYear()) return md + ' ' + hm;
+  return d.getFullYear() + '. ' + md + ' ' + hm;
 }
 
 /* 행사 관리 API */
@@ -1778,6 +1804,7 @@ function execResetZone() {
     // 전도대상자/회비지원도 함께 정리 (memberId 또는 zone+name 매칭)
     DB.evangelism = DB.evangelism.filter(e => !removedIds.has(e.memberId) && e.zone !== zone);
     DB.feeSupport = DB.feeSupport.filter(f => !removedIds.has(f.memberId) && f.zone !== zone);
+    logHistory('구역 초기화', zone + ' ' + count + '명');
     saveDB();
     render();
     // 되돌리기 토스트 — 클릭 시 스냅샷 복원
@@ -1785,6 +1812,7 @@ function execResetZone() {
       DB.members.push(...snapshot.members);
       DB.evangelism.push(...snapshot.evangelism);
       DB.feeSupport.push(...snapshot.feeSupport);
+      logHistory('초기화 복구', zone + ' ' + count + '명');
       saveDB();
       render();
       toast(`${zone} ${count}명을 복구했어요`);
@@ -1851,7 +1879,8 @@ function assignUnassigned(memberId, sname, dir, vehicle) {
   if (dir === 'up') { st.upKind = kind; st.upVehicle = veh; }
   else { st.downKind = kind; st.downVehicle = veh; }
   recalcMemberRepTrans(m);
-  saveVault();
+  const vLabel = (vehicle === '__bus__') ? '본대 버스' : vehicle;
+  logHistory('차편 배정', m.name + ' · ' + (dir === 'up' ? '상행' : '하행') + ' ' + vLabel);
 }
 
 // 미배정 본문 HTML만 생성 (인라인/시트 공용)
@@ -3524,6 +3553,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       applyRepTrans();
       if (isNew) DB.members.push(updated);
       else { const idx = DB.members.findIndex(x => x.id === m.id); if (idx >= 0) DB.members[idx] = updated; }
+      logHistory(isNew ? '인원 추가' : '인원 수정', updated.name + '(' + updated.zone + ')');
       finishSave();
     }
 
@@ -3708,11 +3738,13 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       DB.members = DB.members.filter(x => x.id !== m.id); 
       DB.evangelism = DB.evangelism.filter(x => x.memberId !== m.id && !(!x.memberId && x.name === m.name && x.zone === m.zone));
       DB.feeSupport = DB.feeSupport.filter(x => x.memberId !== m.id && !(!x.memberId && x.name === m.name && x.zone === m.zone));
+      logHistory('인원 삭제', m.name + '(' + m.zone + ')');
       saveDB(); closeSheet(); render();
       toastUndo(`${m.name}을(를) 삭제했어요`, () => {
         DB.members.push(snapMember);
         DB.evangelism.push(...snapEv);
         DB.feeSupport.push(...snapFee);
+        logHistory('삭제 복구', m.name + '(' + m.zone + ')');
         saveDB(); render();
         toast(`${m.name}을(를) 복구했어요`);
       });
@@ -4090,6 +4122,44 @@ function openInputCheckSheet(isReopen) {
   }, 50);
 }
 
+/* ---------- 변경 이력 ---------- */
+// 데이터가 바뀐 최근 기록(최대 50건)을 보여줌. 각 기기가 아니라 데이터에 저장되어 클라우드로 함께 동기화됨.
+function openHistorySheet() {
+  const hist = Array.isArray(DB.history) ? DB.history : [];
+  // 작업 종류별 색: 추가/등록=금색, 삭제/불참=붉은색, 복구=청록, 그 외=기본
+  function actionColor(a) {
+    if (/삭제|불참|취소/.test(a)) return 'var(--rose)';
+    if (/복구|해제/.test(a)) return 'var(--accent-teal)';
+    if (/추가|등록/.test(a)) return 'var(--gold)';
+    return 'var(--ink-soft)';
+  }
+  let html = '<div class="notice">데이터가 바뀐 기록을 최근 ' + HISTORY_MAX + '건까지 보여줍니다. 이 기록은 데이터에 함께 저장되어, 동기화하면 다른 기기에서도 같은 이력을 볼 수 있습니다. (단, 동기화는 마지막에 올린 자료가 우선이라, 겹쳐 쓴 작업은 이력에 남지 않을 수 있습니다.)</div>';
+  if (!hist.length) {
+    html += '<div class="empty-state">아직 기록된 변경이 없습니다.<br/><span style="font-size:12px">인원을 추가하거나 차편·회비를 바꾸면 여기에 쌓입니다.</span></div>';
+  } else {
+    html += '<div style="display:flex; flex-direction:column; gap:0;">';
+    html += hist.map(function (h) {
+      const col = actionColor(h.a);
+      return '<div style="display:flex; align-items:baseline; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line-soft);">'
+        + '<div style="flex:0 0 78px; font-size:11.5px; color:var(--ink-mute); white-space:nowrap;">' + esc(fmtHistoryTime(h.t)) + '</div>'
+        + '<div style="flex:0 0 auto; font-size:12.5px; font-weight:700; color:' + col + '; white-space:nowrap;">' + esc(h.a) + '</div>'
+        + '<div style="flex:1 1 auto; font-size:12.5px; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(h.o) + '</div>'
+        + '</div>';
+    }).join('');
+    html += '</div>';
+    html += '<div style="margin-top:14px;"><button class="btn btn-secondary" style="width:100%; padding:10px;" onclick="clearHistory()">이력 지우기</button></div>';
+  }
+  openSheet('변경 이력', html, null, { hideSave: true });
+}
+function clearHistory() {
+  confirmModal('이력 지우기', '변경 이력을 모두 지웁니다. (등록된 인원·회비 등 실제 데이터는 그대로 유지됩니다.)', function () {
+    DB.history = [];
+    saveDB();
+    closeSheet();
+    toast('이력을 지웠어요');
+  }, '지우기');
+}
+
 /* ---------- 자동 백업 복원 ---------- */
 function openAutoBackupSheet() {
   const list = loadAutoBackups();
@@ -4264,9 +4334,10 @@ function openFeeSupportSheet(fs, isNew=false) {
   openSheet(isNew ? '회비 지원 추가' : '회비 지원 편집', html, () => {
     const updated = {...fs, zone: $('#fsZone').value, dept: $('#fsDept').value, name: $('#fsName').value.trim(), amount: parseInt($('#fsAmount').value,10)||0, note: $('#fsNote').value.trim()};
     if(isNew) DB.feeSupport.push(updated); else { const i=DB.feeSupport.findIndex(x=>x.id===fs.id); if(i>=0) DB.feeSupport[i]=updated; }
+    logHistory(isNew ? '회비 지원 추가' : '회비 지원 수정', updated.name + ' · ' + won(updated.amount) + '원');
     saveDB(); render(); toast('저장됐어요');
   });
-  if (!isNew) { setTimeout(() => { $('#fsDelete').onclick = () => { DB.feeSupport = DB.feeSupport.filter(x => x.id !== fs.id); saveDB(); closeSheet(); render(); }; }, 50); }
+  if (!isNew) { setTimeout(() => { $('#fsDelete').onclick = () => { DB.feeSupport = DB.feeSupport.filter(x => x.id !== fs.id); logHistory('회비 지원 삭제', fs.name); saveDB(); closeSheet(); render(); }; }, 50); }
 }
 
 async function downloadFile(file) {
@@ -4295,6 +4366,8 @@ function openStatusMemo(listName, id) {
     '<textarea id="stMemo" rows="8" placeholder="예: 직장 문제로 기도 요청. 다음 주 재방문 예정.">' + esc(item.status || '') + '</textarea></div>';
   openSheet('상태 / 메모', html, function () {
     item.status = $('#stMemo').value.trim();
+    const listLabel = listName === 'evangelism' ? '전도 상태메모' : (listName === 'prayList' ? '기도명단 상태메모' : '상태메모');
+    logHistory(listLabel, (item.name || '대상자') + (item.zone ? '(' + item.zone + ')' : ''));
     saveDB();
     render();  // 성명 색 등 화면 즉시 반영
     return true;
@@ -4407,6 +4480,7 @@ function intakeRegister(id) {
     // 이미 등록됨 → 등록 취소(집계에서 다시 빼기)
     confirmModal('등록 취소', esc(m.name) + '의 정식 등록을 취소합니다. (집계에서 제외, 현장 접수 명단에는 그대로 유지)', function () {
       m.registered = false;
+      logHistory('현장접수 등록취소', m.name + '(' + m.zone + ')');
       saveDB(); render(); toast('등록을 취소했어요');
       setTimeout(function(){ openIntakeGroup('onsite', true); }, 120);
     }, '등록 취소');
@@ -4414,6 +4488,7 @@ function intakeRegister(id) {
     confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (집계에 반영, 현장 접수 명단에는 그대로 유지)', function () {
       m.registered = true;
       if (m.status === 'noshow') m.status = '';  // 등록하면 불참 표시는 해제(왔으므로)
+      logHistory('현장접수 등록', m.name + '(' + m.zone + ')');
       saveDB(); render(); toast('등록됐어요 (집계 반영)');
       setTimeout(function(){ openIntakeGroup('onsite', true); }, 120);
     }, '등록');
@@ -4429,6 +4504,7 @@ function intakeToggleNoShow(id) {
     m.status = 'noshow';
     m.registered = false;  // 불참이면 등록도 자동 해제(집계에서 제외)
   }
+  logHistory(m.status === 'noshow' ? '현장접수 불참' : '불참 해제', m.name + '(' + m.zone + ')');
   saveDB();
   render();
   toast(m.status === 'noshow' ? '불참 처리했어요 (명단·집계에서 제외)' : '불참을 해제했어요');
@@ -4441,6 +4517,7 @@ function memberFormRegister(id) {
   confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (집계에 반영, 현장 접수 이력은 유지)', function () {
     m.registered = true;
     if (m.status === 'noshow') m.status = '';
+    logHistory('현장접수 등록', m.name + '(' + m.zone + ')');
     saveDB();
     render();
     // 편집창의 등록 버튼을 '등록됨' 상태로 갱신
@@ -4651,6 +4728,8 @@ function setEvangelismCheck(evId, field, checked) {
     const m = DB.members.find(x => x.id === e.memberId);
     if (m) m[field] = !!checked;
   }
+  const fieldLabel = field === 'salvation' ? '구원' : (field === 'baptism' ? '침례' : field);
+  logHistory('전도 ' + fieldLabel + (checked ? ' 체크' : ' 해제'), e.name + (e.zone ? '(' + e.zone + ')' : ''));
   saveDB();
   // 양쪽 표의 같은 체크박스 동기화
   document.querySelectorAll('.ev-check[data-id="' + evId + '"][data-field="' + field + '"]').forEach(cb => { cb.checked = !!checked; });
@@ -5146,6 +5225,10 @@ function renderMore() {
           <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
           <div class="lb"><div class="t">입력 점검</div><div class="d">차편·날짜가 빠진 인원을 확인합니다.</div></div>
         </button>
+        <button class="menu-item" onclick="openHistorySheet()">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><path d="M3.05 11a9 9 0 1 1 .5 4"/><path d="M3 4v4h4"/></svg></div>
+          <div class="lb"><div class="t">변경 이력</div><div class="d">최근 데이터 변경 기록을 확인합니다.</div></div>
+        </button>
       </div>
     </div>
     <div class="card">
@@ -5305,9 +5388,10 @@ function openEvangelismEdit(e, isNew) {
   openSheet(isNew ? '전도대상자 추가' : '전도대상자 편집', html, () => {
     const updated = {...e, zone: $('#eZone').value, dept: $('#eDept').value, name: $('#eName').value.trim(), relation: $('#eRel').value.trim(), leader: $('#eLeader').value.trim(), lodging: $('#eLodging').value.trim(), note: $('#eNote').value.trim(), status: $('#eStatus').value.trim()};
     if (isNew) DB.evangelism.push(updated); else { const idx = DB.evangelism.findIndex(x => x.id === e.id); if (idx >= 0) DB.evangelism[idx] = updated; }
+    logHistory(isNew ? '전도대상자 추가' : '전도대상자 수정', updated.name + (updated.zone ? '(' + updated.zone + ')' : ''));
     saveDB(); closeSheet(true); setTimeout(renderEvangelismSheet, 300); toast('저장됐어요'); return false;
   });
-  if (!isNew) { setTimeout(() => { $('#eDelete').onclick = () => { DB.evangelism = DB.evangelism.filter(x => x.id !== e.id); saveDB(); closeSheet(true); setTimeout(renderEvangelismSheet, 300); }; }, 50); }
+  if (!isNew) { setTimeout(() => { $('#eDelete').onclick = () => { DB.evangelism = DB.evangelism.filter(x => x.id !== e.id); logHistory('전도대상자 삭제', e.name + (e.zone ? '(' + e.zone + ')' : '')); saveDB(); closeSheet(true); setTimeout(renderEvangelismSheet, 300); }; }, 50); }
 }
 
 $('#jsonInput').onchange = (e) => {

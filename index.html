@@ -475,7 +475,8 @@ function emptyMember(zone) {
     id: uid(), zone: zone || '', dept: '', name: '', session: '',
     transUp: '', transDown: '', privateUp: '', privateDown: '',
     extraUp: {}, extraDown: {}, sessionTrans: {}, boardUp: false, boardDown: false,
-    leaderName: '', leaderRel: '', contact: '', lodging: '', salvation: false, baptism: false, note: '', regType: '', status: ''
+    leaderName: '', leaderRel: '', contact: '', lodging: '', salvation: false, baptism: false, note: '', regType: '', status: '',
+    feeOverride: null, feeReason: ''  // 회비 개별 지정(null이면 부서 단가 적용), 사유(선택)
   };
 }
 function emptyEvangelism() {
@@ -2790,16 +2791,24 @@ function deptCounts() {
   const r = Object.fromEntries(DEPTS.map(d => [d, 0]));
   countedMembers().forEach(m => { if (r.hasOwnProperty(m.dept)) r[m.dept]++; }); return r;
 }
+// 멤버 1인의 회비: 개별 지정(feeOverride)이 유효한 숫자면 그 값, 아니면 부서 단가.
+//  feeOverride가 null/undefined/빈값이면 부서 단가를 그대로 사용(기존 데이터 호환).
+function memberFee(m) {
+  if (!m) return 0;
+  const ov = m.feeOverride;
+  if (ov !== null && ov !== undefined && ov !== '' && !isNaN(ov)) return Number(ov);
+  return DB.fees[m.dept] || 0;
+}
 function feeTotalByDept() {
   const totals = Object.fromEntries(DEPTS.map(d => [d, 0]));
-  countedMembers().forEach(m => { if (totals.hasOwnProperty(m.dept)) totals[m.dept] += (DB.fees[m.dept] || 0); }); return totals;
+  countedMembers().forEach(m => { if (totals.hasOwnProperty(m.dept)) totals[m.dept] += memberFee(m); }); return totals;
 }
 function feeTotalByZone(zone) {
   // 회비 합계 — 환불자 제외 (집계 기준)
   const inZone = (zone === OTHER_CHURCH_ZONE)
     ? countedMembers().filter(m => isOtherChurchZone(m.zone))
     : countedMembers().filter(m => m.zone === zone);
-  return inZone.reduce((s, m) => s + (DB.fees[m.dept] || 0), 0);
+  return inZone.reduce((s, m) => s + memberFee(m), 0);
 }
 
 let currentTab = 'home';
@@ -3500,6 +3509,11 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     </div>
     <div class="field"><label>연락처</label><input id="mContact" type="tel" inputmode="tel" value="${esc(m.contact||'')}" placeholder="예: 010-1234-5678"/></div>
     <div class="field"><label>숙소</label><input id="mLodging" value="${esc(m.lodging||'')}" placeholder="예: A동 101호"/></div>
+    <div class="field">
+      <label>회비 개별 지정 <span style="font-weight:400;color:var(--ink-mute);font-size:11px;">(비우면 부서 단가 자동 적용)</span></label>
+      <input id="mFeeOverride" type="number" inputmode="numeric" value="${(m.feeOverride!==null && m.feeOverride!==undefined && m.feeOverride!=='') ? esc(String(m.feeOverride)) : ''}" placeholder="부서 단가: ${won(DB.fees[m.dept]||0)}원"/>
+      <input id="mFeeReason" value="${esc(m.feeReason||'')}" placeholder="사유 (선택) — 예: 시각장애" style="margin-top:6px;"/>
+    </div>
     <div class="field"><label>비고</label><textarea id="mNote" rows="2">${esc(m.note)}</textarea></div>
     ${!isNew ? `<button class="btn btn-danger btn-block" id="mDelete" style="margin-top:8px">삭제</button>` : ''}
   `;
@@ -3539,6 +3553,8 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       salvation: m.salvation || false,
       baptism: m.baptism || false,
       note: $('#mNote').value.trim(),
+      feeOverride: (function(){ const el=$('#mFeeOverride'); if(!el) return (m.feeOverride!==undefined?m.feeOverride:null); const v=el.value.trim(); return v==='' ? null : (isNaN(v) ? null : Number(v)); })(),
+      feeReason: ($('#mFeeReason') ? $('#mFeeReason').value.trim() : (m.feeReason||'')),
       regType: (document.querySelector('input[name="mRegType"]:checked')||{}).value || '',
       status: (document.querySelector('input[name="mStatus"]:checked')||{}).value || '',
     };
@@ -3583,8 +3599,16 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
         else action = '인원 수정';
         detail = who;
       } else {
-        action = '인원 수정';
-        detail = who;
+        // 상태 변화가 없을 때 — 회비 개별 지정이 바뀌었으면 그것을 명시
+        const prevFee = (m.feeOverride!==null && m.feeOverride!==undefined && m.feeOverride!=='') ? Number(m.feeOverride) : null;
+        const newFee = (updated.feeOverride!==null && updated.feeOverride!==undefined && updated.feeOverride!=='') ? Number(updated.feeOverride) : null;
+        if (prevFee !== newFee) {
+          if (newFee === null) { action = '회비 지정 해제'; detail = who + ' · 부서 단가로'; }
+          else { action = '회비 개별 지정'; detail = who + ' · ' + won(newFee) + '원' + (updated.feeReason ? ' (' + updated.feeReason + ')' : ''); }
+        } else {
+          action = '인원 수정';
+          detail = who;
+        }
       }
       if (isNew) DB.members.push(updated);
       else { const idx = DB.members.findIndex(x => x.id === m.id); if (idx >= 0) DB.members[idx] = updated; }

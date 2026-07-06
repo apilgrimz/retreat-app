@@ -782,6 +782,7 @@ function openEventRename() {
     const t = ($('#renameInput').value || '').trim();
     if (!t) { toast('행사명을 입력해 주세요', true); return false; }
     DB.meta.title = t;
+    logHistory('행사명 변경', t);
     saveDB(); render(); toast('행사명을 변경했어요');
   });
 }
@@ -1282,6 +1283,8 @@ function setBoardCheck(id, dir, checked) {
   const m = DB.members.find(x => x.id === id);
   if (!m) return;
   m[dir] = checked;
+  const dirLabel = dir === 'boardUp' ? '상행 탑승' : (dir === 'boardDown' ? '하행 탑승' : dir);
+  logHistory((checked ? dirLabel + ' 확인' : dirLabel + ' 해제'), m.name + '(' + m.zone + ')');
   saveDB();
   // 같은 멤버·같은 방향의 모든 체크박스(본문/전체보기 양쪽)를 동기화
   document.querySelectorAll(`.board-check[data-id="${id}"][data-dir="${dir}"]`).forEach(other => {
@@ -2496,7 +2499,8 @@ function busAssignMembers(dir) {
   }).sort(memberSortCmp);
 }
 // 특정 멤버의 본 차수 상행/하행 호차를 변경 (배정 화면 / 인원폼 공통 경로)
-function setMemberBus(memberId, busName, dir) {
+//  silent=true면 이력을 남기지 않음(구역 일괄 배정에서 한 건만 남기기 위함)
+function setMemberBus(memberId, busName, dir, silent) {
   const ch = churchSessionName();
   const m = DB.members.find(x => x.id === memberId);
   if (!m || !ch) return;
@@ -2514,11 +2518,17 @@ function setMemberBus(memberId, busName, dir) {
     if (!st.upDate && def && def.upDate) st.upDate = def.upDate;
   }
   recalcMemberRepTrans(m);
+  if (!silent) {
+    const busLabel = busName || '(호차 해제)';
+    logHistory('호차 배정', m.name + ' · ' + (dir === 'down' ? '하행' : '상행') + ' ' + busLabel);
+  }
   saveVault();
 }
 // 구역 일괄: 그 구역의 본대 대상(해당 방향) 전원에게 호차 배정
 function setZoneBus(zone, busName, dir) {
-  busAssignMembers(dir).filter(m => m.zone === zone).forEach(m => setMemberBus(m.id, busName, dir));
+  const targets = busAssignMembers(dir).filter(m => m.zone === zone);
+  targets.forEach(m => setMemberBus(m.id, busName, dir, true));  // 개별 이력 억제
+  if (targets.length) logHistory('호차 일괄배정', zone + ' ' + (dir === 'down' ? '하행' : '상행') + ' ' + (busName || '해제') + ' ' + targets.length + '명');
 }
 
 // 본대 배정 본문 HTML만 생성 (인라인/시트 공용). inline=true면 멤버 클릭 back 함수가 인라인 렌더용
@@ -3220,6 +3230,7 @@ function bindAddDriverBtns(scope) {
           DB.settings = DB.settings || {};
           DB.settings.privateCarList = PRIVATE_CAR_LIST.slice();
           if (typeof updateTransportOptions === 'function') updateTransportOptions();
+          logHistory('개인차 차주 추가', nm);
           saveDB();
           toast('차주를 추가했어요: ' + nm);
         }
@@ -3274,6 +3285,7 @@ function openDriverDeleteSheet() {
             if (typeof recalcMemberRepTrans === 'function') recalcMemberRepTrans(m);
           });
           if (typeof updateTransportOptions === 'function') updateTransportOptions();
+          logHistory('개인차 차주 삭제', nm + (users.length ? ' (' + users.length + '명 사용중)' : ''));
           saveDB();
           closeSheet(true);
           refreshAllPrivateSelects();  // 인원 폼의 select도 갱신
@@ -3309,6 +3321,7 @@ function openLodgingQuickEdit(memberId) {
       }
     });
     saveDB(); render();
+    logHistory('숙소 변경', m.name + ' · ' + (m.lodging || '(비움)'));
     return true;  // closeSheet가 이어서 처리(스택 복귀)
   }, { saveLabel: '저장' });
 }
@@ -3551,9 +3564,26 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
 
     function commitSave() {
       applyRepTrans();
+      // 상태 변화 감지 (불참·환불 처리/해제를 이력에 명확히 남김)
+      const prevStatus = isNew ? '' : (m.status || '');
+      const newStatus = updated.status || '';
+      const who = updated.name + '(' + updated.zone + ')';
+      let action;
+      if (isNew) {
+        action = '인원 추가';
+      } else if (prevStatus !== newStatus) {
+        // 상태가 바뀐 경우 — 무엇으로 바뀌었는지 명시
+        if (newStatus === 'noshow') action = '불참 처리';
+        else if (newStatus === 'refund') action = '환불 처리';
+        else if (prevStatus === 'noshow') action = '불참 해제';
+        else if (prevStatus === 'refund') action = '환불 해제';
+        else action = '인원 수정';
+      } else {
+        action = '인원 수정';
+      }
       if (isNew) DB.members.push(updated);
       else { const idx = DB.members.findIndex(x => x.id === m.id); if (idx >= 0) DB.members[idx] = updated; }
-      logHistory(isNew ? '인원 추가' : '인원 수정', updated.name + '(' + updated.zone + ')');
+      logHistory(action, who);
       finishSave();
     }
 
@@ -3800,11 +3830,12 @@ function addBusExtra(busName, obj) {
     church: (obj.church||'').trim(), name: name, dept: (obj.dept||'').trim(),
     up: obj.up!==false, down: obj.down!==false, boardUp:false, boardDown:false
   });
+  logHistory('추가탑승자 등록', busName + ' · ' + name);
   saveDB();
 }
 function removeBusExtra(busName, idx) {
   const arr = (DB.settings && DB.settings.busExtras && DB.settings.busExtras[busName]) || [];
-  if (idx >= 0 && idx < arr.length) { arr.splice(idx, 1); saveDB(); }
+  if (idx >= 0 && idx < arr.length) { const nm = (typeof arr[idx]==='string'?arr[idx]:(arr[idx].name||'')); arr.splice(idx, 1); logHistory('추가탑승자 삭제', busName + ' · ' + nm); saveDB(); }
 }
 // 방향별 삭제: 그 방향(상행/하행) 탑승만 해제. 상·하행 둘 다 해제되면 사람 자체를 제거.
 function removeBusExtraDir(busName, idx, dir) {
@@ -3812,10 +3843,12 @@ function removeBusExtraDir(busName, idx, dir) {
   if (idx < 0 || idx >= arr.length) return;
   let it = arr[idx];
   if (typeof it === 'string') it = arr[idx] = { church:'', name:it, dept:'', up:true, down:true, boardUp:false, boardDown:false };
+  const nm = it.name || '';
   if (dir === 'up') { it.up = false; it.boardUp = false; }
   else { it.down = false; it.boardDown = false; }
   // 둘 다 안 타면 제거
   if (!it.up && !it.down) arr.splice(idx, 1);
+  logHistory('추가탑승자 변경', busName + ' · ' + nm + ' ' + (dir==='up'?'상행':'하행') + ' 해제');
   saveDB();
 }
 // 추가 탑승자 필드 변경 (탑승 확인 체크 등)
@@ -3823,7 +3856,13 @@ function setBusExtraField(busName, idx, field, value) {
   const arr = (DB.settings && DB.settings.busExtras && DB.settings.busExtras[busName]) || [];
   if (idx >= 0 && idx < arr.length) {
     if (typeof arr[idx] === 'string') arr[idx] = { church:'', name:arr[idx], dept:'', up:true, down:true, boardUp:false, boardDown:false };
-    arr[idx][field] = value; saveDB();
+    arr[idx][field] = value;
+    // 탑승 확인 체크만 이력에 남김(잦은 텍스트 편집은 제외)
+    if (field === 'boardUp' || field === 'boardDown') {
+      const dirL = field === 'boardUp' ? '상행 탑승' : '하행 탑승';
+      logHistory((value ? dirL + ' 확인' : dirL + ' 해제'), busName + ' · ' + (arr[idx].name || ''));
+    }
+    saveDB();
   }
 }
 // 호차의 상행/하행 추가 탑승 인원수
@@ -4023,6 +4062,7 @@ function openMetaEditSheet() {
     if (ch) { DB.meta.upTime = fmtDateKo(ch.upDate); DB.meta.downTime = fmtDateKo(ch.downDate); }
     // 현재 편집 중인 행사를 활성 행사로 보장
     if (VAULT && DB && DB.id) VAULT.activeId = DB.id;
+    logHistory('행사정보 변경', DB.meta.title || '행사');
     saveDB(); render(); toast('행사 정보가 저장됐어요');
   });
 
@@ -4128,8 +4168,8 @@ function openHistorySheet() {
   const hist = Array.isArray(DB.history) ? DB.history : [];
   // 작업 종류별 색: 추가/등록=금색, 삭제/불참=붉은색, 복구=청록, 그 외=기본
   function actionColor(a) {
-    if (/삭제|불참|취소/.test(a)) return 'var(--rose)';
     if (/복구|해제/.test(a)) return 'var(--accent-teal)';
+    if (/삭제|불참|환불|취소/.test(a)) return 'var(--rose)';
     if (/추가|등록/.test(a)) return 'var(--gold)';
     return 'var(--ink-soft)';
   }
@@ -4288,6 +4328,7 @@ function openFeeRateSheet() {
     DB.fees = newFees;
     DB.settings = DB.settings || {};
     DB.settings.deptList = newDepts.slice();
+    logHistory('회·부서 설정 변경', DEPTS.length + '개');
     saveDB(); render(); toast('회(부서) 설정이 저장됐어요');
   });
 
@@ -4583,6 +4624,7 @@ function openPrayEdit(id) {
     p.leader = $('#pLeader').value.trim(); p.relation = $('#pRelation').value.trim(); p.note = $('#pNote').value.trim();
     if (!p.name) { toast('성명을 입력해 주세요', true); return false; }
     if (isNew) DB.prayList.push(p);
+    logHistory(isNew ? '기도명단 추가' : '기도명단 수정', p.name + (p.zone ? '(' + p.zone + ')' : ''));
     saveDB();
     closeSheet(true); setTimeout(openPrayList, 300); toast('저장됐어요'); return false;
   });
@@ -4590,6 +4632,7 @@ function openPrayEdit(id) {
     var d = $('#pDelete'); if (d) d.onclick = function () {
       confirmModal('삭제', esc(p.name) + '을(를) 기도 명단에서 삭제합니다.', function () {
         DB.prayList = DB.prayList.filter(function (x) { return x.id !== p.id; });
+        logHistory('기도명단 삭제', p.name + (p.zone ? '(' + p.zone + ')' : ''));
         saveDB(); closeSheet(true); setTimeout(openPrayList, 300);
       });
     };
@@ -4692,7 +4735,8 @@ function stableStr(o) {
 
 /* 행사 공통(공유) 데이터 — 방 문서에 저장할 형태. updatedAt은 비교 대상에서 제외 */
 function roomMetaOf(ev) {
-  return { meta: ev.meta || {}, settings: ev.settings || {}, fees: ev.fees || {} };
+  // history를 meta에 포함시켜 클라우드로 함께 동기화 (모든 기기가 같은 변경 이력을 보게 함)
+  return { meta: ev.meta || {}, settings: ev.settings || {}, fees: ev.fees || {}, history: ev.history || [] };
 }
 
 function snapOf(ev) {
@@ -4811,11 +4855,13 @@ function onRoomMeta(doc) {
     if (data.meta) DB.meta = Object.assign({}, data.meta);
     if (data.settings) DB.settings = Object.assign({}, data.settings);
     if (data.fees) DB.fees = Object.assign({}, data.fees);
+    if (Array.isArray(data.history)) DB.history = data.history;  // 변경 이력도 서버 값으로
     DB.roomCode = keepRoom;
   } else {
     if (data.meta) DB.meta = Object.assign({}, DB.meta, data.meta);
     if (data.settings) DB.settings = Object.assign({}, DB.settings, data.settings);
     if (data.fees) DB.fees = Object.assign({}, DB.fees, data.fees);
+    if (Array.isArray(data.history)) DB.history = data.history;  // 최신 이력으로 갱신(모든 기기 공유)
   }
   hydrateEvent(DB);
   if (sync.mirror) sync.mirror.meta = stableStr(roomMetaOf(DB));
@@ -5340,6 +5386,7 @@ function openBaseSettingsSheet() {
     DB.settings.privateCarList = PRIVATE_CAR_LIST;
     DB.settings.extraUps = EXTRA_UPS;
     DB.settings.extraDowns = EXTRA_DOWNS;
+    logHistory('기초 설정 변경', '구역·차수·차편 등');
     saveDB(); render(); toast('기초 설정이 반영되었습니다.');
   });
 }
@@ -6022,6 +6069,8 @@ function bindViewHandlers() {
     else if (el.classList.contains('ti-date')) info[dir==='up'?'upDate':'downDate'] = el.value || '';
     else if (el.classList.contains('ti-leader')) info[dir==='up'?'upLeader':'downLeader'] = el.value || '';
     DB.settings.transportInfo[key] = info;
+    const kindL = el.classList.contains('ti-time') ? '시각' : (el.classList.contains('ti-date') ? '날짜' : '인도자');
+    logHistory('차편일정 변경', key + ' ' + (dir==='up'?'상행':'하행') + ' ' + kindL);
     saveDB();
   }
   $$('.trans-info-box .ti-time, .trans-info-box .ti-date, .trans-info-box .ti-leader').forEach(el => {

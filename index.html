@@ -1283,8 +1283,7 @@ function setBoardCheck(id, dir, checked) {
   const m = DB.members.find(x => x.id === id);
   if (!m) return;
   m[dir] = checked;
-  const dirLabel = dir === 'boardUp' ? '상행 탑승' : (dir === 'boardDown' ? '하행 탑승' : dir);
-  logHistory((checked ? dirLabel + ' 확인' : dirLabel + ' 해제'), m.name + '(' + m.zone + ')');
+  // 탑승 확인 체크는 자주 반복되는 사소한 작업이라 이력에 남기지 않음
   saveDB();
   // 같은 멤버·같은 방향의 모든 체크박스(본문/전체보기 양쪽)를 동기화
   document.querySelectorAll(`.board-check[data-id="${id}"][data-dir="${dir}"]`).forEach(other => {
@@ -1883,7 +1882,7 @@ function assignUnassigned(memberId, sname, dir, vehicle) {
   else { st.downKind = kind; st.downVehicle = veh; }
   recalcMemberRepTrans(m);
   const vLabel = (vehicle === '__bus__') ? '본대 버스' : vehicle;
-  logHistory('차편 배정', m.name + ' · ' + (dir === 'up' ? '상행' : '하행') + ' ' + vLabel);
+  logHistory('차편 배정', m.name + '(' + m.zone + ') · ' + sname + ' ' + (dir === 'up' ? '상행' : '하행') + ' ' + vLabel);
 }
 
 // 미배정 본문 HTML만 생성 (인라인/시트 공용)
@@ -2520,7 +2519,7 @@ function setMemberBus(memberId, busName, dir, silent) {
   recalcMemberRepTrans(m);
   if (!silent) {
     const busLabel = busName || '(호차 해제)';
-    logHistory('호차 배정', m.name + ' · ' + (dir === 'down' ? '하행' : '상행') + ' ' + busLabel);
+    logHistory('호차 배정', m.name + '(' + m.zone + ') · ' + (dir === 'down' ? '하행' : '상행') + ' ' + busLabel);
   }
   saveVault();
 }
@@ -3567,10 +3566,14 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       // 상태 변화 감지 (불참·환불 처리/해제를 이력에 명확히 남김)
       const prevStatus = isNew ? '' : (m.status || '');
       const newStatus = updated.status || '';
-      const who = updated.name + '(' + updated.zone + ')';
-      let action;
+      // 대상 표기: 이름(구역·회) — 누구인지 분명하게
+      const who = updated.name + '(' + updated.zone + '·' + updated.dept + ')';
+      // 추가 시엔 차수까지 덧붙여 어떤 등록인지 구체화
+      const sessTxt = (updated.session || '').split(',').map(x => x.trim()).filter(Boolean).join('·');
+      let action, detail;
       if (isNew) {
         action = '인원 추가';
+        detail = who + (sessTxt ? ' · ' + sessTxt : '');
       } else if (prevStatus !== newStatus) {
         // 상태가 바뀐 경우 — 무엇으로 바뀌었는지 명시
         if (newStatus === 'noshow') action = '불참 처리';
@@ -3578,12 +3581,14 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
         else if (prevStatus === 'noshow') action = '불참 해제';
         else if (prevStatus === 'refund') action = '환불 해제';
         else action = '인원 수정';
+        detail = who;
       } else {
         action = '인원 수정';
+        detail = who;
       }
       if (isNew) DB.members.push(updated);
       else { const idx = DB.members.findIndex(x => x.id === m.id); if (idx >= 0) DB.members[idx] = updated; }
-      logHistory(action, who);
+      logHistory(action, detail);
       finishSave();
     }
 
@@ -3768,13 +3773,13 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       DB.members = DB.members.filter(x => x.id !== m.id); 
       DB.evangelism = DB.evangelism.filter(x => x.memberId !== m.id && !(!x.memberId && x.name === m.name && x.zone === m.zone));
       DB.feeSupport = DB.feeSupport.filter(x => x.memberId !== m.id && !(!x.memberId && x.name === m.name && x.zone === m.zone));
-      logHistory('인원 삭제', m.name + '(' + m.zone + ')');
+      logHistory('인원 삭제', m.name + '(' + m.zone + '·' + m.dept + ')');
       saveDB(); closeSheet(); render();
       toastUndo(`${m.name}을(를) 삭제했어요`, () => {
         DB.members.push(snapMember);
         DB.evangelism.push(...snapEv);
         DB.feeSupport.push(...snapFee);
-        logHistory('삭제 복구', m.name + '(' + m.zone + ')');
+        logHistory('삭제 복구', m.name + '(' + m.zone + '·' + m.dept + ')');
         saveDB(); render();
         toast(`${m.name}을(를) 복구했어요`);
       });
@@ -3857,11 +3862,7 @@ function setBusExtraField(busName, idx, field, value) {
   if (idx >= 0 && idx < arr.length) {
     if (typeof arr[idx] === 'string') arr[idx] = { church:'', name:arr[idx], dept:'', up:true, down:true, boardUp:false, boardDown:false };
     arr[idx][field] = value;
-    // 탑승 확인 체크만 이력에 남김(잦은 텍스트 편집은 제외)
-    if (field === 'boardUp' || field === 'boardDown') {
-      const dirL = field === 'boardUp' ? '상행 탑승' : '하행 탑승';
-      logHistory((value ? dirL + ' 확인' : dirL + ' 해제'), busName + ' · ' + (arr[idx].name || ''));
-    }
+    // 탑승 확인 체크는 이력에 남기지 않음 (자주 반복되는 사소한 작업)
     saveDB();
   }
 }
@@ -4187,11 +4188,21 @@ function openHistorySheet() {
         + '</div>';
     }).join('');
     html += '</div>';
-    html += '<div style="margin-top:14px;"><button class="btn btn-secondary" style="width:100%; padding:10px;" onclick="clearHistory()">이력 지우기</button></div>';
+    // 이력 지우기는 방장만. 동기화 미사용(혼자 사용)이면 본인이 방장이므로 표시.
+    //  방장이 아니면 버튼만 조용히 숨김(별도 안내는 두지 않음)
+    const canClear = !DB.roomCode || DB.isHost;
+    if (canClear) {
+      html += '<div style="margin-top:14px;"><button class="btn btn-secondary" style="width:100%; padding:10px;" onclick="clearHistory()">이력 지우기</button></div>';
+    }
   }
   openSheet('변경 이력', html, null, { hideSave: true });
 }
 function clearHistory() {
+  // 이력 지우기는 방장만 (동기화 미사용 시엔 본인이 방장이므로 허용)
+  if (DB && DB.roomCode && !DB.isHost) {
+    toast('변경 이력은 방장만 지울 수 있어요.', true);
+    return;
+  }
   confirmModal('이력 지우기', '변경 이력을 모두 지웁니다. (등록된 인원·회비 등 실제 데이터는 그대로 유지됩니다.)', function () {
     DB.history = [];
     saveDB();
@@ -4378,7 +4389,7 @@ function openFeeSupportSheet(fs, isNew=false) {
     logHistory(isNew ? '회비 지원 추가' : '회비 지원 수정', updated.name + ' · ' + won(updated.amount) + '원');
     saveDB(); render(); toast('저장됐어요');
   });
-  if (!isNew) { setTimeout(() => { $('#fsDelete').onclick = () => { DB.feeSupport = DB.feeSupport.filter(x => x.id !== fs.id); logHistory('회비 지원 삭제', fs.name); saveDB(); closeSheet(); render(); }; }, 50); }
+  if (!isNew) { setTimeout(() => { $('#fsDelete').onclick = () => { DB.feeSupport = DB.feeSupport.filter(x => x.id !== fs.id); logHistory('회비 지원 삭제', fs.name + (fs.zone ? '(' + fs.zone + ')' : '')); saveDB(); closeSheet(); render(); }; }, 50); }
 }
 
 async function downloadFile(file) {
@@ -4521,7 +4532,7 @@ function intakeRegister(id) {
     // 이미 등록됨 → 등록 취소(집계에서 다시 빼기)
     confirmModal('등록 취소', esc(m.name) + '의 정식 등록을 취소합니다. (집계에서 제외, 현장 접수 명단에는 그대로 유지)', function () {
       m.registered = false;
-      logHistory('현장접수 등록취소', m.name + '(' + m.zone + ')');
+      logHistory('현장접수 등록취소', m.name + '(' + m.zone + '·' + m.dept + ')');
       saveDB(); render(); toast('등록을 취소했어요');
       setTimeout(function(){ openIntakeGroup('onsite', true); }, 120);
     }, '등록 취소');
@@ -4529,7 +4540,7 @@ function intakeRegister(id) {
     confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (집계에 반영, 현장 접수 명단에는 그대로 유지)', function () {
       m.registered = true;
       if (m.status === 'noshow') m.status = '';  // 등록하면 불참 표시는 해제(왔으므로)
-      logHistory('현장접수 등록', m.name + '(' + m.zone + ')');
+      logHistory('현장접수 등록', m.name + '(' + m.zone + '·' + m.dept + ')');
       saveDB(); render(); toast('등록됐어요 (집계 반영)');
       setTimeout(function(){ openIntakeGroup('onsite', true); }, 120);
     }, '등록');
@@ -4545,7 +4556,7 @@ function intakeToggleNoShow(id) {
     m.status = 'noshow';
     m.registered = false;  // 불참이면 등록도 자동 해제(집계에서 제외)
   }
-  logHistory(m.status === 'noshow' ? '현장접수 불참' : '불참 해제', m.name + '(' + m.zone + ')');
+  logHistory(m.status === 'noshow' ? '현장접수 불참' : '불참 해제', m.name + '(' + m.zone + '·' + m.dept + ')');
   saveDB();
   render();
   toast(m.status === 'noshow' ? '불참 처리했어요 (명단·집계에서 제외)' : '불참을 해제했어요');
@@ -4558,7 +4569,7 @@ function memberFormRegister(id) {
   confirmModal('정식 등록', esc(m.name) + '을(를) 정식 등록 인원에 포함합니다. (집계에 반영, 현장 접수 이력은 유지)', function () {
     m.registered = true;
     if (m.status === 'noshow') m.status = '';
-    logHistory('현장접수 등록', m.name + '(' + m.zone + ')');
+    logHistory('현장접수 등록', m.name + '(' + m.zone + '·' + m.dept + ')');
     saveDB();
     render();
     // 편집창의 등록 버튼을 '등록됨' 상태로 갱신

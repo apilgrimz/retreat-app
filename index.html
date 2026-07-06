@@ -2331,8 +2331,12 @@ function paintSheetTop() {
   const top = sheetStack[sheetStack.length - 1];
   if (!top) return;
   $('#sheetTitle').textContent = top.title || '';
-  $('#sheetBody').innerHTML = top.bodyHTML || '';
-  $('#sheetBody').scrollTop = 0;
+  const sbEl = $('#sheetBody');
+  // 시트마다 sheet-body 레이아웃을 기본값(block)으로 초기화 — 특정 시트가 flex 등으로 바꿔도 다음 시트에 남지 않게
+  sbEl.style.display = '';
+  sbEl.style.flexDirection = '';
+  sbEl.innerHTML = top.bodyHTML || '';
+  sbEl.scrollTop = 0;
   $('#sheetSave').style.display = top.hideSave ? 'none' : '';
   $('#sheetSave').textContent = top.saveLabel || '저장';
   sheetHandlers.save = top.save || null;
@@ -3599,12 +3603,18 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
         else action = '인원 수정';
         detail = who;
       } else {
-        // 상태 변화가 없을 때 — 회비 개별 지정이 바뀌었으면 그것을 명시
+        // 상태 변화가 없을 때 — 회비 개별 지정 / 회비지원 명단 변화를 구체적으로 명시
         const prevFee = (m.feeOverride!==null && m.feeOverride!==undefined && m.feeOverride!=='') ? Number(m.feeOverride) : null;
         const newFee = (updated.feeOverride!==null && updated.feeOverride!==undefined && updated.feeOverride!=='') ? Number(updated.feeOverride) : null;
+        // 회비지원 명단 체크 변화 (편집 전 existingFs 유무 vs 현재 체크 상태)
+        const fsWas = !!existingFs;
+        const fsNow = !!($('#mFsCheck') && $('#mFsCheck').checked);
         if (prevFee !== newFee) {
           if (newFee === null) { action = '회비 지정 해제'; detail = who + ' · 부서 단가로'; }
           else { action = '회비 개별 지정'; detail = who + ' · ' + won(newFee) + '원' + (updated.feeReason ? ' (' + updated.feeReason + ')' : ''); }
+        } else if (fsWas !== fsNow) {
+          if (fsNow) { action = '회비지원 등록'; detail = who + ' · ' + won(memberFee(updated)) + '원'; }
+          else { action = '회비지원 제외'; detail = who; }
         } else {
           action = '인원 수정';
           detail = who;
@@ -3638,8 +3648,19 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     } else if (existingEv) { DB.evangelism = DB.evangelism.filter(e => e.id !== existingEv.id); }
 
     if ($('#mFsCheck') && $('#mFsCheck').checked) {
-      if (!existingFs) DB.feeSupport.push({...emptyFeeSupport(), memberId: updated.id, name: updated.name, zone: updated.zone, dept: updated.dept, amount: DB.fees[updated.dept]||0, note: updated.note});
-      else { existingFs.name = updated.name; existingFs.zone = updated.zone; existingFs.dept = updated.dept; existingFs.note = updated.note; }
+      // 회비 지원 금액은 개별 회비 지정(있으면 그 값, 없으면 부서 단가)에 연동.
+      //  새로 추가 시 그 값으로 시작. 이미 있으면, 개별 지정 금액이 바뀐 경우에만 지원 금액도 맞춤
+      //  (지원 명단에서 수동으로 다르게 고쳐둔 값은 개별 지정을 안 바꾸면 그대로 유지됨)
+      const linkedFee = memberFee(updated);
+      if (!existingFs) {
+        DB.feeSupport.push({...emptyFeeSupport(), memberId: updated.id, name: updated.name, zone: updated.zone, dept: updated.dept, amount: linkedFee, note: updated.note});
+      } else {
+        existingFs.name = updated.name; existingFs.zone = updated.zone; existingFs.dept = updated.dept; existingFs.note = updated.note;
+        // 개별 회비 지정이 이번에 바뀌었으면 지원 금액도 그 값으로 동기화
+        const prevOv = (m.feeOverride!==null && m.feeOverride!==undefined && m.feeOverride!=='') ? Number(m.feeOverride) : null;
+        const newOv = (updated.feeOverride!==null && updated.feeOverride!==undefined && updated.feeOverride!=='') ? Number(updated.feeOverride) : null;
+        if (prevOv !== newOv) existingFs.amount = linkedFee;
+      }
     } else if (existingFs) { DB.feeSupport = DB.feeSupport.filter(f => f.id !== existingFs.id); }
 
     // 숙소 등 연동: 이 인원과 연결된 전도대상자/회비지원이 남아 있으면 숙소·구역·부서·이름을 항상 동기화
@@ -4198,11 +4219,17 @@ function openHistorySheet() {
     if (/추가|등록/.test(a)) return 'var(--gold)';
     return 'var(--ink-soft)';
   }
-  let html = '<div class="notice">데이터가 바뀐 기록을 최근 ' + HISTORY_MAX + '건까지 보여줍니다. 이 기록은 데이터에 함께 저장되어, 동기화하면 다른 기기에서도 같은 이력을 볼 수 있습니다. (단, 동기화는 마지막에 올린 자료가 우선이라, 겹쳐 쓴 작업은 이력에 남지 않을 수 있습니다.)</div>';
+  const canClear = !DB.roomCode || DB.isHost;
+  // 시트 본문을 꽉 채우는 세로 레이아웃: 안내(고정) + 목록(스크롤) + 지우기 버튼(고정)
+  //  목록만 스크롤되므로 이력이 아무리 많아도 버튼이 묻히지 않고, 전부 스크롤로 볼 수 있음
+  let html = '<div style="display:flex; flex-direction:column; height:100%; min-height:0;">';
+  html += '<div class="notice" style="flex:0 0 auto; margin-bottom:10px;">데이터가 바뀐 기록을 최근 ' + HISTORY_MAX + '건까지 보여줍니다. 이 기록은 데이터에 함께 저장되어, 동기화하면 다른 기기에서도 같은 이력을 볼 수 있습니다. (단, 동기화는 마지막에 올린 자료가 우선이라, 겹쳐 쓴 작업은 이력에 남지 않을 수 있습니다.)</div>';
   if (!hist.length) {
     html += '<div class="empty-state">아직 기록된 변경이 없습니다.<br/><span style="font-size:12px">인원을 추가하거나 차편·회비를 바꾸면 여기에 쌓입니다.</span></div>';
+    html += '</div>';
   } else {
-    html += '<div style="display:flex; flex-direction:column; gap:0;">';
+    // 목록 영역 — flex:1 + overflow-y:auto 로 이 안에서만 스크롤
+    html += '<div style="flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; margin:0 -4px;">';
     html += hist.map(function (h) {
       const col = actionColor(h.a);
       return '<div style="display:flex; align-items:baseline; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line-soft);">'
@@ -4211,15 +4238,19 @@ function openHistorySheet() {
         + '<div style="flex:1 1 auto; font-size:12.5px; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(h.o) + '</div>'
         + '</div>';
     }).join('');
-    html += '</div>';
-    // 이력 지우기는 방장만. 동기화 미사용(혼자 사용)이면 본인이 방장이므로 표시.
-    //  방장이 아니면 버튼만 조용히 숨김(별도 안내는 두지 않음)
-    const canClear = !DB.roomCode || DB.isHost;
+    html += '</div>';  // 목록 끝
+    // 지우기 버튼 — 하단 고정 (방장만)
     if (canClear) {
-      html += '<div style="margin-top:14px;"><button class="btn btn-secondary" style="width:100%; padding:10px;" onclick="clearHistory()">이력 지우기</button></div>';
+      html += '<div style="flex:0 0 auto; padding-top:12px; border-top:1px solid var(--line-soft); margin-top:4px;"><button class="btn btn-secondary" style="width:100%; padding:10px;" onclick="clearHistory()">이력 지우기</button></div>';
     }
+    html += '</div>';  // flex 컬럼 끝
   }
-  openSheet('변경 이력', html, null, { hideSave: true });
+  // 목록만 스크롤되도록 sheet-body를 flex 컨테이너로 전환(afterPaint로 재렌더 시에도 유지).
+  //  다른 시트는 paintSheetTop이 display를 기본값으로 초기화하므로 영향 없음.
+  openSheet('변경 이력', html, null, { hideSave: true, afterPaint: function () {
+    const sb = document.getElementById('sheetBody');
+    if (sb) { sb.style.display = 'flex'; sb.style.flexDirection = 'column'; }
+  } });
 }
 function clearHistory() {
   // 이력 지우기는 방장만 (동기화 미사용 시엔 본인이 방장이므로 허용)
@@ -4410,10 +4441,10 @@ function openFeeSupportSheet(fs, isNew=false) {
   openSheet(isNew ? '회비 지원 추가' : '회비 지원 편집', html, () => {
     const updated = {...fs, zone: $('#fsZone').value, dept: $('#fsDept').value, name: $('#fsName').value.trim(), amount: parseInt($('#fsAmount').value,10)||0, note: $('#fsNote').value.trim()};
     if(isNew) DB.feeSupport.push(updated); else { const i=DB.feeSupport.findIndex(x=>x.id===fs.id); if(i>=0) DB.feeSupport[i]=updated; }
-    logHistory(isNew ? '회비 지원 추가' : '회비 지원 수정', updated.name + ' · ' + won(updated.amount) + '원');
+    logHistory(isNew ? '회비 지원 추가' : '회비 지원 수정', updated.name + (updated.zone ? '(' + updated.zone + (updated.dept ? '·' + updated.dept : '') + ')' : '') + ' · ' + won(updated.amount) + '원');
     saveDB(); render(); toast('저장됐어요');
   });
-  if (!isNew) { setTimeout(() => { $('#fsDelete').onclick = () => { DB.feeSupport = DB.feeSupport.filter(x => x.id !== fs.id); logHistory('회비 지원 삭제', fs.name + (fs.zone ? '(' + fs.zone + ')' : '')); saveDB(); closeSheet(); render(); }; }, 50); }
+  if (!isNew) { setTimeout(() => { $('#fsDelete').onclick = () => { DB.feeSupport = DB.feeSupport.filter(x => x.id !== fs.id); logHistory('회비 지원 삭제', fs.name + (fs.zone ? '(' + fs.zone + ')' : '') + (fs.amount ? ' · ' + won(fs.amount) + '원' : '')); saveDB(); closeSheet(); render(); }; }, 50); }
 }
 
 async function downloadFile(file) {

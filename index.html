@@ -4286,16 +4286,15 @@ function openHistorySheet() {
     return 'var(--ink-soft)';
   }
   const canClear = !DB.roomCode || DB.isHost;
-  // 시트 본문을 꽉 채우는 세로 레이아웃: 안내(고정) + 목록(스크롤) + 지우기 버튼(고정)
-  //  목록만 스크롤되므로 이력이 아무리 많아도 버튼이 묻히지 않고, 전부 스크롤로 볼 수 있음
-  let html = '<div style="display:flex; flex-direction:column; height:100%; min-height:0;">';
-  html += '<div class="notice" style="flex:0 0 auto; margin-bottom:10px;">데이터가 바뀐 기록을 최근 ' + HISTORY_MAX + '건까지 보여줍니다. 이 기록은 데이터에 함께 저장되어, 동기화하면 다른 기기에서도 같은 이력을 볼 수 있습니다. (단, 동기화는 마지막에 올린 자료가 우선이라, 겹쳐 쓴 작업은 이력에 남지 않을 수 있습니다.)</div>';
+  // 단순 단일 스크롤: sheet-body 자체의 overflow(검증된 기본 스크롤)에 맡긴다.
+  //  이중 flex + height:100% 구조는 iOS Safari에서 높이 전파가 어긋나 스크롤이 깨지므로 쓰지 않는다.
+  let html = '';
+  html += '<div class="notice" style="margin-bottom:10px;">데이터가 바뀐 기록을 최근 ' + HISTORY_MAX + '건까지 보여줍니다. 이 기록은 데이터에 함께 저장되어, 동기화하면 다른 기기에서도 같은 이력을 볼 수 있습니다. (단, 동기화는 마지막에 올린 자료가 우선이라, 겹쳐 쓴 작업은 이력에 남지 않을 수 있습니다.)</div>';
   if (!hist.length) {
     html += '<div class="empty-state">아직 기록된 변경이 없습니다.<br/><span style="font-size:12px">인원을 추가하거나 차편·회비를 바꾸면 여기에 쌓입니다.</span></div>';
-    html += '</div>';
   } else {
-    // 목록 영역 — flex:1 + overflow-y:auto 로 이 안에서만 스크롤
-    html += '<div style="flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; margin:0 -4px;">';
+    // 목록 — 평범한 문서 흐름. sheet-body가 통째로 스크롤되므로 이력이 많아도 끝까지 볼 수 있음
+    html += '<div>';
     html += hist.map(function (h) {
       const col = actionColor(h.a);
       return '<div style="display:flex; align-items:baseline; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line-soft);">'
@@ -4304,19 +4303,13 @@ function openHistorySheet() {
         + '<div style="flex:1 1 auto; font-size:12.5px; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(h.o) + '</div>'
         + '</div>';
     }).join('');
-    html += '</div>';  // 목록 끝
-    // 지우기 버튼 — 하단 고정 (방장만)
+    html += '</div>';
+    // 지우기 버튼 — 목록 다음에 배치(방장만). 스크롤 끝에서 접근
     if (canClear) {
-      html += '<div style="flex:0 0 auto; padding-top:12px; border-top:1px solid var(--line-soft); margin-top:4px;"><button class="btn btn-secondary" style="width:100%; padding:10px;" onclick="clearHistory()">이력 지우기</button></div>';
+      html += '<div style="padding-top:14px;"><button class="btn btn-secondary" style="width:100%; padding:10px;" onclick="clearHistory()">이력 지우기</button></div>';
     }
-    html += '</div>';  // flex 컬럼 끝
   }
-  // 목록만 스크롤되도록 sheet-body를 flex 컨테이너로 전환(afterPaint로 재렌더 시에도 유지).
-  //  다른 시트는 paintSheetTop이 display를 기본값으로 초기화하므로 영향 없음.
-  openSheet('변경 이력', html, null, { hideSave: true, afterPaint: function () {
-    const sb = document.getElementById('sheetBody');
-    if (sb) { sb.style.display = 'flex'; sb.style.flexDirection = 'column'; }
-  } });
+  openSheet('변경 이력', html, null, { hideSave: true });
 }
 function clearHistory() {
   // 이력 지우기는 방장만 (동기화 미사용 시엔 본인이 방장이므로 허용)

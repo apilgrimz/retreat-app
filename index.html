@@ -4318,25 +4318,31 @@ function openHistorySheet() {
     return 'var(--ink-soft)';
   }
   const canClear = !DB.roomCode || DB.isHost;
-  // 단순 단일 스크롤: sheet-body 자체의 overflow(검증된 기본 스크롤)에 맡긴다.
+  // 세로 스크롤: sheet-body 자체의 overflow(검증된 기본 스크롤)에 맡긴다.
   //  이중 flex + height:100% 구조는 iOS Safari에서 높이 전파가 어긋나 스크롤이 깨지므로 쓰지 않는다.
+  // 가로 스크롤: 세로 모드(좁은 화면)에서 긴 내용이 말줄임(…)으로 잘리던 문제의 해결.
+  //  각 행의 말줄임(ellipsis)을 없애고, 목록 전체를 overflow-x:auto 래퍼에 넣어
+  //  옆으로 밀어서(가로 스크롤) 잘린 부분까지 전부 볼 수 있게 한다.
   let html = '';
-  html += '<div class="notice" style="margin-bottom:10px;">데이터가 바뀐 기록을 최근 ' + HISTORY_MAX + '건까지 보여줍니다. 이 기록은 데이터에 함께 저장되어, 동기화하면 다른 기기에서도 같은 이력을 볼 수 있습니다. (단, 동기화는 마지막에 올린 자료가 우선이라, 겹쳐 쓴 작업은 이력에 남지 않을 수 있습니다.)</div>';
+  html += '<div class="notice" style="margin-bottom:10px;">데이터가 바뀐 기록을 최근 ' + HISTORY_MAX + '건까지 보여줍니다. <b>내용이 화면보다 길면 목록을 옆으로 밀어서</b> 끝까지 볼 수 있어요. 이 기록은 데이터에 함께 저장되어, 동기화하면 다른 기기에서도 같은 이력을 볼 수 있습니다. (단, 동기화는 마지막에 올린 자료가 우선이라, 겹쳐 쓴 작업은 이력에 남지 않을 수 있습니다.)</div>';
   if (!hist.length) {
     html += '<div class="empty-state">아직 기록된 변경이 없습니다.<br/><span style="font-size:12px">인원을 추가하거나 차편·회비를 바꾸면 여기에 쌓입니다.</span></div>';
   } else {
-    // 목록 — 평범한 문서 흐름. sheet-body가 통째로 스크롤되므로 이력이 많아도 끝까지 볼 수 있음
-    html += '<div>';
+    // 목록 — 가로 스크롤 래퍼 안에 배치. 세로 스크롤은 여전히 sheet-body가 통째로 담당.
+    //  바깥 래퍼: overflow-x:auto → 좁은 화면에서 옆으로 밀어 볼 수 있음
+    //  안쪽 래퍼: width:max-content(가장 긴 행 폭만큼 확장) + min-width:100%(짧아도 화면 폭을 채워 밑줄이 끝까지 그어짐)
+    html += '<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">';
+    html += '<div style="width:max-content; min-width:100%;">';
     html += hist.map(function (h) {
       const col = actionColor(h.a);
       return '<div style="display:flex; align-items:baseline; gap:10px; padding:9px 4px; border-bottom:1px solid var(--line-soft);">'
         + '<div style="flex:0 0 78px; font-size:11.5px; color:var(--ink-mute); white-space:nowrap;">' + esc(fmtHistoryTime(h.t)) + '</div>'
         + '<div style="flex:0 0 auto; font-size:12.5px; font-weight:700; color:' + col + '; white-space:nowrap;">' + esc(h.a) + '</div>'
-        + '<div style="flex:1 1 auto; font-size:12.5px; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(h.o) + '</div>'
+        + '<div style="flex:0 0 auto; font-size:12.5px; color:var(--ink-soft); white-space:nowrap; padding-right:12px;">' + esc(h.o) + '</div>'
         + '</div>';
     }).join('');
-    html += '</div>';
-    // 지우기 버튼 — 목록 다음에 배치(방장만). 스크롤 끝에서 접근
+    html += '</div></div>';
+    // 지우기 버튼 — 가로 스크롤 래퍼 "밖"(목록 다음)에 배치. 화면 폭에 고정되어 옆으로 밀려나지 않음 (방장만)
     if (canClear) {
       html += '<div style="padding-top:14px;"><button class="btn btn-secondary" style="width:100%; padding:10px;" onclick="clearHistory()">이력 지우기</button></div>';
     }

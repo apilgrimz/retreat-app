@@ -1,6 +1,6 @@
 // 하계수양회 PWA Service Worker
-// v1.1.1 — 회별 카드: 좁은 화면 가로 스크롤 복원 + 단가 가운데 정렬
-const CACHE_VERSION = 'retreat-sync-v10.9.1';
+// v10.9.2 — 변경 이력: 세로 모드에서 잘리던 내용을 가로 스크롤로 끝까지 볼 수 있게 수정
+const CACHE_VERSION = 'retreat-sync-v10.9.2';
 const CORE_ASSETS = [
   './',
   './index.html',

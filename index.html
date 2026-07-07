@@ -1704,7 +1704,11 @@ function rosterPrintRowsHtml(list, startNo, mode, opts) {
   opts = opts || {};
   // 회별 인쇄에서는 '부서' 컬럼이 중복이라 '구역' 컬럼으로 대체
   const showZone = mode === 'dept'; // dept 모드일 때 부서 자리에 구역 표시
-  let trs = list.map((m, i) => {
+  // 화면 명단과 동일한 규칙으로 번호·상태를 인쇄에 반영:
+  //  현장접수(미집계)="현장", 환불="환불", 불참="불참" → 순번에서 제외하고 라벨 표시,
+  //  불참·환불 행은 흐리게+밑줄, 정상만 순번을 매김.
+  let ctr = startNo - 1;  // 정상 인원에만 증가하는 번호 카운터
+  let trs = list.map((m) => {
     let up = m.transUp || ''; let down = m.transDown || '';
     const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
     const extraDown = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
@@ -1712,10 +1716,27 @@ function rosterPrintRowsHtml(list, startNo, mode, opts) {
     if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
     const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
     const col3 = showZone ? esc(m.zone) : esc(m.dept);
-    return `<tr>
-      <td>${startNo + i}</td><td class="print-name">${esc(m.name)}</td><td>${col3}</td>
+    // 번호란: 상태에 따라 라벨 또는 순번
+    let noCell, rowStyle = '';
+    if (isUncountedOnsite(m)) {
+      noCell = '<span style="color:#0a8f86;font-weight:700;">현장</span>';  // 청록(인쇄 대비 진한 톤)
+    } else if (m.status === 'refund') {
+      noCell = '<span style="color:#c0392b;font-weight:700;">환불</span>';
+      rowStyle = 'color:#999; text-decoration:line-through; text-decoration-color:#c0392b;';
+    } else if (m.status === 'noshow') {
+      noCell = '<span style="color:#c0392b;font-weight:700;">불참</span>';
+      rowStyle = 'color:#999;';
+    } else {
+      ctr += 1; noCell = String(ctr);
+    }
+    // 비고란: 불참·환불 라벨을 앞에 (화면 noteWithStatus와 동일)
+    let noteCell = esc(m.note || '');
+    if (m.status === 'noshow') noteCell = '<span style="color:#c0392b;font-weight:700;">불참</span>' + (m.note ? ' · ' + esc(m.note) : '');
+    else if (m.status === 'refund') noteCell = '<span style="color:#c0392b;font-weight:700;">환불</span>' + (m.note ? ' · ' + esc(m.note) : '');
+    return `<tr${rowStyle ? ` style="${rowStyle}"` : ''}>
+      <td>${noCell}</td><td class="print-name">${esc(m.name)}</td><td>${col3}</td>
       <td style="white-space:nowrap;font-size:10px;">${esc(m.session)}</td><td class="tl trans-cell">${transStr}</td>
-      <td>${esc(m.lodging||'')}</td><td class="tl note-cell">${esc(m.note)}</td>
+      <td>${esc(m.lodging||'')}</td><td class="tl note-cell">${noteCell}</td>
     </tr>`;
   }).join('');
   if (!trs) trs = `<tr><td colspan="7" style="padding:20px; color:#666;">등록된 인원이 없습니다.</td></tr>`;
@@ -2081,19 +2102,30 @@ function execPrintTransport() {
 }
 
 function execPrintSession(session) {
-  const list = countableMembers().filter(m => (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);  // 영유아 제외
+  // 명단 성격이므로 registeredMembers 기반(환불·불참·현장접수 포함해 표시), 영유아만 제외.
+  const list = registeredMembers().filter(m => !isInfantDept(m.dept) && (m.session||"").split(",").map(x=>x.trim()).includes(session)).sort(memberSortCmp);
   const titleText = `${getYearPrefix()} 하계수양회 - ${session} 명단`;
-  let trs = list.map((m, i) => {
+  let ctr = 0;  // 정상 인원만 순번
+  let trs = list.map((m) => {
     let up = m.transUp || ''; let down = m.transDown || '';
     const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
     const extraDown = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
     if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
     if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
     const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-    return `<tr>
-      <td>${i+1}</td><td>${esc(m.zone)}</td><td class="print-name">${esc(m.name)}</td>
+    // 화면 명단과 동일한 상태 반영
+    let noCell, rowStyle = '';
+    if (isUncountedOnsite(m)) { noCell = '<span style="color:#0a8f86;font-weight:700;">현장</span>'; }
+    else if (m.status === 'refund') { noCell = '<span style="color:#c0392b;font-weight:700;">환불</span>'; rowStyle = 'color:#999; text-decoration:line-through; text-decoration-color:#c0392b;'; }
+    else if (m.status === 'noshow') { noCell = '<span style="color:#c0392b;font-weight:700;">불참</span>'; rowStyle = 'color:#999;'; }
+    else { ctr += 1; noCell = String(ctr); }
+    let noteCell = esc(m.note || '');
+    if (m.status === 'noshow') noteCell = '<span style="color:#c0392b;font-weight:700;">불참</span>' + (m.note ? ' · ' + esc(m.note) : '');
+    else if (m.status === 'refund') noteCell = '<span style="color:#c0392b;font-weight:700;">환불</span>' + (m.note ? ' · ' + esc(m.note) : '');
+    return `<tr${rowStyle ? ` style="${rowStyle}"` : ''}>
+      <td>${noCell}</td><td>${esc(m.zone)}</td><td class="print-name">${esc(m.name)}</td>
       <td>${esc(m.dept)}</td><td class="tl trans-cell">${transStr}</td>
-      <td>${esc(m.lodging||'')}</td><td class="tl note-cell">${esc(m.note)}</td>
+      <td>${esc(m.lodging||'')}</td><td class="tl note-cell">${noteCell}</td>
     </tr>`;
   }).join('');
   if(!trs) trs = `<tr><td colspan="7" style="padding:20px;color:#666">인원이 없습니다.</td></tr>`;
@@ -6242,12 +6274,33 @@ function bindViewHandlers() {
 }
 
 if ('serviceWorker' in navigator) {
+  // 새 서비스워커가 제어권을 잡으면(=새 버전 배포됨) 화면을 자동으로 한 번 새로고침.
+  //  → 사용자가 홈 아이콘을 지웠다 다시 깔지 않아도 항상 최신 버전을 보게 됨.
+  //  refreshing 플래그로 새로고침이 한 번만 일어나게 해 무한 루프 방지.
+  let swRefreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swRefreshing) return;
+    swRefreshing = true;
+    location.reload();
+  });
   window.addEventListener('load', async () => {
     try {
       const reg = await navigator.serviceWorker.register('sw.js', { scope: './' });
       console.log('SW registered, scope:', reg.scope);
-      // 새 버전이 발견되면 다음 진입 시 사용. 사용자에게 알리지는 않음 (Stale-While-Revalidate)
-      reg.addEventListener('updatefound', () => console.log('SW update found'));
+      // 새 버전이 설치 완료되면(waiting) 곧바로 활성화하도록 요청 → controllerchange가 발생해 자동 새로고침
+      function promptActivate(worker) {
+        if (!worker) return;
+        worker.addEventListener('statechange', () => {
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+            // 이미 제어 중인 SW가 있는 상태에서 새 버전이 설치됨 = 업데이트 대기 중
+            try { worker.postMessage && worker.postMessage('skipWaiting'); } catch(e){}
+          }
+        });
+      }
+      if (reg.waiting && navigator.serviceWorker.controller) {
+        try { reg.waiting.postMessage && reg.waiting.postMessage('skipWaiting'); } catch(e){}
+      }
+      reg.addEventListener('updatefound', () => { promptActivate(reg.installing); });
       // 강제 갱신 체크 (앱이 깨어날 때마다)
       if (reg.update) reg.update().catch(()=>{});
     } catch (err) {

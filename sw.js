@@ -1,6 +1,6 @@
 // 하계수양회 PWA Service Worker
 // v1.1.1 — 회별 카드: 좁은 화면 가로 스크롤 복원 + 단가 가운데 정렬
-const CACHE_VERSION = 'retreat-sync-v10.9.0';
+const CACHE_VERSION = 'retreat-sync-v10.9.1';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -17,6 +17,12 @@ const CDN_ASSETS = [
   'https://www.gstatic.com/firebasejs/12.13.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore-compat.js',
 ];
+
+// 페이지에서 'skipWaiting' 메시지를 받으면 대기 중인 새 SW를 즉시 활성화
+//  → controllerchange가 발생하고, 페이지가 자동으로 최신 버전으로 새로고침됨
+self.addEventListener('message', (event) => {
+  if (event.data === 'skipWaiting') self.skipWaiting();
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {

@@ -3603,21 +3603,87 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
         else action = '인원 수정';
         detail = who;
       } else {
-        // 상태 변화가 없을 때 — 회비 개별 지정 / 회비지원 명단 변화를 구체적으로 명시
+        // 상태 변화가 없을 때 — 회비 / 회비지원 / 차편 변화를 구체적으로 명시
         const prevFee = (m.feeOverride!==null && m.feeOverride!==undefined && m.feeOverride!=='') ? Number(m.feeOverride) : null;
         const newFee = (updated.feeOverride!==null && updated.feeOverride!==undefined && updated.feeOverride!=='') ? Number(updated.feeOverride) : null;
         // 회비지원 명단 체크 변화 (편집 전 existingFs 유무 vs 현재 체크 상태)
         const fsWas = !!existingFs;
         const fsNow = !!($('#mFsCheck') && $('#mFsCheck').checked);
+        // 차편 변화 감지: 각 차수의 상행·하행 차편(kind+vehicle)을 편집 전/후 비교
+        //  vLabel: 차편을 사람이 읽을 라벨로 (없으면 '미지정')
+        const vLabel = (kind, veh) => {
+          if (!veh && !kind) return '미지정';
+          if (kind === 'bus') return veh || '본대 버스';
+          return veh || (kind === 'private' ? '개인차' : (kind === 'etc' ? '기타' : '미지정'));
+        };
+        const beforeST = (m.sessionTrans) || {};
+        const afterST = (updated.sessionTrans) || {};
+        const allSess = Array.from(new Set([].concat(Object.keys(beforeST), Object.keys(afterST))));
+        const changes = [];
+        allSess.forEach(function (sn) {
+          const a = beforeST[sn] || {}, b = afterST[sn] || {};
+          // 상행 비교
+          if ((a.upVehicle||'') !== (b.upVehicle||'') || (a.upKind||'') !== (b.upKind||'')) {
+            changes.push(sn + ' 상행 ' + vLabel(b.upKind, b.upVehicle));
+          }
+          // 하행 비교
+          if ((a.downVehicle||'') !== (b.downVehicle||'') || (a.downKind||'') !== (b.downKind||'')) {
+            changes.push(sn + ' 하행 ' + vLabel(b.downKind, b.downVehicle));
+          }
+        });
         if (prevFee !== newFee) {
           if (newFee === null) { action = '회비 지정 해제'; detail = who + ' · 부서 단가로'; }
           else { action = '회비 개별 지정'; detail = who + ' · ' + won(newFee) + '원' + (updated.feeReason ? ' (' + updated.feeReason + ')' : ''); }
+        } else if (changes.length) {
+          // 차편이 바뀐 경우 — 무엇으로 바뀌었는지 구체적으로 (여러 개면 나열, 너무 길면 요약)
+          action = '차편 변경';
+          const joined = changes.join(', ');
+          detail = who + ' · ' + (changes.length <= 2 ? joined : (changes.slice(0,2).join(', ') + ' 외 ' + (changes.length-2) + '건'));
         } else if (fsWas !== fsNow) {
           if (fsNow) { action = '회비지원 등록'; detail = who + ' · ' + won(memberFee(updated)) + '원'; }
           else { action = '회비지원 제외'; detail = who; }
         } else {
-          action = '인원 수정';
-          detail = who;
+          // 그 외 인적 정보 필드 변경을 무엇→무엇으로 구체적으로 수집
+          const norm = v => (v === null || v === undefined) ? '' : String(v).trim();
+          const relLabelOf = code => ({ 'self':'본인','spouse':'배우자','child':'자녀','parent':'부모','sibling':'형제자매','friend':'친구','other':'기타' })[code] || code;
+          const regLabelOf = code => ({ 'pre1':'사전1차','pre2':'사전2차','onsite':'현장','other':'기타' })[code] || code || '미지정';
+          const disp = (v, empty) => norm(v) === '' ? (empty || '(비움)') : norm(v);
+          // [필드키, 라벨, 이전값, 새값, 값을 사람이 읽을 변환]
+          const fieldDefs = [
+            ['name', '이름', m.name, updated.name, null],
+            ['zone', '구역', m.zone, updated.zone, null],
+            ['dept', '회', m.dept, updated.dept, null],
+            ['session', '차수', (m.session||'').split(',').map(s=>s.trim()).filter(Boolean).sort().join('·'), (updated.session||'').split(',').map(s=>s.trim()).filter(Boolean).sort().join('·'), null],
+            ['regType', '접수구분', m.regType, updated.regType, regLabelOf],
+            ['contact', '연락처', m.contact, updated.contact, null],
+            ['lodging', '숙소', m.lodging, updated.lodging, null],
+            ['leaderName', '인도자', m.leaderName, updated.leaderName, null],
+            ['leaderRel', '관계', m.leaderRel, updated.leaderRel, relLabelOf],
+            ['note', '비고', m.note, updated.note, null],
+          ];
+          const fieldChanges = [];
+          fieldDefs.forEach(function (fd) {
+            const key = fd[0], label = fd[1], conv = fd[4];
+            const bv = norm(fd[2]), av = norm(fd[3]);
+            if (bv !== av) {
+              const bl = conv ? conv(fd[2]) : disp(fd[2]);
+              const al = conv ? conv(fd[3]) : disp(fd[3]);
+              // 이름/구역/회는 값이 바뀌면 '라벨: 이전→새', 나머지도 동일 형식
+              fieldChanges.push(label + ' ' + bl + '→' + al);
+            }
+          });
+          // 구원/침례(불리언)도 감지 — 인원 편집에서 바뀔 수 있으면
+          if ((!!m.salvation) !== (!!updated.salvation)) fieldChanges.push(updated.salvation ? '구원 체크' : '구원 해제');
+          if ((!!m.baptism) !== (!!updated.baptism)) fieldChanges.push(updated.baptism ? '침례 체크' : '침례 해제');
+
+          if (fieldChanges.length) {
+            action = '인원 수정';
+            const joined = fieldChanges.join(', ');
+            detail = who + ' · ' + (fieldChanges.length <= 3 ? joined : (fieldChanges.slice(0,3).join(', ') + ' 외 ' + (fieldChanges.length-3) + '건'));
+          } else {
+            action = '인원 수정';
+            detail = who;
+          }
         }
       }
       if (isNew) DB.members.push(updated);

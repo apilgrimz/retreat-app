@@ -1,6 +1,6 @@
 // 하계수양회 PWA Service Worker
-// v10.9.2 — 변경 이력: 세로 모드에서 잘리던 내용을 가로 스크롤로 끝까지 볼 수 있게 수정
-const CACHE_VERSION = 'retreat-sync-v10.9.2';
+// v10.9.3 — 교회차·기타 차편에도 미등록 인원 추가 기능 (차수별)
+const CACHE_VERSION = 'retreat-sync-v10.9.3';
 const CORE_ASSETS = [
   './',
   './index.html',

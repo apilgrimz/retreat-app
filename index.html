@@ -1167,6 +1167,22 @@ function transSessionGroups(type, driver) {
   });
   return groups;
 }
+// 차수별 차편(교회차·기타)의 표시용 그룹: 등록 인원이 있는 차수 + 미등록 추가 탑승자만 있는 차수.
+//  등록자가 한 명도 없어도 추가 탑승자가 있으면 그 차수 블록을 만들어 명단이 보이게 한다.
+function sessionGroupsWithExtras(type) {
+  const groups = transSessionGroups(type, null);
+  if (!supportsExtras(type)) return groups;
+  const defs = getSessionDefs();
+  const have = new Set(groups.map(g => g.session));
+  defs.forEach(def => {
+    if (!have.has(def.name) && busExtrasOf(busExtraKey(type, def.name)).length) {
+      groups.push({ session: def.name, upDate: def.upDate || '', downDate: def.downDate || '', uList: [], dList: [] });
+    }
+  });
+  const order = defs.map(d => d.name);
+  groups.sort((a, b) => order.indexOf(a.session) - order.indexOf(b.session));
+  return groups;
+}
 // 개인차 차주 목록 중 실제로 어느 차수든 탑승자가 있는 차주만 (차주명 정렬)
 function privateDriversWithGroups() {
   const result = [];
@@ -1457,22 +1473,27 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
          </tr>`;
          }).join('');
      // 미등록 추가 탑승자 행을 같은 표에 이어서 (글자색만 다르게 구분)
+     //  본대 호차: 차편명 키 그대로. 교회차·기타: 차수 블록별로 '차편명@@차수' 키 사용.
      let extraRows = '';
-     if (BUSES.includes(type)) {
+     const exKey = !type ? null
+       : BUSES.includes(type) ? type
+       : (supportsExtras(type) && group && group.session) ? busExtraKey(type, group.session)
+       : null;
+     if (exKey) {
        const dir = (label === '상행') ? 'up' : 'down';
        const exField = (label === '상행') ? 'boardUp' : 'boardDown';
-       const allExtras = busExtrasOf(type);
+       const allExtras = busExtrasOf(exKey);
        const extras = allExtras.map((e, gi) => ({ e, gi })).filter(x => dir==='up' ? x.e.up : x.e.down);
        extraRows = extras.map((x, j) => {
          const e = x.e;
          const no = list.length + j + 1;
          const exCheck = isPrint
            ? `<td class="check-cell" style="color:var(--accent-teal,#46c8c0);">${e[exField] ? '✓' : ''}</td>`
-           : `<td class="check-cell"><input type="checkbox" class="bus-extra-board" data-bus="${esc(type)}" data-idx="${x.gi}" data-field="${exField}" ${e[exField]?'checked':''}${isViewOnly()?' disabled':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--accent-teal,#46c8c0);"/></td>`;
+           : `<td class="check-cell"><input type="checkbox" class="bus-extra-board" data-bus="${esc(exKey)}" data-idx="${x.gi}" data-field="${exField}" ${e[exField]?'checked':''}${isViewOnly()?' disabled':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--accent-teal,#46c8c0);"/></td>`;
          // 번호 셀: 화면에서는 클릭 시 그 방향(상행/하행)만 삭제. 인쇄는 일반 번호.
          const noCell = isPrint
            ? `<td>${no}</td>`
-           : `<td class="bus-extra-delrow" data-bus="${esc(type)}" data-idx="${x.gi}" data-dir="${dir}" title="이 줄(${label}) 삭제" style="cursor:pointer; color:var(--rose); text-decoration:underline; font-weight:700;">${no}</td>`;
+           : `<td class="bus-extra-delrow" data-bus="${esc(exKey)}" data-idx="${x.gi}" data-dir="${dir}" title="이 줄(${label}) 삭제" style="cursor:pointer; color:var(--rose); text-decoration:underline; font-weight:700;">${no}</td>`;
          return `<tr style="color:var(--accent-teal,#46c8c0);">
            ${noCell}
            <td style="font-size:11px;">${esc(e.church)||'-'}</td>
@@ -1485,7 +1506,7 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
      const allRows = rows + extraRows;
      return `<table class="${tableClass}">
        <thead>
-         <tr><th colspan="5" class="side-head ${label==='상행'?'up-head':'down-head'}">${label} (${list.length + (BUSES.includes(type) ? busExtraCount(type, label==='상행'?'up':'down') : 0)}명)${dirInfo?` <span style="font-weight:400; font-size:11px; opacity:.9;">· ${esc(dirInfo)}</span>`:''}</th></tr>
+         <tr><th colspan="5" class="side-head ${label==='상행'?'up-head':'down-head'}">${label} (${list.length + (exKey ? busExtraCount(exKey, label==='상행'?'up':'down') : 0)}명)${dirInfo?` <span style="font-weight:400; font-size:11px; opacity:.9;">· ${esc(dirInfo)}</span>`:''}</th></tr>
          <tr>
            <th style="width:${isPrint?'10%':'12%'}">번호</th>
            <th style="width:${isPrint?'15%':'17%'}">구역</th>
@@ -2031,12 +2052,25 @@ function openTransportFull() {
       });
     });
   } else {
-    const groups = transSessionGroups(type, null);
-    if (groups.length === 0) body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
-    else groups.forEach(g => {
-      body += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(g.session)}</div>`;
-      body += buildSplitTable(null, g.uList, g.dList, false, null, type, g);
-    });
+    const canExtra = supportsExtras(type);
+    const groups = sessionGroupsWithExtras(type);
+    if (groups.length === 0) {
+      if (canExtra && getSessionDefs().length) {
+        body += `<div class="empty-state">해당 차편 등록자가 없습니다.<br/><span style="font-size:12px">아래에서 미등록 인원을 바로 추가할 수 있습니다.</span></div>`;
+        getSessionDefs().forEach(def => {
+          body += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(def.name)}</div>`;
+          body += busExtraEditor(busExtraKey(type, def.name), type, def.name);
+        });
+      } else {
+        body += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
+      }
+    } else {
+      groups.forEach(g => {
+        body += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(g.session)}</div>`;
+        body += buildSplitTable(null, g.uList, g.dList, false, null, type, g);
+        if (canExtra) body += busExtraEditor(busExtraKey(type, g.session), type, g.session);
+      });
+    }
   }
   const printBar = `<div style="display:flex; justify-content:flex-end; margin-bottom:10px;"><button class="card-action" onclick="execPrintTransport()">인쇄</button></div>`;
   openSheet(`${esc(type)} 탑승 명단 전체`, printBar + body, null, { hideSave:true });
@@ -2088,11 +2122,14 @@ function execPrintTransport() {
       });
     });
   } else {
-    const groups = transSessionGroups(type, null);
+    const canExtra = supportsExtras(type);
+    const groups = sessionGroupsWithExtras(type);
     if (groups.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">해당 차편 등록자가 없습니다.</div>`;
     else groups.forEach(g => {
       body += buildSplitTable(`${esc(type)} · ${esc(g.session)}`, g.uList, g.dList, true, null, type, g);
-      maxCount = Math.max(maxCount, g.uList.length, g.dList.length);
+      const exU = canExtra ? busExtraCount(busExtraKey(type, g.session), 'up') : 0;
+      const exD = canExtra ? busExtraCount(busExtraKey(type, g.session), 'down') : 0;
+      maxCount = Math.max(maxCount, g.uList.length + exU, g.dList.length + exD);
     });
   }
   // 버스·타교회(기타) 인쇄에서 최대 45명까지는 A4 한 장에 들어가도록 압축
@@ -3956,9 +3993,22 @@ function allPrivateDrivers() {
   return Array.from(set).filter(s => s).sort((a,b)=>a.localeCompare(b,'ko'));
 }
 
-// ===== 호차별 추가 탑승자 (본 교회 차수 미등록이나 본대 버스 이용) =====
-// DB.settings.busExtras = { 호차명: [이름, ...] }. 정식 멤버가 아니므로 모든 집계에서 제외되며,
-// 차편 탭 그 호차 인원수와 인쇄에만 반영된다.
+// ===== 차편별 추가 탑승자 (본 교회 차수 미등록이나 본대 버스·교회차·기타 차편 이용) =====
+// DB.settings.busExtras = { 키: [인원, ...] }. 정식 멤버가 아니므로 모든 집계에서 제외되며,
+// 차편 탭 그 차편 인원수와 인쇄에만 반영된다.
+//  키: 본대 호차는 차편명 그대로('1호차'), 교회차·기타는 차수별 명단이 나뉘므로 '차편명@@차수'('교회차1@@1차').
+//  대중교통은 명단 관리 대상이 아니므로 이 기능에서 제외.
+function supportsExtras(type) {
+  if (!type || type === '대중교통' || type === '개인차') return false;
+  return BUSES.includes(type) || CHURCH_CARS.includes(type) || OTHER_TRANSPORTS.includes(type);
+}
+function busExtraKey(type, session) {
+  return session ? (type + '@@' + session) : type;
+}
+// 저장 키를 사람이 읽기 좋은 형태로 ('교회차1@@1차' → '교회차1 · 1차')
+function busExtraDisp(key) {
+  return String(key || '').replace('@@', ' · ');
+}
 function busExtrasOf(busName) {
   const be = (DB.settings && DB.settings.busExtras) || {};
   const arr = Array.isArray(be[busName]) ? be[busName] : [];
@@ -3978,12 +4028,12 @@ function addBusExtra(busName, obj) {
     church: (obj.church||'').trim(), name: name, dept: (obj.dept||'').trim(),
     up: obj.up!==false, down: obj.down!==false, boardUp:false, boardDown:false
   });
-  logHistory('추가탑승자 등록', busName + ' · ' + name);
+  logHistory('추가탑승자 등록', busExtraDisp(busName) + ' · ' + name);
   saveDB();
 }
 function removeBusExtra(busName, idx) {
   const arr = (DB.settings && DB.settings.busExtras && DB.settings.busExtras[busName]) || [];
-  if (idx >= 0 && idx < arr.length) { const nm = (typeof arr[idx]==='string'?arr[idx]:(arr[idx].name||'')); arr.splice(idx, 1); logHistory('추가탑승자 삭제', busName + ' · ' + nm); saveDB(); }
+  if (idx >= 0 && idx < arr.length) { const nm = (typeof arr[idx]==='string'?arr[idx]:(arr[idx].name||'')); arr.splice(idx, 1); logHistory('추가탑승자 삭제', busExtraDisp(busName) + ' · ' + nm); saveDB(); }
 }
 // 방향별 삭제: 그 방향(상행/하행) 탑승만 해제. 상·하행 둘 다 해제되면 사람 자체를 제거.
 function removeBusExtraDir(busName, idx, dir) {
@@ -3996,7 +4046,7 @@ function removeBusExtraDir(busName, idx, dir) {
   else { it.down = false; it.boardDown = false; }
   // 둘 다 안 타면 제거
   if (!it.up && !it.down) arr.splice(idx, 1);
-  logHistory('추가탑승자 변경', busName + ' · ' + nm + ' ' + (dir==='up'?'상행':'하행') + ' 해제');
+  logHistory('추가탑승자 변경', busExtraDisp(busName) + ' · ' + nm + ' ' + (dir==='up'?'상행':'하행') + ' 해제');
   saveDB();
 }
 // 추가 탑승자 필드 변경 (탑승 확인 체크 등)
@@ -4013,21 +4063,24 @@ function setBusExtraField(busName, idx, field, value) {
 function busExtraCount(busName, dir) {
   return busExtrasOf(busName).filter(e => dir==='up' ? e.up : e.down).length;
 }
-// 호차 추가 탑승자 입력 + 목록 UI (표 형태: 번호·교회명·성명·부서·상하행·탑승확인)
-function busExtraEditor(busName) {
+// 차편 추가 탑승자 입력 + 목록 UI (표 형태: 번호·교회명·성명·부서·상하행·탑승확인)
+//  busKey: 저장 키(호차는 차편명, 교회차·기타는 '차편명@@차수'). dispName·session은 안내 문구용(없으면 키 그대로 표시).
+function busExtraEditor(busKey, dispName, session) {
+  const disp = dispName || busExtraDisp(busKey);
+  const sessTag = session ? ' · ' + esc(session) : '';
   // 목록은 위의 상행/하행 표에 통합 표시됨. 여기는 입력 폼만.
-  return `<div style="margin-top:10px; border:1px dashed var(--line-soft); border-radius:10px; padding:10px;">
-    <div style="font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:4px;">미등록 인원 추가</div>
-    <div style="font-size:11px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수로 등록하지 않았으나 ${esc(busName)}를 이용하는 인원입니다. 통계에는 포함되지 않고 이 호차 명단·인원수·인쇄에만 반영되며, 위 명단에 다른 색으로 표시됩니다.</div>
+  return `<div style="margin-top:10px; margin-bottom:14px; border:1px dashed var(--line-soft); border-radius:10px; padding:10px;">
+    <div style="font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:4px;">미등록 인원 추가${session ? ' (' + esc(session) + ')' : ''}</div>
+    <div style="font-size:11px; color:var(--ink-mute); margin-bottom:8px;">본 교회 차수로 등록하지 않았으나 ${esc(disp)}${sessTag}를 이용하는 인원입니다. 통계에는 포함되지 않고 이 차편 명단·인원수·인쇄에만 반영되며, 위 명단에 다른 색으로 표시됩니다.</div>
     <div style="display:flex; gap:5px; margin-bottom:5px;">
-      <input type="text" class="be-in-church" data-bus="${esc(busName)}" placeholder="교회명" style="flex:1; font-size:12px; padding:6px 8px;"/>
-      <input type="text" class="be-in-name" data-bus="${esc(busName)}" placeholder="성명" style="flex:1; font-size:12px; padding:6px 8px;"/>
-      <input type="text" class="be-in-dept" data-bus="${esc(busName)}" placeholder="부서" style="width:72px; font-size:12px; padding:6px 8px;"/>
+      <input type="text" class="be-in-church" data-bus="${esc(busKey)}" placeholder="교회명" style="flex:1; font-size:12px; padding:6px 8px;"/>
+      <input type="text" class="be-in-name" data-bus="${esc(busKey)}" placeholder="성명" style="flex:1; font-size:12px; padding:6px 8px;"/>
+      <input type="text" class="be-in-dept" data-bus="${esc(busKey)}" placeholder="부서" style="width:72px; font-size:12px; padding:6px 8px;"/>
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
-      <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-up" data-bus="${esc(busName)}" checked/> 상행</label>
-      <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-down" data-bus="${esc(busName)}" checked/> 하행</label>
-      <button type="button" class="bus-extra-add" data-bus="${esc(busName)}" style="margin-left:auto; padding:6px 16px; font-size:13px; border:1px solid var(--gold-soft); border-radius:8px; background:transparent; color:var(--gold-soft); cursor:pointer; white-space:nowrap;">추가</button>
+      <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-up" data-bus="${esc(busKey)}" checked/> 상행</label>
+      <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--ink-soft); cursor:pointer;"><input type="checkbox" class="be-in-down" data-bus="${esc(busKey)}" checked/> 하행</label>
+      <button type="button" class="bus-extra-add" data-bus="${esc(busKey)}" style="margin-left:auto; padding:6px 16px; font-size:13px; border:1px solid var(--gold-soft); border-radius:8px; background:transparent; color:var(--gold-soft); cursor:pointer; white-space:nowrap;">추가</button>
     </div>
   </div>`;
 }
@@ -4103,14 +4156,26 @@ function renderTransport() {
     }
   } else {
     // 교회차 / 타교회 / 대중교통: 차수별 블록 (헤더에 그 차수 날짜 표시)
-    const groups = transSessionGroups(type, null);
+    //  교회차·기타(대중교통 제외)는 각 차수 블록 아래 '미등록 인원 추가' 폼 제공.
+    //  등록자가 없어도 추가 탑승자가 있는 차수는 블록을 만들어 명단이 보이게 한다.
+    const canExtra = supportsExtras(type);
+    const groups = sessionGroupsWithExtras(type);
     if (groups.length === 0) {
-      html += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
+      if (canExtra && getSessionDefs().length) {
+        html += `<div class="empty-state">해당 차편 등록자가 없습니다.<br/><span style="font-size:12px">아래에서 미등록 인원을 바로 추가할 수 있습니다.</span></div>`;
+        getSessionDefs().forEach(def => {
+          html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(def.name)}</div>`;
+          html += busExtraEditor(busExtraKey(type, def.name), type, def.name);
+        });
+      } else {
+        html += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
+      }
     } else {
       groups.forEach(g => {
         html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(g.session)}</div>`;
         html += transInfoEditor(type, null);
         html += buildSplitTable(null, g.uList, g.dList, false, null, type, g);
+        if (canExtra) html += busExtraEditor(busExtraKey(type, g.session), type, g.session);
       });
     }
   }
@@ -4422,7 +4487,7 @@ function openManualSheet() {
     ${sec('5. 본대 배정 (버스 호차 정하기)', '버스(본대)로 가기로 한 사람들에게 <b>몇 호차</b>를 탈지 정하는 화면입니다. 상행·하행을 좌우로 나눠 구역별로 보여줍니다.' +
     sub('누가 여기 나오나요?', '인원 편집에서 그 차수의 상행 또는 하행을 <b>버스</b>로 고른 사람이 모두 나옵니다. (호차를 아직 안 정했어도 나옵니다)') +
     sub('호차 정하는 방법', '• <b>개인별</b>: 각 사람 오른쪽 칸에서 호차를 고릅니다.<br>• <b>구역 일괄</b>: 구역 이름 옆 드롭다운에서 호차를 고르면 그 구역 전원이 같은 호차가 됩니다. 기본은 <b>미배정</b>이고, 한 구역이 모두 같은 호차면 그 호차가 표시됩니다. 다시 <b>미배정</b>을 고르면 그 구역 전원의 호차가 해제됩니다.') +
-    sub('미등록 추가 탑승자', '교회 차수로 등록하진 않았지만 그 호차를 함께 타는 사람은, 각 호차 명단 아래 <b>미등록 인원 추가</b>로 넣을 수 있습니다. 통계·회비에는 안 잡히고 그 호차 명단에만 다른 색으로 표시됩니다.'))}
+    sub('미등록 추가 탑승자', '교회 차수로 등록하진 않았지만 호차·교회차·기타 차편(대중교통 제외)을 함께 타는 사람은, 각 차편 명단 아래 <b>미등록 인원 추가</b>로 넣을 수 있습니다. 교회차·기타는 차수별로 따로 추가합니다. 통계·회비에는 안 잡히고 그 차편 명단에만 다른 색으로 표시됩니다.'))}
 
     ${sec('6. 미배정 (아직 차편이 안 정해진 사람)', '<b>세부 차편이 정해지지 않은 사람</b>을 모아 보여주고, 여기서 바로 배차합니다.' +
     sub('미배정에 들어가는 조건', '다음 중 하나면 미배정에 나옵니다.<br>① 교통수단 종류(버스/개인차/교회차/타교회)를 <b>아예 안 고른</b> 경우<br>② 개인차·교회차·타교회는 골랐지만 <b>세부 차편(차주·교회명 등)을 안 정한</b> 경우<br><br>단, <b>버스는 미배정에 나오지 않습니다.</b> 버스는 호차를 안 정했어도 <b>본대 배정</b> 화면에서 다루기 때문입니다.') +

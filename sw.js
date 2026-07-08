@@ -1,6 +1,6 @@
 // 하계수양회 PWA Service Worker
-// v10.9.3 — 교회차·기타 차편에도 미등록 인원 추가 기능 (차수별)
-const CACHE_VERSION = 'retreat-sync-v10.9.3';
+// v10.10.0 — 모든 인쇄 옆 '사진' 공유 버튼, 엑셀에 미등록 탑승자 포함, 설명서 갱신
+const CACHE_VERSION = 'retreat-sync-v10.10.0';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const CDN_ASSETS = [
   'https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css',
   'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
   'https://www.gstatic.com/firebasejs/12.13.0/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/12.13.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore-compat.js',

@@ -664,7 +664,21 @@ function saveDB() {
 // ── 변경 이력 ─────────────────────────────────────────────
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
-const HISTORY_MAX = 50;
+const HISTORY_MAX = 200;
+// 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
+// meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
+function mergeHistories(a, b) {
+  const seen = new Set(); const out = [];
+  [].concat(Array.isArray(a) ? a : [], Array.isArray(b) ? b : []).forEach(x => {
+    if (!x || typeof x.t !== 'number') return;
+    const k = x.t + '|' + (x.a || '') + '|' + (x.o || '');
+    if (seen.has(k)) return;
+    seen.add(k); out.push(x);
+  });
+  out.sort((x, y) => y.t - x.t);
+  if (out.length > HISTORY_MAX) out.length = HISTORY_MAX;
+  return out;
+}
 function logHistory(action, target) {
   if (!DB) return;
   if (!Array.isArray(DB.history)) DB.history = [];
@@ -1438,6 +1452,7 @@ function addLodgingDef(name, cap) {
   if (defs.some(d => d.name === name)) return false;
   defs.push({ name: name, cap: parseInt(cap, 10) || 0 });
   defs.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  bumpLodgingRev();
   logHistory('숙소 추가', name);
   saveDB();
   return true;
@@ -1450,11 +1465,16 @@ function removeLodgingDef(name) {
   (DB.members || []).forEach(m => {
     if ((m.lodging || '').trim() === name) { m.lodging = ''; syncEvangelismLodging(m); n++; }
   });
+  bumpLodgingRev();
   logHistory('숙소 삭제', name + (n ? ' · 배정 ' + n + '명 해제' : '') + (exN ? ' · 미등록 ' + exN + '명 삭제' : ''));
   saveDB();
   return n;
 }
 function lodgingAssignedCount(name) { return (DB.members || []).filter(m => (m.lodging || '').trim() === name).length; }
+// 숙소 설정(목록·정원·미등록)의 최신 저장 시각. 여러 기기가 설정을 통째로 주고받는 구조라,
+// 옛 숙소 설정을 든 기기가 나중에 밀어 넣어도 '더 최신인 쪽'을 지키기 위한 표식이다.
+// 의도적인 숙소 편집 지점에서만 갱신한다 (자동 흡수 ensureLodgingDefs는 갱신하지 않음 — 파생 데이터이므로).
+function bumpLodgingRev() { if (DB && DB.settings) DB.settings.lodgingsRev = Date.now(); }
 /* ---------- 미등록 숙박 인원 (타교회 접수자 등, 명단에 없는 사람) ---------- */
 // DB.settings.lodgingExtras = { 숙소명: [{ name }] }. 정식 명단이 아니므로 인원 집계·엑셀 명단에는
 // 들어가지 않고, 숙소 화면·인쇄·사진과 숙소 인원수(배정/정원)에만 포함된다.
@@ -1467,6 +1487,7 @@ function addLodgingExtra(lk, personName) {
   DB.settings.lodgingExtras = DB.settings.lodgingExtras || {};
   if (!Array.isArray(DB.settings.lodgingExtras[lk])) DB.settings.lodgingExtras[lk] = [];
   DB.settings.lodgingExtras[lk].push({ name: personName });
+  bumpLodgingRev();
   logHistory('숙소 미등록 추가', lk + ' · ' + personName);
   saveDB();
 }
@@ -1476,6 +1497,7 @@ function removeLodgingExtra(lk, idx) {
   const nm = arr[idx].name;
   arr.splice(idx, 1);
   if (!arr.length) delete DB.settings.lodgingExtras[lk];
+  bumpLodgingRev();
   logHistory('숙소 미등록 삭제', lk + ' · ' + nm);
   saveDB();
   return nm;
@@ -1738,6 +1760,8 @@ function photoRun(fnName) {
   catch (e) { __photoMode = false; console.error(e); toast('사진 생성에 실패했어요', true); }
 }
 const H2C_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+// 첫 '사진' 탭이 모듈 다운로드로 느려져 공유 터치 유효시간을 넘기지 않도록, 앱이 뜨고 잠시 뒤 미리 캐시에 받아둔다
+setTimeout(() => { try { fetch(H2C_SRC, { mode: 'no-cors' }).catch(() => {}); } catch (e) {} }, 2500);
 async function sharePrintPhoto(title, bodyHtml) {
   toast('사진 만드는 중…');
   const old = document.getElementById('photoFrame'); if (old) old.remove();
@@ -1763,42 +1787,110 @@ async function sharePrintPhoto(title, bodyHtml) {
     if (!win || !win.html2canvas) { toast('사진 모듈을 못 불러왔어요. 인터넷 연결 후 다시 시도해 주세요.', true); return; }
     if (doc.fonts && doc.fonts.ready) { try { await doc.fonts.ready; } catch (e) {} }
     await new Promise(r => setTimeout(r, 120));  // 레이아웃 안정화
-    // 최대 화질 배율: 기본 4배(약 300dpi급). 기기 캔버스 한계 안에서 가능한 가장 크게 만든다.
-    //  - iOS(아이폰/아이패드)는 캔버스 총면적 약 1,600만 픽셀 한계가 있어 그 안에서 최대로,
-    //  - 그 외(안드로이드·PC)는 3,200만 픽셀·한 변 16,000px 안에서 최대로.
-    const w = 794, h = Math.max(doc.body.scrollHeight || 0, 400);
+    // ── 최대 화질: 화질을 낮추지 않고 '항상 4배(약 300dpi급)'로 그린다. ──
+    // 예전엔 긴 명단일수록 배율을 낮춰 한 장에 욱여넣어 흐릿했다. 이제는 기기 캔버스 한계를
+    // 넘는 긴 명단이면 A4 페이지 높이 단위로 잘라 '여러 장'을 한 번에 공유한다.
+    // 자르는 위치는 픽셀을 훑어 글자를 가로지르지 않는 줄(빈 줄 또는 표 테두리)에 스냅한다.
+    const w = 794;
+    const h = Math.max(doc.body.scrollHeight || 0, 400);
+    const scale = 4;
+    const PAGE_H = 1032;  // A4 내용 높이 ≈ (297 - 여백 24)mm @96dpi
     const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const MAX_PIX = isIOS ? 16000000 : 32000000;
-    let scale = Math.max(1, Math.min(4, Math.sqrt(MAX_PIX / (w * h)), 16000 / h, 16000 / w));
-    const canvas = await win.html2canvas(doc.body, { scale: scale, backgroundColor: '#ffffff', logging: false, windowWidth: w });
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-    if (!blob) throw new Error('이미지 생성 실패');
-    const fname = String(title || '명단').replace(/[\\/:*?"<>|]/g, '_') + '.png';
-    await sharePhotoBlob(blob, fname, title);
+    const MAX_PIX = isIOS ? 15500000 : 32000000;  // 기기 캔버스 총면적 한계(약간의 여유 포함)
+    const maxSliceH = Math.floor(Math.min(MAX_PIX / (w * scale * scale), 15000 / scale));
+    const fbase = String(title || '명단').replace(/[\\/:*?"<>|]/g, '_');
+    const files = [];
+    const snap = async (y, sliceH) => {
+      const canvas = await win.html2canvas(doc.body, { scale: scale, backgroundColor: '#ffffff', logging: false, windowWidth: w, width: w, y: y, height: sliceH, useCORS: true });
+      return canvas;
+    };
+    if (h <= maxSliceH) {
+      const canvas = await snap(0, h);
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      if (!blob) throw new Error('이미지 생성 실패');
+      files.push(new File([blob], fbase + '.png', { type: 'image/png' }));
+    } else {
+      const sliceBase = Math.min(PAGE_H, maxSliceH);
+      let y = 0, page = 0;
+      while (y < h - 4 && page < 20) {
+        page++;
+        const want = Math.min(sliceBase, h - y);
+        const canvas = await snap(y, want);
+        let cutCss = want;
+        if (y + want < h - 4) cutCss = findPhotoCut(canvas, scale, want);  // 마지막 장이 아니면 안전한 줄에서 자름
+        let out = canvas;
+        if (cutCss < want) {
+          out = document.createElement('canvas');
+          out.width = canvas.width; out.height = Math.max(1, Math.round(cutCss * scale));
+          out.getContext('2d').drawImage(canvas, 0, 0);
+        }
+        const blob = await new Promise(res => out.toBlob(res, 'image/png'));
+        if (!blob) throw new Error('이미지 생성 실패');
+        files.push(new File([blob], fbase + '_' + page + '.png', { type: 'image/png' }));
+        y += cutCss;
+      }
+      toast('긴 명단이라 사진 ' + files.length + '장으로 나눴어요 (최대 화질 유지)');
+    }
+    await sharePhotoFiles(files, title);
   } catch (e) {
     if (!(e && e.name === 'AbortError')) { console.error(e); toast('사진 생성에 실패했어요', true); }
   } finally {
     iframe.remove();
   }
 }
-// 공유(모바일 공유 시트) 우선, 미지원 환경(PC 등)은 파일 저장으로 폴백
-async function sharePhotoBlob(blob, fname, title) {
+// 사진을 자를 안전한 가로줄 찾기: 슬라이스 아래쪽 140px 안에서 '완전한 빈 줄'을, 없으면 '표 테두리 줄'을 찾는다.
+// (글자 중간을 가로지르는 어색한 절단 방지)
+function findPhotoCut(canvas, scale, wantCss) {
   try {
-    const file = new File([blob], fname, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: String(title || fname) });
-      return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const xs = []; for (let x = 8; x < W - 8; x += Math.max(8, Math.floor(W / 90))) xs.push(x);
+    const rowStat = (cssY) => {
+      const py = Math.min(canvas.height - 1, Math.round(cssY * scale));
+      const d = ctx.getImageData(0, py, W, 1).data;
+      let dark = 0, nonwhite = 0;
+      xs.forEach(x => {
+        const i = x * 4, lum = (d[i] + d[i+1] + d[i+2]) / 3;
+        if (lum < 130) dark++;
+        if (lum < 245) nonwhite++;
+      });
+      return { dark: dark / xs.length, nonwhite: nonwhite / xs.length };
+    };
+    const lo = Math.max(200, wantCss - 140);
+    for (let yy = wantCss - 2; yy >= lo; yy -= 2) {            // 1순위: 빈 줄
+      if (rowStat(yy).nonwhite === 0) return yy;
     }
+    for (let yy = wantCss - 2; yy >= lo; yy -= 2) {            // 2순위: 표 테두리(연속 진한 선)
+      if (rowStat(yy).dark >= 0.9) return yy + 1;
+    }
+  } catch (e) {}
+  return wantCss;  // 못 찾으면 그대로
+}
+// 공유(모바일 공유 시트) 우선. 첫 시도에서 터치 유효시간이 지나 거부되면
+// '공유' 확인창을 띄워 새 터치로 곧장 재시도한다(두 번 누를 필요 없이 한 흐름). PC 등 미지원은 파일 저장.
+async function sharePhotoFiles(files, title) {
+  const saveAll = () => {
+    files.forEach((f, i) => setTimeout(() => {
+      const url = URL.createObjectURL(f);
+      const a = document.createElement('a');
+      a.href = url; a.download = f.name;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+    }, i * 300));
+    toast('사진 ' + files.length + '장을 저장했어요');
+  };
+  let canNative = false;
+  try { canNative = !!(navigator.canShare && navigator.canShare({ files: files })); } catch (e) { canNative = false; }
+  if (!canNative) { saveAll(); return; }
+  try {
+    await navigator.share({ files: files, title: String(title || '명단') });
   } catch (e) {
-    if (e && e.name === 'AbortError') return;  // 사용자가 공유를 취소한 경우 — 조용히 종료
-    // 그 외 공유 실패는 아래 저장으로 폴백
+    if (e && e.name === 'AbortError') return;  // 사용자가 직접 취소
+    confirmModal('사진 준비 완료', '사진 ' + files.length + '장이 준비됐어요. [공유]를 누르면 바로 공유 화면이 열립니다.', async () => {
+      try { await navigator.share({ files: files, title: String(title || '명단') }); }
+      catch (e2) { if (!(e2 && e2.name === 'AbortError')) saveAll(); }
+    }, '공유');
   }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = fname;
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
-  toast('사진을 저장했어요');
 }
 
 function buildPrintDocument(title, bodyHtml, forPhoto) {
@@ -1860,7 +1952,7 @@ function buildPrintDocument(title, bodyHtml, forPhoto) {
 </style>
 ${forPhoto
   ? '<script src="' + H2C_SRC + '"><\/script>'
-  : '<script>window.onload=function(){setTimeout(function(){try{window.focus();window.print();}catch(e){console.error(e);}},150);};<\/script>'}
+  : '<script>window.onload=function(){setTimeout(function(){try{var pageH=1032;var sh=document.body.scrollHeight;var pg=sh/pageH;if(pg>1.02&&pg<=1.5){document.body.style.zoom=(pageH/sh*0.99).toFixed(4);}window.focus();window.print();}catch(e){console.error(e);}},150);};<\/script>'}
 </head>
 <body>${bodyHtml}</body></html>`;
 }
@@ -3534,6 +3626,7 @@ function openLodgingManage(isReopen) {
     });
     newDefs.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     DB.settings.lodgings = newDefs;
+    bumpLodgingRev();
     if (renames.length) logHistory('숙소 이름 변경', renames.map(([o, n]) => o + '→' + n).join(', '));
     removed.forEach(o => logHistory('숙소 삭제', o));
     saveDB(); render();
@@ -5626,6 +5719,17 @@ function onRoomMeta(doc) {
   if (!DB || DB.roomCode !== sync.code) return;
   const data = doc.data() || {};
   sync.applyingRemote = true;
+  // ── 숙소 설정 보호 ──
+  // meta 문서는 기기별 '통째 밀어넣기'라, 옛 숙소 설정(정원 없음)을 든 기기가 나중에 써넣으면
+  // 최신 정원이 지워질 수 있다. 저장 시각(lodgingsRev)이 더 최신인 쪽을 지키고, 서버가 옛것이면 곧바로 되민다.
+  const __locLodgRev = (DB.settings && DB.settings.lodgingsRev) || 0;
+  const __remLodgRev = (data.settings && data.settings.lodgingsRev) || 0;
+  const __keepLocalLodging = __locLodgRev > __remLodgRev;
+  const __localLodg = __keepLocalLodging ? {
+    lodgings: (DB.settings && DB.settings.lodgings) || [],
+    lodgingExtras: (DB.settings && DB.settings.lodgingExtras) || {},
+    lodgingsRev: __locLodgRev
+  } : null;
   const firstMeta = sync.firstSnap && sync.firstSnap.meta;
   if (firstMeta) {
     // 재연결 첫 스냅샷: 서버 값으로 완전히 교체 (roomCode는 보존)
@@ -5634,18 +5738,21 @@ function onRoomMeta(doc) {
     if (data.meta) DB.meta = Object.assign({}, data.meta);
     if (data.settings) DB.settings = Object.assign({}, data.settings);
     if (data.fees) DB.fees = Object.assign({}, data.fees);
-    if (Array.isArray(data.history)) DB.history = data.history;  // 변경 이력도 서버 값으로
+    if (Array.isArray(data.history)) DB.history = mergeHistories(DB.history, data.history);  // 서버 이력과 병합(내 최근 기록 보존)
     DB.roomCode = keepRoom;
+    if (__localLodg) Object.assign(DB.settings, __localLodg);  // 내 숙소 설정이 더 최신 → 지킴
   } else {
     if (data.meta) DB.meta = Object.assign({}, DB.meta, data.meta);
     if (data.settings) DB.settings = Object.assign({}, DB.settings, data.settings);
     if (data.fees) DB.fees = Object.assign({}, DB.fees, data.fees);
-    if (Array.isArray(data.history)) DB.history = data.history;  // 최신 이력으로 갱신(모든 기기 공유)
+    if (Array.isArray(data.history)) DB.history = mergeHistories(DB.history, data.history);  // 기기 간 이력 병합 — 옛 기기가 덮어써도 안 지워짐
+    if (__localLodg) Object.assign(DB.settings, __localLodg);  // 내 숙소 설정이 더 최신 → 지킴
   }
   hydrateEvent(DB);
   if (sync.mirror) sync.mirror.meta = stableStr(roomMetaOf(DB));
   sync.applyingRemote = false;
   saveVault();
+  if (__keepLocalLodging) { try { syncPushIfLinked(); } catch (e) {} }  // 서버의 옛 숙소 설정을 최신으로 되밈
   setSyncStatus(navigator.onLine ? 'live' : 'offline');
   safeRender();
 }
@@ -6174,6 +6281,7 @@ function openBaseSettingsSheet() {
 function renderEvangelismSheet(isReopen) {
   const html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
+      <button class="btn btn-secondary" onclick="photoRun('execPrintEvangelism')" style="flex:1">사진</button>
       <button class="btn btn-secondary" onclick="execPrintEvangelism()" style="flex:1">인쇄</button>
     </div>
     <div style="overflow-x:auto;">

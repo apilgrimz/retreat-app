@@ -386,6 +386,9 @@ nav.tabbar {
   <button data-tab="transport">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><circle cx="7" cy="19" r="2"/><circle cx="17" cy="19" r="2"/><path d="M3 11h18"/></svg> 차편
   </button>
+  <button data-tab="lodging">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg> 숙소
+  </button>
   <button data-tab="more">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg> 더보기
   </button>
@@ -421,6 +424,11 @@ let BUSES = ['1호차','2호차','3호차','4호차','5호차'];
 let CHURCH_CARS = ['교회차1','교회차2'];
 const PRIVATE_CARS = ['개인차']; 
 let OTHER_TRANSPORTS = ['타교회','대중교통'];
+// ── 차수 미정 ──
+// 차수가 아직 정해지지 않은 인원을 위한 특수 차수 값. 데이터로는 일반 차수 문자열처럼 m.session에
+// 들어가므로(스키마 변경 없음) 동기화·구버전과 호환된다. 화면에서만 특별 취급한다:
+// 각 차수 인원수·차편·본대 배정에는 섞이지 않고, 홈 '차수별 인원'의 ⚠ 미정 칸과 입력 점검에 모여 표시된다.
+const SESSION_TBD = '미정';
 
 let EXTRA_UPS = ['금저'];
 let EXTRA_DOWNS = ['토저'];
@@ -755,6 +763,8 @@ function openNewEventInput() {
       DB.settings.otherTransports = []; OTHER_TRANSPORTS = [];
       DB.settings.privateCarList = []; PRIVATE_CAR_LIST = [];
       DB.settings.extraUps = []; EXTRA_UPS = [];
+      DB.settings.lodgings = [];
+      DB.settings.lodgingExtras = {};
       DB.settings.extraDowns = []; EXTRA_DOWNS = [];
       // 회(부서)는 기본 목록 유지하되 단가는 모두 0
       const depts = (DB.settings.deptList && DB.settings.deptList.length) ? DB.settings.deptList.slice() : ['은장회','봉사회','어머니회','청년회','대학부','중고등부','초등부','유치부','미취학'];
@@ -1369,10 +1379,140 @@ function transNeedsTimeInput(type) {
   return !(type === '대중교통');
 }
 
+/* ---------- 숙소 정의 (이름 + 정원) ---------- */
+// DB.settings.lodgings = [{ name, cap }]. cap 0 = 정원 미설정.
+// 숙소는 본 교회 차수 참여자에게만 해당한다 (수양회 숙박은 본 차수 기준).
+function getLodgingDefs() {
+  if (!DB.settings) DB.settings = {};
+  if (!Array.isArray(DB.settings.lodgings)) DB.settings.lodgings = [];
+  return DB.settings.lodgings;
+}
+// 명단에만 있고 정의에 없는 숙소명을 정의로 흡수 (예전 자유입력 데이터 호환 — 배정이 안 보이는 일이 없게)
+function ensureLodgingDefs() {
+  const defs = getLodgingDefs();
+  const have = new Set(defs.map(d => d.name));
+  let added = false;
+  (DB.members || []).forEach(m => {
+    const l = (m.lodging || '').trim();
+    if (l && !have.has(l)) { defs.push({ name: l, cap: 0 }); have.add(l); added = true; }
+  });
+  Object.keys((DB.settings && DB.settings.lodgingExtras) || {}).forEach(k => {
+    if (k && !have.has(k)) { defs.push({ name: k, cap: 0 }); have.add(k); added = true; }
+  });
+  if (added) defs.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  return defs;
+}
+function lodgingCapOf(name) {
+  const d = getLodgingDefs().find(x => x.name === name);
+  return d ? (parseInt(d.cap, 10) || 0) : 0;
+}
+function lodgingNamesAll() {
+  ensureLodgingDefs();
+  const lodgings = getLodgings();
+  return Array.from(new Set([ ...getLodgingDefs().map(d => d.name), ...Object.keys(lodgings), ...Object.keys((DB.settings && DB.settings.lodgingExtras) || {}) ])).sort((a, b) => a.localeCompare(b, 'ko'));
+}
+// 숙소 배정 대상: 본 차수 참여자 (본 차수 미설정이면 전원). 불참·환불 제외.
+function lodgingEligible() {
+  const church = churchSessionName();
+  return boardableMembers().filter(m => !church || memberSessions(m).includes(church));
+}
+function lodgingUnassigned() { return lodgingEligible().filter(m => !(m.lodging || '').trim()); }
+// 숙소가 바뀐 인원의 전도대상자 카드 숙소도 함께 갱신 (기존 연동 유지)
+function syncEvangelismLodging(m) {
+  (DB.evangelism || []).forEach(e => {
+    if (e.memberId === m.id || (!e.memberId && e.name === m.name && e.zone === m.zone && e.name !== '')) {
+      if (!e.memberId) e.memberId = m.id;
+      e.lodging = m.lodging;
+    }
+  });
+}
+// 숙소 select 옵션 HTML (빈값 = 미배정). 현재 값이 정의에 없어도 선택 유지되도록 포함.
+function lodgingOptionsHtml(cur) {
+  ensureLodgingDefs();
+  const names = getLodgingDefs().map(d => d.name);
+  if (cur && !names.includes(cur)) names.push(cur);
+  return `<option value="">─ 미배정 ─</option>` + names.map(n => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(n)}${lodgingCapOf(n) ? ' (정원 ' + lodgingCapOf(n) + ')' : ''}</option>`).join('');
+}
+function addLodgingDef(name, cap) {
+  const defs = getLodgingDefs();
+  if (defs.some(d => d.name === name)) return false;
+  defs.push({ name: name, cap: parseInt(cap, 10) || 0 });
+  defs.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  logHistory('숙소 추가', name);
+  saveDB();
+  return true;
+}
+function removeLodgingDef(name) {
+  DB.settings.lodgings = getLodgingDefs().filter(d => d.name !== name);
+  const exN = lodgingExtrasOf(name).length;
+  if (DB.settings.lodgingExtras) delete DB.settings.lodgingExtras[name];
+  let n = 0;
+  (DB.members || []).forEach(m => {
+    if ((m.lodging || '').trim() === name) { m.lodging = ''; syncEvangelismLodging(m); n++; }
+  });
+  logHistory('숙소 삭제', name + (n ? ' · 배정 ' + n + '명 해제' : '') + (exN ? ' · 미등록 ' + exN + '명 삭제' : ''));
+  saveDB();
+  return n;
+}
+function lodgingAssignedCount(name) { return (DB.members || []).filter(m => (m.lodging || '').trim() === name).length; }
+/* ---------- 미등록 숙박 인원 (타교회 접수자 등, 명단에 없는 사람) ---------- */
+// DB.settings.lodgingExtras = { 숙소명: [{ name }] }. 정식 명단이 아니므로 인원 집계·엑셀 명단에는
+// 들어가지 않고, 숙소 화면·인쇄·사진과 숙소 인원수(배정/정원)에만 포함된다.
+function lodgingExtrasOf(name) {
+  const le = (DB.settings && DB.settings.lodgingExtras) || {};
+  return Array.isArray(le[name]) ? le[name] : [];
+}
+function lodgingTotalCount(name) { return (getLodgings()[name] || []).length + lodgingExtrasOf(name).length; }
+function addLodgingExtra(lk, personName) {
+  DB.settings.lodgingExtras = DB.settings.lodgingExtras || {};
+  if (!Array.isArray(DB.settings.lodgingExtras[lk])) DB.settings.lodgingExtras[lk] = [];
+  DB.settings.lodgingExtras[lk].push({ name: personName });
+  logHistory('숙소 미등록 추가', lk + ' · ' + personName);
+  saveDB();
+}
+function removeLodgingExtra(lk, idx) {
+  const arr = (DB.settings.lodgingExtras || {})[lk];
+  if (!arr || !arr[idx]) return null;
+  const nm = arr[idx].name;
+  arr.splice(idx, 1);
+  if (!arr.length) delete DB.settings.lodgingExtras[lk];
+  logHistory('숙소 미등록 삭제', lk + ' · ' + nm);
+  saveDB();
+  return nm;
+}
+// 미등록 인원 추가 입력 (정원은 표시용 — 초과해도 배정은 가능하고 경고만 띄운다)
+function promptAddLodgingExtra(lk) {
+  if (guardViewOnly()) return;
+  promptModal('미등록 인원 추가', lk + '에 묵는 미등록 인원(타교회 접수자 등)의 이름을 입력하세요. 소속을 함께 적어도 됩니다. 예: 홍길동(북부교회)', '', (name) => {
+    name = (name || '').trim();
+    if (!name) return;
+    addLodgingExtra(lk, name);
+    const cap = lodgingCapOf(lk);
+    if (cap && lodgingTotalCount(lk) > cap) toast(name + ' 추가 — ⚠ 정원(' + cap + '명) 초과', true);
+    else toast(name + ' → ' + lk);
+    render();
+    if (typeof sheetStack !== 'undefined' && sheetStack.length) { const top = sheetStack[sheetStack.length - 1]; if (top && top.reopener) top.reopener(); }
+  });
+}
+function removeLodgingExtraConfirm(lk, idx) {
+  if (guardViewOnly()) return;
+  const p = lodgingExtrasOf(lk)[idx];
+  if (!p) return;
+  confirmModal('미등록 인원 빼기', "'" + p.name + "'를 " + lk + "에서 뺄까요?", () => {
+    removeLodgingExtra(lk, idx);
+    toast(p.name + ' 뺐어요');
+    render();
+    if (typeof sheetStack !== 'undefined' && sheetStack.length) { const top = sheetStack[sheetStack.length - 1]; if (top && top.reopener) top.reopener(); }
+  }, '빼기');
+}
+
 function getLodgings() {
   const dict = {};
-  // 숙소 명단도 차편과 동일하게 불참·환불자는 제외
+  // 숙소 명단도 차편과 동일하게 불참·환불자는 제외.
+  // 숙소는 본 교회 차수 참여자에게만 해당 — 본 차수가 설정돼 있으면 그 참여자만 집계한다.
+  const __church = churchSessionName();
   boardableMembers().forEach(m => {
+    if (__church && !memberSessions(m).includes(__church)) return;
     const l = m.lodging ? m.lodging.trim() : '';
     if (!l) return; 
     if (!dict[l]) dict[l] = [];
@@ -1623,10 +1763,13 @@ async function sharePrintPhoto(title, bodyHtml) {
     if (!win || !win.html2canvas) { toast('사진 모듈을 못 불러왔어요. 인터넷 연결 후 다시 시도해 주세요.', true); return; }
     if (doc.fonts && doc.fonts.ready) { try { await doc.fonts.ready; } catch (e) {} }
     await new Promise(r => setTimeout(r, 120));  // 레이아웃 안정화
-    // 고화질 배율: 기본 2.5배. 아주 긴 명단은 휴대폰 캔버스 한계(약 1,600만 픽셀)를 넘지 않게 자동 조정
+    // 최대 화질 배율: 기본 4배(약 300dpi급). 기기 캔버스 한계 안에서 가능한 가장 크게 만든다.
+    //  - iOS(아이폰/아이패드)는 캔버스 총면적 약 1,600만 픽셀 한계가 있어 그 안에서 최대로,
+    //  - 그 외(안드로이드·PC)는 3,200만 픽셀·한 변 16,000px 안에서 최대로.
     const w = 794, h = Math.max(doc.body.scrollHeight || 0, 400);
-    let scale = 2.5;
-    if (w * h * scale * scale > 16000000) scale = Math.max(1, Math.sqrt(16000000 / (w * h)));
+    const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const MAX_PIX = isIOS ? 16000000 : 32000000;
+    let scale = Math.max(1, Math.min(4, Math.sqrt(MAX_PIX / (w * h)), 16000 / h, 16000 / w));
     const canvas = await win.html2canvas(doc.body, { scale: scale, backgroundColor: '#ffffff', logging: false, windowWidth: w });
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
     if (!blob) throw new Error('이미지 생성 실패');
@@ -2104,7 +2247,7 @@ function bindUnassigned(root, onUpdate) {
 }
 
 function openUnassignedSheet(isReopen) {
-  const body = unassignedBodyHtml(false);
+  const body = tbdNoticeHtml() + unassignedBodyHtml(false);
   openSheet('미배정자 배차', body, null, {
     hideSave:true, replaceTop:!!isReopen, reopener:()=>openUnassignedSheet(true),
     afterPaint:()=>{ bindUnassigned(document, ()=>openUnassignedSheet(true)); }
@@ -2345,14 +2488,15 @@ function execPrintLodging() {
   let body = `<div class="print-title">${titleText}</div>`;
   
   const lodgings = getLodgings();
-  const keys = Object.keys(lodgings).sort();
-  if(keys.length === 0 || DB.members.length === 0) {
+  const __le = (DB.settings && DB.settings.lodgingExtras) || {};
+  const keys = Array.from(new Set([ ...Object.keys(lodgings), ...Object.keys(__le).filter(k => (__le[k] || []).length) ])).sort();
+  if(keys.length === 0) {
     body += `<div style="text-align:center; padding:30px; color:#666">등록된 인원이 없습니다.</div>`;
     return doPrint(titleText, body);
   }
   
   keys.forEach(k => {
-    const list = lodgings[k].sort(memberSortCmp);
+    const list = (lodgings[k] || []).slice().sort(memberSortCmp).concat(((__le[k]) || []).map(p => ({ zone: '미등록', name: p.name, dept: '' })));
     const half = Math.ceil(list.length / 2);
     const left = list.slice(0, half);
     const right = list.slice(half);
@@ -2422,8 +2566,8 @@ function execPrintHome() {
     </div>
 
     <div class="print-section-title">차수별 인원</div>
-    <div class="grid-stat" style="grid-template-columns:repeat(${Math.min(SESSIONS.length, 8)}, 1fr)">
-      ${SESSIONS.map(s => `<div class="stat-cell"><div class="lbl">${esc(s)}</div><div class="val">${sess[s]||0}</div></div>`).join('')}
+    <div class="grid-stat" style="grid-template-columns:repeat(${Math.min(SESSIONS.length + ((!SESSIONS.includes(SESSION_TBD) && tbdCount()) ? 1 : 0), 8)}, 1fr)">
+      ${SESSIONS.map(s => `<div class="stat-cell"><div class="lbl">${esc(s)}</div><div class="val">${sess[s]||0}</div></div>`).join('')}${(!SESSIONS.includes(SESSION_TBD) && tbdCount()) ? `<div class="stat-cell"><div class="lbl">미정</div><div class="val">${tbdCount()}</div></div>` : ''}
     </div>
 
     <div class="print-section-title">인원 분포 및 회비 결산</div>
@@ -2944,6 +3088,16 @@ function sessionCounts() {
   });
   return r;
 }
+// 차수 미정 인원 수 (차수별 타일과 같은 기준: countableMembers, 영유아 제외)
+function tbdCount() {
+  return countableMembers().filter(m => memberSessions(m).includes(SESSION_TBD)).length;
+}
+// 차수 미정 안내 배너 (미배정 화면 상단) — 차수가 있어야 배차가 가능하므로 상기시킨다
+function tbdNoticeHtml() {
+  const n = SESSIONS.includes(SESSION_TBD) ? 0 : tbdCount();
+  if (!n) return '';
+  return `<div style="padding:9px 12px; border:1px dashed var(--rose); border-radius:9px; color:var(--rose); font-size:12.5px; margin:4px 0 10px;">⚠ 차수 미정 <b>${n}명</b> — 차수가 정해져야 차편을 배정할 수 있어요. (홈 → 차수별 인원 → <b>미정</b>)</div>`;
+}
 function deptCounts() {
   const r = Object.fromEntries(DEPTS.map(d => [d, 0]));
   countedMembers().forEach(m => { if (r.hasOwnProperty(m.dept)) r[m.dept]++; }); return r;
@@ -2972,6 +3126,8 @@ let currentTab = 'home';
 const ALL_ZONES = '__ALL__';
 let rosterFilter = { zone: ALL_ZONES, q: '' };
 let transportTab = { type: '__busassign__' };
+// 숙소 탭 상태: '__all__' 전체 / '__un__' 미배정 / 그 외 = 숙소 이름
+let lodgingTab = { name: '__all__' };
 // 홈 차편 분포 카드 보기 범위: 'all' 전체 / 'main' 본 차수 / 'other' 타 차수
 let TRANSPORT_DIST_SCOPE = 'all';
 
@@ -3071,6 +3227,7 @@ function render() {
   if (currentTab === 'roster') currentTab = 'home';  // 명단 탭 제거됨 → 홈으로
   if (currentTab === 'home')      v.innerHTML = renderHome();
   else if (currentTab === 'transport') v.innerHTML = renderTransport();
+  else if (currentTab === 'lodging')   v.innerHTML = renderLodging();
   else if (currentTab === 'more')      v.innerHTML = renderMore();
   bindViewHandlers();
   updateTopbarHeight();
@@ -3088,32 +3245,16 @@ function renderHome() {
   const deptFees = feeTotalByDept();
   const tStats = getTransportStats(TRANSPORT_DIST_SCOPE);
 
-  const lodgings = getLodgings();
-  const lodgingKeys = Object.keys(lodgings).sort();
+  ensureLodgingDefs();
+  const lodgUnN = lodgingUnassigned().length;
   let lodgingHtml = `<div class="card"><div class="card-head">
-      <div class="card-title">숙소별 명단</div>
+      <div class="card-title">숙소 현황 <span style="font-weight:400;font-size:11px;color:var(--ink-mute)">(배정/정원 · 누르면 명단)</span></div>
       <div style="display:flex; gap:8px;">
-        <button class="card-action" onclick="photoRun('execPrintLodging')">사진</button>
-        <button class="card-action" onclick="execPrintLodging()">인쇄</button>
-        <button class="card-action" data-action="goto-lodging">전체보기</button>
+        <button class="card-action" data-action="goto-lodging">숙소 탭</button>
       </div>
-    </div>`;
-  lodgingKeys.forEach(lk => {
-    const lList = lodgings[lk].sort(memberSortCmp);
-    lodgingHtml += `
-      <div class="clickable" style="margin-top:12px; font-weight:700; color:var(--gold); font-size:13px; text-decoration:underline; text-decoration-style:dotted;" onclick="openSingleLodging('${esc(lk).replace(/'/g,"\\'")}')">${esc(lk)} (${lList.length}명)</div>
-      <div class="roster-table vscroll" style="margin-bottom:0; max-height:202px; margin-top:6px; min-width:0;">
-        <div style="min-width:400px;">
-          <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div></div>
-          ${lList.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openLodgingQuickEdit('${esc(m.id)}')">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
-        </div>
-      </div>
-    `;
-  });
-  if (lodgingKeys.length === 0) {
-    lodgingHtml += `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 인원이 없습니다.</div>`;
-  }
-  lodgingHtml += `</div>`;
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(88px, 1fr));gap:8px">${lodgingTilesHtml('popup')}</div>
+  </div>`;
 
   return `
     <div class="hero">
@@ -3169,6 +3310,7 @@ function renderHome() {
       <div class="card-head"><div class="card-title">차수별 인원</div></div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(72px, 1fr));gap:8px">
         ${SESSIONS.map(s => `<div class="clickable" style="background:var(--bg-2);border-radius:10px;padding:10px 8px;text-align:center" onclick="openSessionSheet('${esc(s)}')"><div style="font-size:11px;color:var(--ink-mute)">${esc(s)}</div><div style="font-size:18px;font-weight:700;margin-top:2px">${sess[s]||0}</div></div>`).join('')}
+        ${(!SESSIONS.includes(SESSION_TBD) && tbdCount()) ? `<div class="clickable" style="background:rgba(232,113,133,.08);border:1px dashed var(--rose);border-radius:10px;padding:10px 8px;text-align:center" onclick="openSessionSheet('${SESSION_TBD}')"><div style="font-size:11px;color:var(--rose)">⚠ 미정</div><div style="font-size:18px;font-weight:700;margin-top:2px;color:var(--rose)">${tbdCount()}</div></div>` : ''}
       </div>
     </div>
 
@@ -3245,7 +3387,8 @@ function renderHome() {
 
 function renderLodgingSheet(isReopen) {
   const lodgings = getLodgings();
-  const lodgingKeys = Object.keys(lodgings).sort();
+  const __le = (DB.settings && DB.settings.lodgingExtras) || {};
+  const lodgingKeys = Array.from(new Set([ ...Object.keys(lodgings), ...Object.keys(__le).filter(k => (__le[k] || []).length) ])).sort();
   
   let html = `
     <div style="display:flex;gap:10px;margin-bottom:12px;">
@@ -3255,12 +3398,14 @@ function renderLodgingSheet(isReopen) {
     <div style="overflow-x:auto;">
   `;
   lodgingKeys.forEach(lk => {
-    const lList = lodgings[lk].sort(memberSortCmp);
+    const lList = (lodgings[lk] || []).slice().sort(memberSortCmp);
+    const lExs = lodgingExtrasOf(lk);
     html += `
-      <div style="margin-top:12px; font-weight:700; color:var(--gold); font-size:13px;">${esc(lk)} (${lList.length}명)</div>
+      <div style="margin-top:12px; font-weight:700; color:var(--gold); font-size:13px;">${esc(lk)} (${lList.length + lExs.length}명)</div>
       <div class="roster-table" style="margin-bottom:0; min-width:400px; margin-top:6px;">
         <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div></div>
         ${lList.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberFromRef('${esc(m.id)}','${esc(m.name)}','${esc(m.zone)}','renderLodgingSheet')">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
+        ${lExs.map((p, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${lList.length + i + 1}</div><div style="color:var(--indigo-soft);">미등록</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="removeLodgingExtraConfirm('${esc(lk).replace(/'/g,"\\'")}',${i})">${esc(p.name)}</div><div></div><div style="white-space:nowrap;color:var(--ink-mute);font-size:11px;">누르면 빼기</div></div>`).join('')}
       </div>
     `;
   });
@@ -3269,17 +3414,182 @@ function renderLodgingSheet(isReopen) {
 }
 
 // 특정 숙소 1개만 전체 보기 (인쇄 없음)
-function openSingleLodging(lk) {
+// 숙소 명단 표 (공용) — 이름을 누르면 숙소 빠른 편집. extrasLk를 주면 그 숙소의 미등록 인원도 표시.
+function lodgingRosterHtml(list, extrasLk) {
+  const exs = extrasLk ? lodgingExtrasOf(extrasLk) : [];
+  if (!list.length && !exs.length) return `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">인원이 없습니다.</div>`;
+  const exLkJs = extrasLk ? esc(extrasLk).replace(/'/g, "\\'") : '';
+  return `<div style="overflow-x:auto;"><div class="roster-table" style="margin-bottom:0; min-width:400px;">
+    <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div></div>
+    ${list.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft);text-decoration:underline;text-decoration-style:dotted;" onclick="openLodgingQuickEdit('${esc(m.id)}')">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
+    ${exs.map((p, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${list.length + i + 1}</div><div style="color:var(--indigo-soft);">미등록</div><div class="nm" style="cursor:pointer;color:var(--gold-soft);text-decoration:underline;text-decoration-style:dotted;" onclick="removeLodgingExtraConfirm('${exLkJs}',${i})">${esc(p.name)}</div><div></div><div style="white-space:nowrap;color:var(--ink-mute);font-size:11px;">누르면 빼기</div></div>`).join('')}
+  </div></div>`;
+}
+// 숙소 집계 타일 (홈·숙소 탭 공용). mode='popup'(홈: 팝업 열기) | 'chip'(숙소 탭: 칩 전환)
+function lodgingTilesHtml(mode) {
   const lodgings = getLodgings();
-  const lList = (lodgings[lk] || []).slice().sort(memberSortCmp);
-  let html = `<div style="overflow-x:auto;">
-    <div class="roster-table" style="margin-bottom:0; min-width:400px;">
-      <div class="roster-row head" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>비고</div></div>
-      ${lList.map((m, i) => `<div class="roster-row" style="grid-template-columns: 28px 45px 60px 60px 1fr;"><div class="no">${i+1}</div><div>${esc(m.zone)}</div><div class="nm">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="white-space:nowrap;">${esc(m.note)}</div></div>`).join('')}
-      ${lList.length === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 인원이 없습니다.</div>` : ''}
-    </div>
+  const names = lodgingNamesAll();
+  const unN = lodgingUnassigned().length;
+  let out = names.map(n => {
+    const cnt = (lodgings[n] || []).length + lodgingExtrasOf(n).length, cap = lodgingCapOf(n), over = cap && cnt > cap;
+    const js = esc(n).replace(/'/g, "\\'");
+    const oc = mode === 'chip' ? `lodgingTab.name='${js}';render()` : `openSingleLodging('${js}')`;
+    return `<div class="clickable" style="background:var(--bg-2);${over ? 'border:1px solid var(--rose);' : ''}border-radius:10px;padding:10px 8px;text-align:center" onclick="${oc}">
+      <div style="font-size:11px;color:${over ? 'var(--rose)' : 'var(--ink-mute)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(n)}</div>
+      <div style="font-size:16px;font-weight:700;margin-top:2px;${over ? 'color:var(--rose);' : ''}">${cnt}<span style="font-size:11px;font-weight:500;color:${over ? 'var(--rose)' : 'var(--ink-mute)'}">/${cap || '–'}</span></div>
+    </div>`;
+  }).join('');
+  if (unN) out += `<div class="clickable" style="background:rgba(232,113,133,.08);border:1px dashed var(--rose);border-radius:10px;padding:10px 8px;text-align:center" onclick="setTab('lodging');lodgingTab.name='__un__';render()">
+      <div style="font-size:11px;color:var(--rose)">숙소 미배정</div>
+      <div style="font-size:16px;font-weight:700;margin-top:2px;color:var(--rose)">${unN}</div>
+    </div>`;
+  if (!out) out = `<div style="grid-column:1/-1; text-align:center; padding:12px; font-size:12px; color:var(--ink-mute);">숙소가 아직 없습니다. 숙소 탭 → <b>숙소 관리</b>에서 추가하세요.</div>`;
+  return out;
+}
+// 개별 숙소 팝업 — 상단: 인원 추가 · 사진 · 인쇄. 이름을 누르면 숙소 편집.
+function openSingleLodging(lk, isReopen) {
+  const list = (getLodgings()[lk] || []).slice().sort(memberSortCmp);
+  const exs = lodgingExtrasOf(lk);
+  const total = list.length + exs.length;
+  const cap = lodgingCapOf(lk);
+  const lkJs = esc(lk).replace(/'/g, "\\'");
+  let html = `<div style="display:flex; gap:8px; margin-bottom:10px;">
+      <button class="btn btn-secondary" style="flex:1; padding:9px;" onclick="openLodgingAssign('${lkJs}')">+ 인원 추가</button>
+      <button class="btn btn-secondary" style="flex:1; padding:9px;" onclick="photoRun('execPrintLodgingOne','${lkJs}')">사진</button>
+      <button class="btn btn-secondary" style="flex:1; padding:9px;" onclick="execPrintLodgingOne('${lkJs}')">인쇄</button>
+    </div>`;
+  if (cap && total > cap) html += `<div style="padding:8px 12px; border:1px dashed var(--rose); border-radius:9px; color:var(--rose); font-size:12px; margin-bottom:8px;">⚠ 정원(${cap}명)을 ${total - cap}명 초과했어요.</div>`;
+  html += `<div class="notice" style="margin-bottom:8px;">이름을 누르면 그 사람의 숙소를 바꿀 수 있어요. <b>미등록</b> 인원은 누르면 뺄 수 있어요.</div>`;
+  html += lodgingRosterHtml(list, lk);
+  openSheet(esc(lk) + ' (' + total + (cap ? '/' + cap : '') + '명)', html, null, { hideSave: true, replaceTop: !!isReopen, reopener: () => openSingleLodging(lk, true) });
+}
+// 숙소 인원 추가: 숙소 미배정(본 차수) 인원을 눌러서 바로 배정
+function openLodgingAssign(lk, isReopen) {
+  if (guardViewOnly()) return;
+  const list = lodgingUnassigned().slice().sort(memberSortCmp);
+  const cap = lodgingCapOf(lk), cnt = (getLodgings()[lk] || []).length + lodgingExtrasOf(lk).length;
+  const lkJs = esc(lk).replace(/'/g, "\\'");
+  let html = `<button type="button" class="btn btn-secondary btn-block" style="margin-bottom:8px;" onclick="promptAddLodgingExtra('${lkJs}')">미등록 인원 추가 (타교회 접수자 등)</button>
+    <div class="notice" style="margin-bottom:8px;">이름을 누르면 <b>${esc(lk)}</b>${cap ? ` (지금 ${cnt}/${cap}명)` : ''}에 바로 배정됩니다. 본 차수 참여자 중 숙소 미배정 인원만 보여요.</div>`;
+  if (!list.length) html += `<div class="empty-state">숙소 미배정 인원이 없습니다.</div>`;
+  else html += `<div class="roster-table" style="margin-bottom:0;">
+      <div class="roster-row head" style="grid-template-columns: 52px 1fr 76px;"><div>구역</div><div>성명</div><div>회(부서)</div></div>
+      ${list.map(m => `<div class="roster-row clickable" style="grid-template-columns: 52px 1fr 76px;" onclick="assignLodgingTo('${esc(m.id)}','${lkJs}')"><div>${esc(m.zone)}</div><div class="nm" style="color:var(--gold-soft); font-weight:700;">${esc(m.name)}</div><div>${esc(m.dept)}</div></div>`).join('')}
   </div>`;
-  openSheet(esc(lk) + ' (' + lList.length + '명)', html, null, { hideSave:true });
+  openSheet(esc(lk) + ' — 인원 추가', html, null, { hideSave: true, replaceTop: !!isReopen, reopener: () => openLodgingAssign(lk, true) });
+}
+function assignLodgingTo(mid, lk) {
+  if (guardViewOnly()) return;
+  const m = (DB.members || []).find(x => x.id === mid);
+  if (!m) return;
+  const cap = lodgingCapOf(lk);
+  const willBe = (getLodgings()[lk] || []).length + lodgingExtrasOf(lk).length + 1;
+  m.lodging = lk;
+  syncEvangelismLodging(m);
+  logHistory('숙소 변경', m.name + '(' + m.zone + ') · ' + lk);
+  saveDB(); render();
+  if (cap && willBe > cap) toast(m.name + ' 배정 — ⚠ 정원(' + cap + '명) 초과', true);
+  else toast(m.name + ' → ' + lk);
+  openLodgingAssign(lk, true);  // 목록 새로고침 (닫으면 스택을 따라 숙소 팝업/탭으로 복귀)
+}
+// 숙소 관리: 이름·정원 일괄 편집 (이름 변경 시 배정 인원도 따라감, 행 삭제 시 배정 해제)
+function openLodgingManage(isReopen) {
+  if (guardViewOnly()) return;
+  ensureLodgingDefs();
+  const defs = getLodgingDefs();
+  const row = (d, i) => `<div class="lm-row" data-i="${i}" style="display:flex; gap:5px; margin-bottom:6px; align-items:center;">
+      <input class="lm-name" value="${esc(d.name)}" placeholder="숙소 이름" style="flex:1; font-size:13px; padding:8px;"/>
+      <input class="lm-cap" type="number" inputmode="numeric" min="0" value="${d.cap || ''}" placeholder="정원" style="width:64px; font-size:13px; padding:8px;"/>
+      <button type="button" class="lm-del" style="padding:8px 10px; border:1px dashed var(--rose); border-radius:8px; background:transparent; color:var(--rose); cursor:pointer;">삭제</button>
+    </div>`;
+  const html = `
+    <div class="notice">숙소 이름과 정원을 관리합니다. 이름을 바꾸면 배정된 인원의 숙소도 함께 바뀌고, 행을 삭제하면 그 숙소의 배정이 비워집니다. 정원을 비우면 '정원 미설정'입니다.</div>
+    <div id="lmList">${defs.map(row).join('')}</div>
+    <button type="button" id="lmAdd" class="btn btn-secondary btn-block" style="margin-top:4px;">+ 숙소 추가</button>`;
+  openSheet('숙소 관리', html, () => {
+    const olds = getLodgingDefs();
+    const rows = Array.from(document.querySelectorAll('#lmList .lm-row'));
+    const newDefs = []; const renames = [];
+    for (const r of rows) {
+      const name = r.querySelector('.lm-name').value.trim();
+      const cap = parseInt(r.querySelector('.lm-cap').value, 10) || 0;
+      if (!name) continue;
+      if (newDefs.some(d => d.name === name)) { toast('숙소 이름이 겹쳐요: ' + name, true); return false; }
+      const oi = parseInt(r.dataset.i, 10);
+      if (oi >= 0 && olds[oi] && olds[oi].name !== name) renames.push([olds[oi].name, name]);
+      newDefs.push({ name: name, cap: cap });
+    }
+    const seen = new Set(rows.map(r => parseInt(r.dataset.i, 10)).filter(i => i >= 0));
+    const removed = olds.filter((d, i) => !seen.has(i)).map(d => d.name);
+    renames.forEach(([o, n]) => {
+      (DB.members || []).forEach(m => { if ((m.lodging || '').trim() === o) { m.lodging = n; syncEvangelismLodging(m); } });
+      if (DB.settings.lodgingExtras && DB.settings.lodgingExtras[o]) {  // 미등록 인원도 새 이름으로 이동
+        DB.settings.lodgingExtras[n] = (DB.settings.lodgingExtras[n] || []).concat(DB.settings.lodgingExtras[o]);
+        delete DB.settings.lodgingExtras[o];
+      }
+    });
+    removed.forEach(o => {
+      (DB.members || []).forEach(m => { if ((m.lodging || '').trim() === o) { m.lodging = ''; syncEvangelismLodging(m); } });
+      if (DB.settings.lodgingExtras) delete DB.settings.lodgingExtras[o];  // 미등록 인원도 정리
+    });
+    newDefs.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    DB.settings.lodgings = newDefs;
+    if (renames.length) logHistory('숙소 이름 변경', renames.map(([o, n]) => o + '→' + n).join(', '));
+    removed.forEach(o => logHistory('숙소 삭제', o));
+    saveDB(); render();
+    toast('숙소 목록을 저장했어요');
+    return true;
+  }, { saveLabel: '저장', replaceTop: !!isReopen, reopener: () => openLodgingManage(true), afterPaint: bindLodgingManage });
+}
+function bindLodgingManage() {
+  const list = document.getElementById('lmList'); if (!list) return;
+  const bindDel = (btn) => { btn.onclick = () => btn.closest('.lm-row').remove(); };
+  list.querySelectorAll('.lm-del').forEach(bindDel);
+  const add = document.getElementById('lmAdd');
+  if (add) add.onclick = () => {
+    const div = document.createElement('div');
+    div.className = 'lm-row'; div.dataset.i = '-1';
+    div.style.cssText = 'display:flex; gap:5px; margin-bottom:6px; align-items:center;';
+    div.innerHTML = `<input class="lm-name" placeholder="숙소 이름" style="flex:1; font-size:13px; padding:8px;"/><input class="lm-cap" type="number" inputmode="numeric" min="0" placeholder="정원" style="width:64px; font-size:13px; padding:8px;"/><button type="button" class="lm-del" style="padding:8px 10px; border:1px dashed var(--rose); border-radius:8px; background:transparent; color:var(--rose); cursor:pointer;">삭제</button>`;
+    list.appendChild(div); bindDel(div.querySelector('.lm-del'));
+    const inp = div.querySelector('.lm-name'); if (inp) inp.focus();
+  };
+}
+// 개별 숙소 인쇄 (전체 인쇄와 같은 2단 표기, 한 숙소만)
+function execPrintLodgingOne(lk) {
+  const titleText = `${getYearPrefix()} 하계수양회 - 숙소 명단 (${lk})`;
+  let body = `<div class="print-title">${esc(titleText)}</div>`;
+  const mems = (getLodgings()[lk] || []).slice().sort(memberSortCmp);
+  const exs = lodgingExtrasOf(lk);
+  const list = mems.concat(exs.map(p => ({ zone: '미등록', name: p.name, dept: '' })));
+  const cap = lodgingCapOf(lk);
+  if (!list.length) {
+    body += `<div style="text-align:center; padding:30px; color:#666">배정된 인원이 없습니다.</div>`;
+    return doPrint(titleText, body);
+  }
+  const half = Math.ceil(list.length / 2);
+  const left = list.slice(0, half), right = list.slice(half);
+  let trs = '';
+  for (let i = 0; i < half; i++) {
+    const l = left[i], r = right[i];
+    trs += `<tr>
+      <td>${l ? i + 1 : ''}</td><td>${l ? esc(l.zone) : ''}</td><td class="print-name">${l ? esc(l.name) : ''}</td><td>${l ? esc(l.dept) : ''}</td>
+      <td class="spacer"></td>
+      <td>${r ? half + i + 1 : ''}</td><td>${r ? esc(r.zone) : ''}</td><td class="print-name">${r ? esc(r.name) : ''}</td><td>${r ? esc(r.dept) : ''}</td>
+    </tr>`;
+  }
+  body += `
+    <div class="print-section-title">${esc(lk)} <span style="font-weight:500;color:#666;font-size:11px">· ${list.length}명${exs.length ? ' (미등록 ' + exs.length + ')' : ''}${cap ? ' / 정원 ' + cap + '명' : ''}</span></div>
+    <table class="lodging-print-table">
+      <colgroup>
+        <col style="width:6%"><col style="width:13%"><col style="width:17%"><col style="width:12%">
+        <col style="width:4%">
+        <col style="width:6%"><col style="width:13%"><col style="width:17%"><col style="width:12%">
+      </colgroup>
+      <thead><tr><th>번호</th><th>구역</th><th>성명</th><th>회</th><th class="spacer"></th><th>번호</th><th>구역</th><th>성명</th><th>회</th></tr></thead>
+      <tbody>${trs}</tbody>
+    </table>`;
+  doPrint(titleText, body);
 }
 
 function buildMemberListHTML() {
@@ -3472,26 +3782,62 @@ function openDriverDeleteSheet() {
 }
 
 // 숙소만 간단히 편집 (홈 숙소 카드의 화면 성명 클릭용). 저장 후 홈 갱신.
+// 인원 편집창의 숙소 칸 표시: 본 차수가 설정돼 있으면 그 차수를 체크했을 때만 보임 (숙소는 본 차수 전용)
+function updateLodgingVisibility() {
+  const fld = document.getElementById('mLodgingField');
+  if (!fld) return;
+  const church = churchSessionName();
+  if (!church) { fld.style.display = ''; return; }
+  const chk = document.querySelector('#mSessionList .sess-block[data-name="' + church.replace(/"/g, '\\"') + '"] .sess-check');
+  fld.style.display = (chk && chk.checked) ? '' : 'none';
+}
+// 인원 편집창 숙소 드롭다운 옆 '+ 추가 / 삭제' 버튼
+function bindLodgingFieldButtons() {
+  const addB = document.getElementById('mLodgingAdd'), delB = document.getElementById('mLodgingDel'), sel = document.getElementById('mLodging');
+  if (!sel) return;
+  if (addB) addB.onclick = () => {
+    if (guardViewOnly()) return;
+    promptModal('숙소 추가', "새 숙소 이름을 입력하세요 (예: A동 101호). 정원은 숙소 탭의 '숙소 관리'에서 정할 수 있어요.", '', (name) => {
+      name = (name || '').trim();
+      if (!name) return;
+      if (getLodgingDefs().some(d => d.name === name)) { sel.innerHTML = lodgingOptionsHtml(name); toast('이미 있는 숙소예요 — 선택해 두었어요'); return; }
+      addLodgingDef(name, 0);
+      sel.innerHTML = lodgingOptionsHtml(name);
+      toast("숙소 '" + name + "' 추가");
+    });
+  };
+  if (delB) delB.onclick = () => {
+    if (guardViewOnly()) return;
+    const name = sel.value;
+    if (!name) { toast('삭제할 숙소를 먼저 선택하세요', true); return; }
+    const n = lodgingAssignedCount(name);
+    confirmModal('숙소 삭제', "숙소 '" + name + "'를 목록에서 삭제합니다." + (n ? ' 배정된 ' + n + '명의 숙소가 비워집니다.' : ''), () => {
+      removeLodgingDef(name);
+      sel.innerHTML = lodgingOptionsHtml('');
+      toast("숙소 '" + name + "' 삭제");
+      render();
+    }, '삭제');
+  };
+}
+
 function openLodgingQuickEdit(memberId) {
   if (guardViewOnly()) return;
   const m = (DB.members || []).find(x => x.id === memberId);
   if (!m) { toast('인원을 찾지 못했어요.', true); return; }
   const html = `
     <div style="font-size:13px;color:var(--ink-mute);margin-bottom:10px;">${esc(m.zone)} · ${esc(m.dept)} · <b style="color:var(--ink)">${esc(m.name)}</b></div>
-    <div class="field"><label>숙소</label><input id="qLodging" value="${esc(m.lodging||'')}" placeholder="예: A동 101호" autofocus/></div>
-    <div style="font-size:12px;color:var(--ink-mute);margin-top:4px;">숙소만 빠르게 바꿉니다. 다른 정보는 명단에서 성명을 눌러 수정하세요.</div>
+    <div class="field"><label>숙소</label><select id="qLodging">${lodgingOptionsHtml((m.lodging||'').trim())}</select></div>
+    <div style="font-size:12px;color:var(--ink-mute);margin-top:4px;">숙소만 빠르게 바꿉니다. 새 숙소가 필요하면 숙소 탭의 <b>숙소 관리</b>에서 추가하세요.</div>
   `;
-  openSheet('숙소 입력 · ' + m.name, html, function () {
-    m.lodging = ($('#qLodging').value || '').trim();
-    // 숙소 연동: 연결된 전도대상자의 숙소도 함께 갱신 (숙소를 비우면 전도 숙소도 비워짐)
-    DB.evangelism.forEach(e => {
-      if (e.memberId === m.id || (!e.memberId && e.name === m.name && e.zone === m.zone && e.name !== '')) {
-        if (!e.memberId) e.memberId = m.id;
-        e.lodging = m.lodging;
-      }
-    });
+  openSheet('숙소 편집 · ' + m.name, html, function () {
+    const v = ($('#qLodging').value || '').trim();
+    const cap = v ? lodgingCapOf(v) : 0;
+    const willOver = v && cap && ((getLodgings()[v] || []).filter(x => x.id !== m.id).length + lodgingExtrasOf(v).length + 1) > cap;
+    m.lodging = v;
+    syncEvangelismLodging(m);  // 연결된 전도대상자의 숙소도 함께 갱신 (숙소를 비우면 전도 숙소도 비워짐)
     saveDB(); render();
-    logHistory('숙소 변경', m.name + ' · ' + (m.lodging || '(비움)'));
+    logHistory('숙소 변경', m.name + ' · ' + (v || '(비움)'));
+    if (willOver) toast("'" + v + "' 정원(" + cap + "명)을 초과했어요", true);
     return true;  // closeSheet가 이어서 처리(스택 복귀)
   }, { saveLabel: '저장' });
 }
@@ -3655,6 +4001,20 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
             </div>
           </div>`;
         }).join('')}
+        ${SESSIONS.includes(SESSION_TBD) ? '' : (() => {
+          const tbdChecked = memberSessions(m).includes(SESSION_TBD);
+          return `
+          <div class="sess-block" data-name="${SESSION_TBD}" style="border:1px dashed var(--gold-soft); border-radius:10px; margin-bottom:8px; overflow:hidden;">
+            <label class="sess-head" style="display:flex; align-items:center; gap:8px; padding:10px; cursor:pointer; background:${tbdChecked?'rgba(212,175,90,.10)':'transparent'};">
+              <input type="checkbox" class="sess-check" value="${SESSION_TBD}" ${tbdChecked?'checked':''}/>
+              <span style="font-weight:700;">차수 미정</span>
+              <span style="font-size:12px; color:var(--ink-mute); margin-left:auto;">아직 못 정함</span>
+            </label>
+            <div class="sess-body" style="padding:${tbdChecked?'10px':'0'}; max-height:${tbdChecked?'600px':'0'}; overflow:hidden; transition:all .2s; border-top:${tbdChecked?'1px solid var(--line-soft)':'none'};">
+              <div style="font-size:12px; color:var(--ink-mute); line-height:1.5;">차수가 정해지면 이 체크를 풀고 실제 차수를 선택하세요. 그때 그 차수의 차편·날짜를 입력할 수 있습니다. 미정 인원은 홈 <b>차수별 인원</b>의 <b>⚠ 미정</b> 칸과 <b>입력 점검</b>에 모여 표시됩니다.</div>
+            </div>
+          </div>`;
+        })()}
       </div>
     </div>
 
@@ -3670,7 +4030,14 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       <div class="field"><label>관계</label><input id="mLeaderRel" value="${esc(m.leaderRel)}"/></div>
     </div>
     <div class="field"><label>연락처</label><input id="mContact" type="tel" inputmode="tel" value="${esc(m.contact||'')}" placeholder="예: 010-1234-5678"/></div>
-    <div class="field"><label>숙소</label><input id="mLodging" value="${esc(m.lodging||'')}" placeholder="예: A동 101호"/></div>
+    <div class="field" id="mLodgingField">
+      <label>숙소 <span style="font-weight:400;color:var(--ink-mute);font-size:11px;">(본 차수 참여자만)</span></label>
+      <div style="display:flex; gap:5px;">
+        <select id="mLodging" style="flex:1; min-width:0;">${lodgingOptionsHtml((m.lodging||'').trim())}</select>
+        <button type="button" id="mLodgingAdd" style="padding:6px 10px; font-size:12px; border:1px dashed var(--gold-soft); border-radius:8px; background:transparent; color:var(--gold-soft); cursor:pointer; white-space:nowrap;">+ 추가</button>
+        <button type="button" id="mLodgingDel" style="padding:6px 10px; font-size:12px; border:1px dashed var(--rose); border-radius:8px; background:transparent; color:var(--rose); cursor:pointer; white-space:nowrap;">삭제</button>
+      </div>
+    </div>
     <div class="field">
       <label>회비 개별 지정 <span style="font-weight:400;color:var(--ink-mute);font-size:11px;">(비우면 부서 단가 자동 적용)</span></label>
       <input id="mFeeOverride" type="number" inputmode="numeric" value="${(m.feeOverride!==null && m.feeOverride!==undefined && m.feeOverride!=='') ? esc(String(m.feeOverride)) : ''}" placeholder="부서 단가: ${won(DB.fees[m.dept]||0)}원"/>
@@ -3704,6 +4071,9 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       };
     });
     const sessionStr = sessionValues.join(', ');
+    // 숙소는 본 차수 참여자에게만 해당 — 본 차수가 설정돼 있고 이번 저장에 본 차수가 없으면(미정 포함) 숙소를 비운다
+    const __church = churchSessionName();
+    const lodgingVal = (__church && !sessionValues.includes(__church)) ? '' : (($('#mLodging') && $('#mLodging').value) || '').trim();
 
     const updated = {
       ...m, zone: resolveZoneValue(), dept: $('#mDept').value, name: $('#mName').value.trim(), session: sessionStr,
@@ -3711,7 +4081,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       extraUp: {}, extraDown: {}, sessionTrans: sessionTrans,
       leaderName: $('#mLeaderName').value.trim(), leaderRel: $('#mLeaderRel').value.trim(),
       contact: ($('#mContact') ? $('#mContact').value.trim() : (m.contact||'')),
-      lodging: $('#mLodging').value.trim(),
+      lodging: lodgingVal,
       salvation: m.salvation || false,
       baptism: m.baptism || false,
       note: $('#mNote').value.trim(),
@@ -3950,6 +4320,15 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       const body = block.querySelector('.sess-body');
       const head = block.querySelector('.sess-head');
       chk.addEventListener('change', () => {
+        // 차수 미정 ↔ 실제 차수 상호배타: 한쪽을 체크하면 다른 쪽은 자동 해제
+        if (chk.checked) {
+          document.querySelectorAll('#mSessionList .sess-block').forEach(ob => {
+            if (ob === block) return;
+            const oc = ob.querySelector('.sess-check');
+            if (!oc || !oc.checked) return;
+            if (nm === SESSION_TBD || ob.dataset.name === SESSION_TBD) { oc.checked = false; oc.dispatchEvent(new Event('change')); }
+          });
+        }
         if (chk.checked) {
           body.style.maxHeight = '600px'; body.style.padding = '10px'; body.style.borderTop = '1px solid var(--line-soft)';
           head.style.background = 'rgba(212,175,90,.10)';
@@ -3957,6 +4336,8 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           body.style.maxHeight = '0'; body.style.padding = '0'; body.style.borderTop = 'none';
           head.style.background = 'transparent';
         }
+        // 숙소 칸은 본 차수 체크 여부에 따라 보이고 숨김
+        if (typeof updateLodgingVisibility === 'function') updateLodgingVisibility();
       });
       // 날짜: 한 번 누르면 선택, 같은 것 다시 누르면 해제 (토글)
       function refreshDatePills(dir) {
@@ -4031,6 +4412,9 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
         bindAddDriverBtns(block);
       });
     });
+    // 숙소: 본 차수 선택 시에만 표시 + 드롭다운 옆 추가/삭제
+    updateLodgingVisibility();
+    bindLodgingFieldButtons();
   }, 30);
 
   if (!isNew) {
@@ -4174,6 +4558,74 @@ function busExtraEditor(busKey, dispName, session) {
   </div>`;
 }
 
+/* ---------- 숙소 탭 ---------- */
+// 차편 탭과 같은 칩 구조: 상단에 [전체][각 숙소][미배정] 칩, 아래에 선택한 항목의 화면.
+function renderLodging() {
+  ensureLodgingDefs();
+  const lodgings = getLodgings();
+  const names = lodgingNamesAll();
+  const unList = lodgingUnassigned();
+  let sel = lodgingTab.name;
+  if (sel !== '__all__' && sel !== '__un__' && !names.includes(sel)) { lodgingTab.name = '__all__'; sel = '__all__'; }
+  const church = churchSessionName();
+
+  let html = `
+    <div class="transport-tabs" id="lgTabs" style="margin-top:10px;">
+      <button class="tt-pill ${sel === '__all__' ? 'active' : ''}" data-l="__all__">전체</button>
+      ${names.map(n => {
+        const c = (lodgings[n] || []).length + lodgingExtrasOf(n).length, cap = lodgingCapOf(n);
+        return `<button class="tt-pill ${n === sel ? 'active' : ''}" data-l="${esc(n)}"${(cap && c > cap) ? ' style="color:var(--rose);"' : ''}>${esc(n)} ${c}${cap ? '/' + cap : ''}</button>`;
+      }).join('')}
+      <button class="tt-pill ${sel === '__un__' ? 'active' : ''}" data-l="__un__"${unList.length ? ' style="color:var(--rose);"' : ''}>미배정 ${unList.length}</button>
+    </div>
+  `;
+
+  if (sel === '__all__') {
+    html += `<div class="card">
+      <div class="card-head"><div class="card-title">숙소 전체</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+          <button class="card-action" onclick="openLodgingManage()">숙소 관리</button>
+          <button class="card-action" onclick="renderLodgingSheet()">전체보기</button>
+          <button class="card-action" onclick="photoRun('execPrintLodging')">사진</button>
+          <button class="card-action" onclick="execPrintLodging()">인쇄</button>
+        </div>
+      </div>
+      ${church ? `<div style="font-size:11.5px; color:var(--ink-mute); margin-bottom:8px;">숙소는 본 차수(${esc(church)}) 참여자 기준입니다. 칸을 누르면 그 숙소로 이동합니다.</div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(88px, 1fr));gap:8px">${lodgingTilesHtml('chip')}</div>
+    </div>`;
+    return html;
+  }
+
+  if (sel === '__un__') {
+    html += `<div class="card">
+      <div class="card-head"><div class="card-title">숙소 미배정 <span style="font-weight:400;font-size:12px;color:var(--ink-mute)">${unList.length}명</span></div></div>
+      <div class="notice" style="margin-bottom:8px;">본 차수 참여자 중 숙소가 아직 없는 인원입니다. 이름을 누르면 숙소를 정할 수 있어요.</div>
+      ${lodgingRosterHtml(unList.slice().sort(memberSortCmp))}
+    </div>`;
+    return html;
+  }
+
+  const list = (lodgings[sel] || []).slice().sort(memberSortCmp);
+  const exs = lodgingExtrasOf(sel);
+  const total = list.length + exs.length;
+  const cap = lodgingCapOf(sel);
+  const selJs = esc(sel).replace(/'/g, "\\'");
+  html += `<div class="card">
+    <div class="card-head"><div class="card-title">${esc(sel)} <span style="font-weight:400;font-size:12px;color:${cap && total > cap ? 'var(--rose)' : 'var(--ink-mute)'}">${total}${cap ? '/' + cap : ''}명</span></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+        <button class="card-action" onclick="openLodgingAssign('${selJs}')">+ 인원 추가</button>
+        <button class="card-action" onclick="openSingleLodging('${selJs}')">전체보기</button>
+        <button class="card-action" onclick="photoRun('execPrintLodgingOne','${selJs}')">사진</button>
+        <button class="card-action" onclick="execPrintLodgingOne('${selJs}')">인쇄</button>
+      </div>
+    </div>
+    ${cap && total > cap ? `<div style="padding:8px 12px; border:1px dashed var(--rose); border-radius:9px; color:var(--rose); font-size:12px; margin-bottom:8px;">⚠ 정원(${cap}명)을 ${total - cap}명 초과했어요.</div>` : ''}
+    <div class="notice" style="margin-bottom:8px;">이름을 누르면 그 사람의 숙소를 바꿀 수 있어요. <b>미등록</b> 인원은 누르면 뺄 수 있어요.</div>
+    ${lodgingRosterHtml(list, sel)}
+  </div>`;
+  return html;
+}
+
 function renderTransport() {
   const TYPES = [...BUSES, ...CHURCH_CARS, '개인차', ...OTHER_TRANSPORTS];
   const SPECIAL = ['__busassign__', '__unassigned__'];
@@ -4201,7 +4653,7 @@ function renderTransport() {
   if (isUA) {
     html += `<div class="card">
       <div class="card-head"><div class="card-title">미배정자 배차</div></div>
-      <div id="uaInline">${unassignedBodyHtml(true)}</div>
+      <div id="uaInline">${tbdNoticeHtml()}${unassignedBodyHtml(true)}</div>
     </div>`;
     return html;
   }
@@ -4428,6 +4880,9 @@ function openInputCheckSheet(isReopen) {
   const byMember = (a, b) => memberSortCmp(a.m, b.m);
   noTrans.sort(byMember);
   noDate.sort(byMember);
+  // 4) 차수 미정 인원 — 차수가 정해져야 차편·날짜 입력이 가능하므로 여기서 모아 보여준다
+  const tbdList = regs.filter(m => memberSessions(m).includes(SESSION_TBD)).map(m => ({ m: m, what: '차수 미정' }));
+  tbdList.sort(byMember);
 
   function nameBtn(it) {
     return '<button class="chk-name" data-mid="' + esc(it.m.id) + '" style="display:flex; justify-content:space-between; align-items:center; width:100%; text-align:left; padding:9px 12px; border:1px solid var(--line-soft); border-radius:9px; background:var(--bg-1); color:var(--ink); margin-bottom:6px;">' +
@@ -4447,7 +4902,8 @@ function openInputCheckSheet(isReopen) {
   if (church) html += section('본 교회 차수(' + esc(church) + ') 차편 미선택', noTrans, '모두 차편이 선택되어 있어요.');
   else html += '<div style="font-size:12px; color:var(--ink-mute); margin:10px 0;">본 교회 차수가 설정되지 않아 차편 점검을 건너뛰었어요.</div>';
   html += section('차수 날짜 미선택', noDate, '모두 날짜가 선택되어 있어요.');
-  const total = noTrans.length + noDate.length;
+  html += section('차수 미정', tbdList, '차수 미정 인원이 없어요.');
+  const total = noTrans.length + noDate.length + tbdList.length;
   if (!total && !noDateDefs.length) html += '<div style="text-align:center; padding:14px; color:var(--green); font-weight:800;">✓ 점검 완료 — 빠진 입력이 없습니다.</div>';
 
   openSheet('입력 점검', html, null, { hideSave: true, replaceTop: !!isReopen, reopener: () => openInputCheckSheet(true) });
@@ -4566,9 +5022,10 @@ function openManualSheet() {
 
     ${sec('1. 행사 준비', '더보기 맨 위에서 설정합니다. (동기화 코드를 발행한 <b>방장</b> 기기에서만 수정할 수 있어요)<br>• <b>행사명 수정</b>: 행사 이름<br>• <b>행사 정보 수정</b>: 교회명, 본 교회 차수, 차수별 날짜(달력에서 두 날짜를 고르면 빠른 날=시작, 늦은 날=끝)<br>• <b>구역·차수·차량 목록</b>: 구역, 호차, 교회차, 기타 차편 (개인차 차주는 인원 추가에서 추가·삭제)<br>• <b>회(부서)별 회비 단가</b>: 부서 이름·단가')}
 
-    ${sec('2. 인원 등록', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분(사전 1단계·2단계·현장 접수), 차수는 꼭 골라야 저장됩니다.<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. 본 교회 차수가 아니면 차편을 비워도 됩니다.<br>• 인도자·관계 아래 <b>연락처</b>를 적어둘 수 있습니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 개인차를 고르면 <b>+ 차주 추가</b>로 차주를 바로 등록할 수 있고(상·하행 모두 반영), <b>차주 삭제</b>로 뺄 수 있습니다.')}
+    ${sec('2. 인원 등록', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분(사전 1단계·2단계·현장 접수), 차수는 꼭 골라야 저장됩니다.<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. 본 교회 차수가 아니면 차편을 비워도 됩니다.<br>• 차수를 아직 못 정했으면 <b>차수 미정</b>을 체크해 등록만 먼저 해두세요. 홈 <b>차수별 인원</b>의 <b>⚠ 미정</b> 칸과 <b>입력 점검</b>에 모여 표시되고, 차수가 정해지면 미정을 풀고 실제 차수를 고르면 됩니다.<br>• <b>숙소</b>는 본 교회 차수 참여자에게만 해당되어, 본 차수를 체크했을 때만 드롭다운이 보입니다(옆의 <b>+ 추가/삭제</b>로 숙소 목록을 바로 관리). 본 차수를 빼고 저장하면 숙소도 함께 비워집니다.<br>• 인도자·관계 아래 <b>연락처</b>를 적어둘 수 있습니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 개인차를 고르면 <b>+ 차주 추가</b>로 차주를 바로 등록할 수 있고(상·하행 모두 반영), <b>차주 삭제</b>로 뺄 수 있습니다.')}
 
     ${sec('3. 명단 보기·수정·인쇄', '홈의 <b>접수 현황·구역별·차수별·회별</b> 카드에서 항목을 누르면 명단창이 열립니다.<br>• 명단창에서 <b>성명을 누르면 편집창</b>이 열리고, 저장하거나 취소하면 다시 그 명단창으로 돌아옵니다.<br>• 구역별 카드 오른쪽 <b>인쇄</b>는 전체 명단을 인쇄합니다. 각 구역 명단창의 <b>인쇄</b>는 그 구역만 인쇄합니다.<br>• 삭제(구역 초기화·개별 인원)한 직후에는 <b>되돌리기</b> 버튼이 잠깐 떠서, 잘못 지웠으면 바로 되살릴 수 있습니다.<br>• 모든 <b>인쇄</b> 버튼 옆의 <b>사진</b>을 누르면, 인쇄될 내용과 똑같은 문서를 <b>고화질 사진</b>으로 만들어 카카오톡 등으로 바로 <b>공유</b>하거나 저장할 수 있습니다.')}
+    ${sub('숙소 탭', '하단의 <b>숙소</b> 탭에서 숙소를 관리합니다. 위쪽 칩으로 <b>전체 · 각 숙소 · 미배정</b>을 오가고, 각 숙소 화면에서 <b>+ 인원 추가</b>(미배정 인원을 눌러 바로 배정) · <b>전체보기 · 사진 · 인쇄</b>를 쓸 수 있습니다. <b>숙소 관리</b>에서 숙소 이름과 <b>정원</b>을 정하면 홈과 칩에 <b>배정/정원</b>으로 표시되고, 정원을 넘으면 붉게 경고합니다. 명단에서 이름을 누르면 그 사람의 숙소를 바로 바꿀 수 있습니다. 홈의 <b>숙소 현황</b> 칸을 누르면 그 숙소 명단이 팝업으로 열립니다. 명단에 없는 <b>미등록 인원</b>(타교회 접수자 등)도 <b>+ 인원 추가 → 미등록 인원 추가</b>로 숙소에 넣을 수 있고(명단에서 이름을 누르면 빼기), 정원은 표시용이라 <b>초과 배정도 가능</b>합니다 — 넘으면 붉은 경고만 띄웁니다.')}
 
     ${sec('4. 차편 탭 — 전체 구조', '차편 탭 맨 위의 칩으로 화면을 바꿉니다. 칩 순서는 <b>본대 배정 → 미배정 → 1호차 → 2호차 → … → 교회차 → 개인차 → 타교회</b> 입니다.<br>차편 탭에 들어가면 <b>본대 배정</b>이 기본으로 열립니다.' +
     sub('차편 종류는 네 가지', '인원 편집에서 각 차수의 상·하행마다 <b>교통수단 종류</b>를 고르고, 그 다음 <b>세부 차편</b>을 정합니다.<br>• <b>버스(본대)</b>: 교회가 함께 타는 대절 버스. 세부 차편 = 몇 호차<br>• <b>개인차</b>: 성도 개인 차량. 세부 차편 = 차주<br>• <b>교회차</b>: 교회 소유 차량<br>• <b>타교회·대중교통</b>: 그 외 교통편. 세부 차편 = 교회명 등') +
@@ -5681,6 +6138,7 @@ function openBaseSettingsSheet() {
   openSheet('기초 데이터 설정', html, () => {
     ZONES = $('#sZones').value.split(',').map(s=>s.trim()).filter(Boolean);
     SESSIONS = $('#sSessions').value.split(',').map(s=>s.trim()).filter(Boolean);
+    if (SESSIONS.includes(SESSION_TBD)) { toast("'미정'은 차수 미정 표시용으로 예약된 이름이라 차수로 만들 수 없어요", true); SESSIONS = SESSIONS.filter(s => s !== SESSION_TBD); }
     BUSES = $('#sBuses').value.split(',').map(s=>s.trim()).filter(Boolean);
     CHURCH_CARS = $('#sChurch').value.split(',').map(s=>s.trim()).filter(Boolean);
     OTHER_TRANSPORTS = $('#sOther').value.split(',').map(s=>s.trim()).filter(Boolean);
@@ -6342,7 +6800,7 @@ function bindViewHandlers() {
   $$('[data-dist-scope]').forEach(b => b.onclick = () => { TRANSPORT_DIST_SCOPE = b.dataset.distScope; render(); });
   bindMemberSearch();
   $$('[data-action="goto-evangelism"]').forEach(b => b.onclick = renderEvangelismSheet);
-  $$('[data-action="goto-lodging"]').forEach(b => b.onclick = renderLodgingSheet);
+  $$('[data-action="goto-lodging"]').forEach(b => b.onclick = () => { lodgingTab.name = '__all__'; setTab('lodging'); });
   $$('[data-action="goto-fee-sheet"]').forEach(b => b.onclick = renderFeeSupportSheet);
   $$('#zoneScroll .zone-pill').forEach(p => p.onclick = () => {
     rosterFilter.zone = p.dataset.zone;
@@ -6377,6 +6835,14 @@ function bindViewHandlers() {
     render();
     const tt2 = document.getElementById('ttTabs');
     if (tt2) tt2.scrollLeft = sl;  // 가로 스크롤 위치 복원
+  });
+  $$('#lgTabs .tt-pill').forEach(b => b.onclick = () => {
+    lodgingTab.name = b.dataset.l;
+    const lg = document.getElementById('lgTabs');
+    const sl = lg ? lg.scrollLeft : 0;
+    render();
+    const lg2 = document.getElementById('lgTabs');
+    if (lg2) lg2.scrollLeft = sl;  // 가로 스크롤 위치 복원
   });
   // PC: 칩 줄 위에서 마우스 휠(세로)을 가로 스크롤로 변환 (한 번만 바인딩)
   const ttBar = document.getElementById('ttTabs');

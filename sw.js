@@ -1,6 +1,6 @@
 // 하계수양회 PWA Service Worker
-// v11.0.0 — 숙소 탭 신설(칩·정원·배정·미등록 인원), 차수 미정 지원, 숙소는 본 차수 전용, 사진 최대 화질
-const CACHE_VERSION = 'retreat-sync-v11.0.0';
+// v11.0.1 — 탭바 4칸 한 줄 정렬 // 숙소 탭 신설(칩·정원·배정·미등록 인원), 차수 미정 지원, 숙소는 본 차수 전용, 사진 최대 화질
+const CACHE_VERSION = 'retreat-sync-v11.0.1';
 const CORE_ASSETS = [
   './',
   './index.html',

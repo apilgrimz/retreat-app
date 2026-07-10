@@ -1410,8 +1410,9 @@ function ensureLodgingDefs() {
     const l = (m.lodging || '').trim();
     if (l && !have.has(l)) { defs.push({ name: l, cap: 0 }); have.add(l); added = true; }
   });
-  Object.keys((DB.settings && DB.settings.lodgingExtras) || {}).forEach(k => {
-    if (k && !have.has(k)) { defs.push({ name: k, cap: 0 }); have.add(k); added = true; }
+  const __le = (DB.settings && DB.settings.lodgingExtras) || {};
+  Object.keys(__le).forEach(k => {
+    if (k && !have.has(k) && (__le[k] || []).length) { defs.push({ name: k, cap: 0 }); have.add(k); added = true; }
   });
   if (added) defs.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   return defs;
@@ -1423,7 +1424,8 @@ function lodgingCapOf(name) {
 function lodgingNamesAll() {
   ensureLodgingDefs();
   const lodgings = getLodgings();
-  return Array.from(new Set([ ...getLodgingDefs().map(d => d.name), ...Object.keys(lodgings), ...Object.keys((DB.settings && DB.settings.lodgingExtras) || {}) ])).sort((a, b) => a.localeCompare(b, 'ko'));
+  const __le = (DB.settings && DB.settings.lodgingExtras) || {};
+  return Array.from(new Set([ ...getLodgingDefs().map(d => d.name), ...Object.keys(lodgings), ...Object.keys(__le).filter(k => (__le[k] || []).length) ])).sort((a, b) => a.localeCompare(b, 'ko'));
 }
 // 숙소 배정 대상: 본 차수 참여자 (본 차수 미설정이면 전원). 불참·환불 제외.
 function lodgingEligible() {
@@ -1460,7 +1462,7 @@ function addLodgingDef(name, cap) {
 function removeLodgingDef(name) {
   DB.settings.lodgings = getLodgingDefs().filter(d => d.name !== name);
   const exN = lodgingExtrasOf(name).length;
-  if (DB.settings.lodgingExtras) delete DB.settings.lodgingExtras[name];
+  if (DB.settings.lodgingExtras && DB.settings.lodgingExtras[name]) DB.settings.lodgingExtras[name] = [];  // 키 삭제 대신 툼스톤(동기화 부활 방지)
   let n = 0;
   (DB.members || []).forEach(m => {
     if ((m.lodging || '').trim() === name) { m.lodging = ''; syncEvangelismLodging(m); n++; }
@@ -1506,7 +1508,9 @@ function removeLodgingExtra(lk, idx) {
   if (!arr || !arr[idx]) return null;
   const nm = arr[idx].name;
   arr.splice(idx, 1);
-  if (!arr.length) delete DB.settings.lodgingExtras[lk];
+  // 주의: 마지막 한 명을 지워도 키를 delete하지 않고 빈 배열을 남긴다(툼스톤).
+  // 동기화가 설정을 '깊은 병합'으로 서버에 쓰기 때문에, 키를 지우면 서버에는 옛 값이 남아
+  // 잠시 후 지운 사람이 되살아난다. 빈 배열은 통째로 교체되므로 확실히 지워진다.
   bumpLodgingRev();
   logHistory('숙소 미등록 삭제', lk + ' · ' + nm);
   saveDB();
@@ -3579,12 +3583,21 @@ function lodgingTilesHtml(mode) {
       <div style="font-size:16px;font-weight:700;margin-top:2px;${over ? 'color:var(--rose);' : ''}">${cnt}<span style="font-size:11px;font-weight:500;color:${over ? 'var(--rose)' : 'var(--ink-mute)'}">/${cap || '–'}</span></div>
     </div>`;
   }).join('');
-  if (unN) out += `<div class="clickable" style="background:rgba(232,113,133,.08);border:1px dashed var(--rose);border-radius:10px;padding:10px 8px;text-align:center" onclick="setTab('lodging');setLodgingChip('__un__')">
+  const unOc = mode === 'chip' ? `setLodgingChip('__un__')` : `openLodgingUnassignedSheet()`;
+  if (unN) out += `<div class="clickable" style="background:rgba(232,113,133,.08);border:1px dashed var(--rose);border-radius:10px;padding:10px 8px;text-align:center" onclick="${unOc}">
       <div style="font-size:11px;color:var(--rose)">숙소 미배정</div>
       <div style="font-size:16px;font-weight:700;margin-top:2px;color:var(--rose)">${unN}</div>
     </div>`;
   if (!out) out = `<div style="grid-column:1/-1; text-align:center; padding:12px; font-size:12px; color:var(--ink-mute);">숙소가 아직 없습니다. 숙소 탭 → <b>숙소 관리</b>에서 추가하세요.</div>`;
   return out;
+}
+// 숙소 미배정 팝업 (홈 숙소 현황 타일용) — 다른 숙소 칸과 같은 방식: 팝업으로 뜨고 뒤로가기로 닫힘.
+// 이름을 누르면 숙소·비고 편집이 열리고, 저장하고 돌아오면 목록이 갱신된다(배정된 사람은 빠짐).
+function openLodgingUnassignedSheet(isReopen) {
+  const list = lodgingUnassigned().slice().sort(memberSortCmp);
+  let html = `<div class="notice" style="margin-bottom:8px;">본 차수 참여자 중 숙소가 아직 없는 인원입니다. 이름을 누르면 숙소를 정하고 비고도 적을 수 있어요.</div>`;
+  html += lodgingRosterHtml(list);
+  openSheet('숙소 미배정 (' + list.length + '명)', html, null, { hideSave: true, replaceTop: !!isReopen, reopener: () => openLodgingUnassignedSheet(true) });
 }
 // 개별 숙소 팝업 — 상단: 인원 추가 · 사진 · 인쇄. 이름을 누르면 숙소 편집.
 function openSingleLodging(lk, isReopen) {
@@ -3686,14 +3699,14 @@ function openLodgingManage(isReopen) {
     const removed = olds.filter((d, i) => !seen.has(i)).map(d => d.name);
     renames.forEach(([o, n]) => {
       (DB.members || []).forEach(m => { if ((m.lodging || '').trim() === o) { m.lodging = n; syncEvangelismLodging(m); } });
-      if (DB.settings.lodgingExtras && DB.settings.lodgingExtras[o]) {  // 미등록 인원도 새 이름으로 이동
+      if (DB.settings.lodgingExtras && (DB.settings.lodgingExtras[o] || []).length) {  // 미등록 인원도 새 이름으로 이동
         DB.settings.lodgingExtras[n] = (DB.settings.lodgingExtras[n] || []).concat(DB.settings.lodgingExtras[o]);
-        delete DB.settings.lodgingExtras[o];
+        DB.settings.lodgingExtras[o] = [];  // 키 삭제 대신 툼스톤(동기화 부활 방지)
       }
     });
     removed.forEach(o => {
       (DB.members || []).forEach(m => { if ((m.lodging || '').trim() === o) { m.lodging = ''; syncEvangelismLodging(m); } });
-      if (DB.settings.lodgingExtras) delete DB.settings.lodgingExtras[o];  // 미등록 인원도 정리
+      if (DB.settings.lodgingExtras && DB.settings.lodgingExtras[o]) DB.settings.lodgingExtras[o] = [];  // 미등록 인원도 정리(툼스톤)
     });
     newDefs.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     DB.settings.lodgings = newDefs;

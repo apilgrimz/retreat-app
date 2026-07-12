@@ -1462,7 +1462,7 @@ function addLodgingDef(name, cap) {
 function removeLodgingDef(name) {
   DB.settings.lodgings = getLodgingDefs().filter(d => d.name !== name);
   const exN = lodgingExtrasOf(name).length;
-  if (DB.settings.lodgingExtras && DB.settings.lodgingExtras[name]) DB.settings.lodgingExtras[name] = [];  // 키 삭제 대신 툼스톤(동기화 부활 방지)
+  if (DB.settings.lodgingExtras && DB.settings.lodgingExtras[name]) { DB.settings.lodgingExtras[name] = []; bumpLodgingExtrasRev(); }  // 키 삭제 대신 툼스톤(동기화 부활 방지)
   let n = 0;
   (DB.members || []).forEach(m => {
     if ((m.lodging || '').trim() === name) { m.lodging = ''; syncEvangelismLodging(m); n++; }
@@ -1477,6 +1477,32 @@ function lodgingAssignedCount(name) { return (DB.members || []).filter(m => (m.l
 // 옛 숙소 설정을 든 기기가 나중에 밀어 넣어도 '더 최신인 쪽'을 지키기 위한 표식이다.
 // 의도적인 숙소 편집 지점에서만 갱신한다 (자동 흡수 ensureLodgingDefs는 갱신하지 않음 — 파생 데이터이므로).
 function bumpLodgingRev() { if (DB && DB.settings) DB.settings.lodgingsRev = Date.now(); }
+// 미등록 인원(lodgingExtras) 전용 rev — 정의(이름·정원) rev와 분리한다.
+// 예전엔 rev가 하나라, 정원을 아직 못 받은 기기가 미등록 한 명만 추가해도 rev가 새로 찍혀
+// 그 기기의 '정원 없는' 정의 목록이 모든 기기를 이겨버렸다(정원이 반복해서 지워진 원인).
+function bumpLodgingExtrasRev() { if (DB && DB.settings) DB.settings.lodgingExtrasRev = Date.now(); }
+// 정원 보존 병합: 더 최신 rev의 원격 정의를 채택하되, 원격 정원이 미설정(0)인데 내가 같은
+// 이름에 정원을 갖고 있으면 내 정원을 지킨다 — 아직 업데이트하지 못한 기기가 남아 있어도
+// 정원이 0으로 뭉개지지 않는 최종 안전망. (부작용: 정원을 일부러 '미설정'으로 되돌린 변경은
+// 다른 기기로 전파되지 않는다 — 드문 경우라 감수하고, 필요하면 정원 숫자를 새로 넣으면 된다.)
+function mergeLodgingDefs(loc, rem) {
+  const lmap = {};
+  (loc || []).forEach(d => { if (d && d.name) lmap[d.name] = d; });
+  return (rem || []).map(d => {
+    const cap = parseInt(d.cap, 10) || 0;
+    const mine = lmap[d.name];
+    if (cap === 0 && mine && (parseInt(mine.cap, 10) || 0) > 0) return { name: d.name, cap: parseInt(mine.cap, 10) || 0 };
+    return { name: d.name, cap: cap };
+  });
+}
+// 미등록 병합: 원격(더 최신)을 기준으로 하되, 원격에 아예 없는 로컬 키는 유지한다.
+// 삭제는 빈 배열 툼스톤으로 표현되므로 '키 부재'는 삭제가 아니라 '그 기기가 몰랐던 것'이다.
+function mergeLodgingExtras(loc, rem) {
+  const out = {};
+  Object.keys(rem || {}).forEach(k => { out[k] = (rem[k] || []).slice(); });
+  Object.keys(loc || {}).forEach(k => { if (!(k in out)) out[k] = (loc[k] || []).slice(); });
+  return out;
+}
 /* ---------- 미등록 숙박 인원 (타교회 접수자 등, 명단에 없는 사람) ---------- */
 // DB.settings.lodgingExtras = { 숙소명: [{ name }] }. 정식 명단이 아니므로 인원 집계·엑셀 명단에는
 // 들어가지 않고, 숙소 화면·인쇄·사진과 숙소 인원수(배정/정원)에만 포함된다.
@@ -1491,7 +1517,7 @@ function addLodgingExtra(lk, entry) {
   if (!Array.isArray(DB.settings.lodgingExtras[lk])) DB.settings.lodgingExtras[lk] = [];
   const e = (typeof entry === 'string') ? { name: entry } : (entry || {});
   DB.settings.lodgingExtras[lk].push({ name: e.name || '', church: e.church || '', dept: e.dept || '', note: e.note || '' });
-  bumpLodgingRev();
+  bumpLodgingExtrasRev();
   logHistory('숙소 미등록 추가', lk + ' · ' + (e.name || '') + (e.church ? '(' + e.church + ')' : ''));
   saveDB();
 }
@@ -1499,7 +1525,7 @@ function updateLodgingExtra(lk, idx, entry) {
   const arr = (DB.settings.lodgingExtras || {})[lk];
   if (!arr || !arr[idx]) return;
   arr[idx] = { name: entry.name || '', church: entry.church || '', dept: entry.dept || '', note: entry.note || '' };
-  bumpLodgingRev();
+  bumpLodgingExtrasRev();
   logHistory('숙소 미등록 수정', lk + ' · ' + (entry.name || ''));
   saveDB();
 }
@@ -1511,7 +1537,7 @@ function removeLodgingExtra(lk, idx) {
   // 주의: 마지막 한 명을 지워도 키를 delete하지 않고 빈 배열을 남긴다(툼스톤).
   // 동기화가 설정을 '깊은 병합'으로 서버에 쓰기 때문에, 키를 지우면 서버에는 옛 값이 남아
   // 잠시 후 지운 사람이 되살아난다. 빈 배열은 통째로 교체되므로 확실히 지워진다.
-  bumpLodgingRev();
+  bumpLodgingExtrasRev();
   logHistory('숙소 미등록 삭제', lk + ' · ' + nm);
   saveDB();
   return nm;
@@ -3720,6 +3746,7 @@ function openLodgingManage(isReopen) {
     newDefs.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     DB.settings.lodgings = newDefs;
     bumpLodgingRev();
+    bumpLodgingExtrasRev();  // 이름 변경·삭제로 미등록도 함께 움직였을 수 있음
     if (renames.length) logHistory('숙소 이름 변경', renames.map(([o, n]) => o + '→' + n).join(', '));
     removed.forEach(o => logHistory('숙소 삭제', o));
     saveDB(); render();
@@ -5921,17 +5948,20 @@ function onRoomMeta(doc) {
   if (!DB || DB.roomCode !== sync.code) return;
   const data = doc.data() || {};
   sync.applyingRemote = true;
-  // ── 숙소 설정 보호 ──
-  // meta 문서는 기기별 '통째 밀어넣기'라, 옛 숙소 설정(정원 없음)을 든 기기가 나중에 써넣으면
-  // 최신 정원이 지워질 수 있다. 저장 시각(lodgingsRev)이 더 최신인 쪽을 지키고, 서버가 옛것이면 곧바로 되민다.
-  const __locLodgRev = (DB.settings && DB.settings.lodgingsRev) || 0;
-  const __remLodgRev = (data.settings && data.settings.lodgingsRev) || 0;
-  const __keepLocalLodging = __locLodgRev > __remLodgRev;
-  const __localLodg = __keepLocalLodging ? {
-    lodgings: (DB.settings && DB.settings.lodgings) || [],
-    lodgingExtras: (DB.settings && DB.settings.lodgingExtras) || {},
-    lodgingsRev: __locLodgRev
-  } : null;
+  // ── 숙소 설정 보호 v2 ──
+  // 정의(이름·정원)와 미등록 인원의 저장 시각(rev)을 '따로' 비교한다. 각 그룹은 더 최신인
+  // 쪽을 지키고, 더 최신 원격을 받아들일 때도 정원 보존 병합(mergeLodgingDefs)을 거쳐
+  // '정원 없는 옛 목록'이 최신 도장을 달고 와도 내 정원이 0으로 뭉개지지 않게 한다.
+  const __ls = DB.settings || {};
+  const __rs = data.settings || {};
+  const __locDefRev = __ls.lodgingsRev || 0;
+  const __remDefRev = __rs.lodgingsRev || 0;
+  const __locExRev = __ls.lodgingExtrasRev || __ls.lodgingsRev || 0;   // 구버전(합산 rev) 호환
+  const __remExRev = __rs.lodgingExtrasRev || __rs.lodgingsRev || 0;
+  const __keepDefs = __locDefRev > __remDefRev;
+  const __keepExtras = __locExRev > __remExRev;
+  const __locDefs = (__ls.lodgings || []).slice();
+  const __locExtras = JSON.parse(JSON.stringify(__ls.lodgingExtras || {}));
   const firstMeta = sync.firstSnap && sync.firstSnap.meta;
   if (firstMeta) {
     // 재연결 첫 스냅샷: 서버 값으로 완전히 교체 (roomCode는 보존)
@@ -5942,19 +5972,29 @@ function onRoomMeta(doc) {
     if (data.fees) DB.fees = Object.assign({}, data.fees);
     if (Array.isArray(data.history)) DB.history = mergeHistories(DB.history, data.history);  // 서버 이력과 병합(내 최근 기록 보존)
     DB.roomCode = keepRoom;
-    if (__localLodg) Object.assign(DB.settings, __localLodg);  // 내 숙소 설정이 더 최신 → 지킴
   } else {
     if (data.meta) DB.meta = Object.assign({}, DB.meta, data.meta);
     if (data.settings) DB.settings = Object.assign({}, DB.settings, data.settings);
     if (data.fees) DB.fees = Object.assign({}, DB.fees, data.fees);
     if (Array.isArray(data.history)) DB.history = mergeHistories(DB.history, data.history);  // 기기 간 이력 병합 — 옛 기기가 덮어써도 안 지워짐
-    if (__localLodg) Object.assign(DB.settings, __localLodg);  // 내 숙소 설정이 더 최신 → 지킴
   }
   hydrateEvent(DB);
   if (sync.mirror) sync.mirror.meta = stableStr(roomMetaOf(DB));
+  // 숙소 설정 보호 적용 (양 분기 공통)
+  if (!DB.settings) DB.settings = {};
+  if (__keepDefs || !Array.isArray(DB.settings.lodgings)) {
+    DB.settings.lodgings = __locDefs; DB.settings.lodgingsRev = __locDefRev;
+  } else {
+    DB.settings.lodgings = mergeLodgingDefs(__locDefs, DB.settings.lodgings);  // 정원 보존 병합
+  }
+  if (__keepExtras || !DB.settings.lodgingExtras) {
+    DB.settings.lodgingExtras = __locExtras; DB.settings.lodgingExtrasRev = __locExRev;
+  } else {
+    DB.settings.lodgingExtras = mergeLodgingExtras(__locExtras, DB.settings.lodgingExtras);
+  }
   sync.applyingRemote = false;
   saveVault();
-  if (__keepLocalLodging) { try { syncPushIfLinked(); } catch (e) {} }  // 서버의 옛 숙소 설정을 최신으로 되밈
+  if (__keepDefs || __keepExtras) { try { syncPushIfLinked(); } catch (e) {} }  // 서버의 옛 숙소 설정을 최신으로 되밈
   setSyncStatus(navigator.onLine ? 'live' : 'offline');
   safeRender();
 }

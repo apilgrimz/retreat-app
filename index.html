@@ -2011,7 +2011,27 @@ function buildPrintDocument(title, bodyHtml, forPhoto) {
 </style>
 ${forPhoto
   ? '<script src="' + H2C_SRC + '"><\/script>'
-  : '<script>window.onload=function(){setTimeout(function(){try{var pageH=1032;var sh=document.body.scrollHeight;var pg=sh/pageH;if(pg>1.02&&pg<=1.5){document.body.style.zoom=(pageH/sh*0.99).toFixed(4);}window.focus();window.print();}catch(e){console.error(e);}},150);};<\/script>'}
+  : ('<script>'
+    // ── 인쇄 자동 크기 엔진 ──
+    // 단일 명단표: 43명/장 상한으로 균등 분면(예: 50명→25+25) 후 각 장이 꽉 차는 배율 계산.
+    // 여러 표/짧은 문서: 최소 장수로 채우는 배율. 글자 크기는 약 9.4~15.4px(±3pt) 안에서만 움직인다.
+    + 'window.onload=function(){setTimeout(function(){try{'
+    + 'var P=1032,zMin=0.78,zMax=1.28,CAP=43;'
+    + 'var H=document.body.scrollHeight,f=1;'
+    + 'var ts=document.querySelectorAll("table");'
+    + 'if(ts.length===1&&ts[0].tBodies.length&&ts[0].tBodies[0].rows.length>3){'
+    +   'var tb=ts[0].tBodies[0],M=tb.rows.length;'
+    +   'var r0=tb.rows[0].getBoundingClientRect().height||24;'
+    +   'var fixed=Math.max(24,H-M*r0);'
+    +   'var N=Math.max(1,Math.ceil(M/CAP)),per=Math.ceil(M/N);'
+    +   'for(var k=per;k<M;k+=per){tb.rows[k].style.pageBreakBefore="always";tb.rows[k].style.breakBefore="page";}'
+    +   'f=P/(fixed+per*r0);'
+    + '}else{var nMin=Math.max(1,Math.ceil(H*zMin/P));f=nMin*P/H;}'
+    + 'f=Math.min(zMax,Math.max(zMin,f*0.985));'
+    + 'if(Math.abs(f-1)>0.02)document.body.style.zoom=f.toFixed(4);'
+    + 'window.focus();window.print();'
+    + '}catch(e){console.error(e);try{window.print();}catch(_e){}}},150);};'
+    + '<\/script>')}
 </head>
 <body>${bodyHtml}</body></html>`;
 }
@@ -2405,7 +2425,16 @@ function openUnassignedSheet(isReopen) {
   });
 }
 
-function openTransportFull() {
+// 본대 외 차편의 '차수별' 전체보기·사진·인쇄 버튼 묶음 (각 차수 블록 헤더용)
+function transSessionActions(sname) {
+  const sj = esc(sname).replace(/'/g, "\\'");
+  return `<span style="margin-left:auto; display:flex; gap:6px; flex-shrink:0;">` +
+    `<button class="card-action" style="font-size:11px;padding:3px 8px;" onclick="openTransportFull('${sj}')">전체보기</button>` +
+    `<button class="card-action" style="font-size:11px;padding:3px 8px;" onclick="photoRun('execPrintTransport','${sj}')">사진</button>` +
+    `<button class="card-action" style="font-size:11px;padding:3px 8px;" onclick="execPrintTransport('${sj}')">인쇄</button></span>`;
+}
+// onlySession: 특정 차수만 담기 (차수별 전체보기 버튼 경로). 비우면 기존처럼 전체.
+function openTransportFull(onlySession) {
   const type = transportTab.type;
   let body = '';
   if (BUSES.includes(type)) {
@@ -2419,20 +2448,24 @@ function openTransportFull() {
     body += busExtraEditor(type);
   } else if (type === '개인차') {
     const drv2 = privateDriversWithGroups();
-    if (drv2.length === 0) body += `<div class="empty-state">개인차로 가는 사람이 없습니다.</div>`;
-    else drv2.forEach(({driver, groups}) => {
+    let anyPc = false;
+    drv2.forEach(({driver, groups}) => {
       groups.forEach(g => {
+        if (onlySession && g.session !== onlySession) return;  // 차수별 보기
+        anyPc = true;
         body += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">🚗 ${esc(driver)} · ${esc(g.session)}</div>`;
         body += buildSplitTable(null, g.uList, g.dList, false, driver, '개인차', g);
       });
     });
+    if (!anyPc) body += `<div class="empty-state">${onlySession ? '이 차수에 개인차로 가는 사람이 없습니다.' : '개인차로 가는 사람이 없습니다.'}</div>`;
   } else {
     const canExtra = supportsExtras(type);
-    const groups = sessionGroupsWithExtras(type);
+    let groups = sessionGroupsWithExtras(type);
+    if (onlySession) groups = groups.filter(g => g.session === onlySession);  // 차수별 보기
     if (groups.length === 0) {
       if (canExtra && getSessionDefs().length) {
         body += `<div class="empty-state">해당 차편 등록자가 없습니다.<br/><span style="font-size:12px">아래에서 미등록 인원을 바로 추가할 수 있습니다.</span></div>`;
-        getSessionDefs().forEach(def => {
+        getSessionDefs().filter(d => !onlySession || d.name === onlySession).forEach(def => {
           body += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(def.name)}</div>`;
           body += busExtraEditor(busExtraKey(type, def.name), type, def.name);
         });
@@ -2447,8 +2480,9 @@ function openTransportFull() {
       });
     }
   }
-  const printBar = `<div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px;"><button class="card-action" onclick="photoRun('execPrintTransport')">사진</button><button class="card-action" onclick="execPrintTransport()">인쇄</button></div>`;
-  openSheet(`${esc(type)} 탑승 명단 전체`, printBar + body, null, { hideSave:true });
+  const __pj = onlySession ? esc(onlySession).replace(/'/g, "\\'") : '';
+  const printBar = `<div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px;"><button class="card-action" onclick="photoRun('execPrintTransport'${__pj ? `,'${__pj}'` : ''})">사진</button><button class="card-action" onclick="execPrintTransport(${__pj ? `'${__pj}'` : ''})">인쇄</button></div>`;
+  openSheet(`${esc(type)} 탑승 명단${onlySession ? ' · ' + esc(onlySession) : ' 전체'}`, printBar + body, null, { hideSave:true });
   // 탑승 확인 체크박스 — 클릭 시 멤버에 저장 (상행=boardUp, 하행=boardDown)
   setTimeout(() => {
     document.querySelectorAll('#sheetBody .board-check').forEach(cb => {
@@ -2461,23 +2495,23 @@ function openTransportFull() {
       return { church:c?c.value:'', name:n?n.value:'', dept:d?d.value:'', up:up?up.checked:true, down:dn?dn.checked:true };
     };
     document.querySelectorAll('#sheetBody .bus-extra-add').forEach(btn => {
-      btn.onclick = () => { if (guardViewOnly()) return; const o=readBE(btn.dataset.bus); if(o.name.trim()){ addBusExtra(btn.dataset.bus,o); openTransportFull(); } else toast('성명을 입력해 주세요', true); };
+      btn.onclick = () => { if (guardViewOnly()) return; const o=readBE(btn.dataset.bus); if(o.name.trim()){ addBusExtra(btn.dataset.bus,o); openTransportFull(onlySession); } else toast('성명을 입력해 주세요', true); };
     });
     document.querySelectorAll('#sheetBody .be-in-name').forEach(inp => {
-      inp.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); if(guardViewOnly())return; const o=readBE(inp.dataset.bus); if(o.name.trim()){ addBusExtra(inp.dataset.bus,o); openTransportFull(); } } });
+      inp.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); if(guardViewOnly())return; const o=readBE(inp.dataset.bus); if(o.name.trim()){ addBusExtra(inp.dataset.bus,o); openTransportFull(onlySession); } } });
     });
     document.querySelectorAll('#sheetBody .bus-extra-delrow').forEach(el => {
-      el.onclick = () => { if (guardViewOnly()) return; removeBusExtraDir(el.dataset.bus, parseInt(el.dataset.idx,10), el.dataset.dir); openTransportFull(); };
+      el.onclick = () => { if (guardViewOnly()) return; removeBusExtraDir(el.dataset.bus, parseInt(el.dataset.idx,10), el.dataset.dir); openTransportFull(onlySession); };
     });
     document.querySelectorAll('#sheetBody .bus-extra-board').forEach(cb => {
-      cb.addEventListener('change', () => { if (guardViewOnly()) { openTransportFull(); return; } setBusExtraField(cb.dataset.bus, parseInt(cb.dataset.idx,10), cb.dataset.field, cb.checked); });
+      cb.addEventListener('change', () => { if (guardViewOnly()) { openTransportFull(onlySession); return; } setBusExtraField(cb.dataset.bus, parseInt(cb.dataset.idx,10), cb.dataset.field, cb.checked); });
     });
   }, 50);
 }
 
-function execPrintTransport() {
+function execPrintTransport(onlySession) {
   const type = transportTab.type;
-  const titleText = `${getYearPrefix()} 하계수양회 - ${esc(type)} 탑승 명단`;
+  const titleText = `${getYearPrefix()} 하계수양회 - ${esc(type)} 탑승 명단${onlySession ? ' · ' + esc(onlySession) : ''}`;
   let body = `<div class="print-title">${titleText}</div>`;
   let maxCount = 0;  // 한 표(상/하행 중 많은 쪽)의 최대 인원 — 45명 이하면 압축 인쇄로 한 장에
 
@@ -2490,16 +2524,20 @@ function execPrintTransport() {
     maxCount = Math.max(u.length + busExtraCount(type,'up'), d.length + busExtraCount(type,'down'));
   } else if (type === '개인차') {
     const drv2 = privateDriversWithGroups();
-    if (drv2.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">개인차로 가는 사람이 없습니다.</div>`;
-    else drv2.forEach(({driver, groups}) => {
+    let anyPc = false;
+    drv2.forEach(({driver, groups}) => {
       groups.forEach(g => {
+        if (onlySession && g.session !== onlySession) return;  // 차수별 인쇄
+        anyPc = true;
         body += buildSplitTable(`🚗 ${esc(driver)} · ${esc(g.session)}`, g.uList, g.dList, true, driver, '개인차', g);
       });
     });
+    if (!anyPc) body += `<div style="text-align:center; padding:20px; color:#666">${onlySession ? '이 차수에 개인차로 가는 사람이 없습니다.' : '개인차로 가는 사람이 없습니다.'}</div>`;
   } else {
     const canExtra = supportsExtras(type);
-    const groups = sessionGroupsWithExtras(type);
-    if (groups.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">해당 차편 등록자가 없습니다.</div>`;
+    let groups = sessionGroupsWithExtras(type);
+    if (onlySession) groups = groups.filter(g => g.session === onlySession);  // 차수별 인쇄
+    if (groups.length === 0) body += `<div style="text-align:center; padding:20px; color:#666">${onlySession ? '이 차수에 등록자가 없습니다.' : '해당 차편 등록자가 없습니다.'}</div>`;
     else groups.forEach(g => {
       body += buildSplitTable(`${esc(type)} · ${esc(g.session)}`, g.uList, g.dList, true, null, type, g);
       const exU = canExtra ? busExtraCount(busExtraKey(type, g.session), 'up') : 0;
@@ -3502,9 +3540,9 @@ function renderHome() {
         </div>
       </div>
       <div class="roster-table vscroll" style="margin-bottom:0; max-height:240px; min-width:0;">
-        <div style="min-width:732px; width:max-content;">
-          <div class="roster-row head" style="grid-template-columns: 28px 68px 58px 48px 80px 48px 38px 30px 30px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div></div>
-          ${(() => { const __ctr={n:0}; return sortMembers(evangelismVisible()).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 68px 58px 48px 80px 48px 38px 30px 30px minmax(60px,1fr);"><div class="no">${numberCellItem(e, __ctr)}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer; ${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')" title="${e.status?'상태/메모 있음 — 눌러서 보기':'눌러서 상태/메모 입력'}">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join(''); })()}
+        <div style="min-width:788px; width:max-content;">
+          <div class="roster-row head" style="grid-template-columns: 28px 68px 58px 48px 52px 80px 48px 38px 30px 30px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>차수</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div>비고</div></div>
+          ${(() => { const __ctr={n:0}; return sortMembers(evangelismVisible()).map((e, i) => `<div class="roster-row" style="grid-template-columns: 28px 68px 58px 48px 52px 80px 48px 38px 30px 30px minmax(60px,1fr);"><div class="no">${numberCellItem(e, __ctr)}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer; ${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')" title="${e.status?'상태/메모 있음 — 눌러서 보기':'눌러서 상태/메모 입력'}">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div style="white-space:nowrap;font-size:11px;">${esc(evMemberSessions(e))}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join(''); })()}
           ${evCount === 0 ? `<div style="text-align:center; padding:15px; font-size:12px; color:var(--ink-mute);">등록된 전도대상자가 없습니다.</div>` : ''}
         </div>
       </div>
@@ -4334,7 +4372,9 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     if (!updated.dept) { toast('회(부서)를 선택해 주세요', true); return false; }
     if (!updated.name) { toast('성명을 입력해 주세요', true); return false; }
     if (!updated.regType) { toast('접수 구분을 선택해 주세요', true); return false; }
-    if (!sessionStr) { toast('차수를 1개 이상 선택해 주세요', true); return false; }
+    // 차수는 원칙적으로 필수 — 단, 불참·환불(모든 일정에 오지 않음)은 차수 없이 저장 가능.
+    // 옛 방식 불참자 정리(본 차수만 해제) 시에도 이 경로로 저장된다.
+    if (!sessionStr && updated.status !== 'noshow' && updated.status !== 'refund') { toast('차수를 1개 이상 선택해 주세요 (불참·환불은 차수 없이 저장 가능)', true); return false; }
 
     // 대표 상하행 재계산은 전역 recalcMemberRepTrans 사용 (updated의 sessionTrans 기준)
     function applyRepTrans() { recalcMemberRepTrans(updated); }
@@ -4923,6 +4963,10 @@ function renderTransport() {
         const g = transSessionGroups('개인차', drv).find(x => x.session === sname);
         return g && (g.uList.length || g.dList.length);
       }).sort((a, b) => a.localeCompare(b, 'ko'));
+      if (drivers.length) {
+        // 차수 단위 도구줄: 이 차수의 개인차 전체(모든 차주)를 한 번에 보기·사진·인쇄
+        html += `<div style="display:flex; align-items:center; gap:6px; margin:14px 0 0;"><span style="font-weight:800; color:var(--gold);">${esc(sname)}</span>${transSessionActions(sname)}</div>`;
+      }
       drivers.forEach(drv => {
         const g = transSessionGroups('개인차', drv).find(x => x.session === sname);
         if (!g) return;
@@ -4953,7 +4997,7 @@ function renderTransport() {
       }
     } else {
       groups.forEach(g => {
-        html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(g.session)}</div>`;
+        html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft); display:flex; align-items:center; gap:6px;"><span>${esc(type)} · ${esc(g.session)}</span>${transSessionActions(g.session)}</div>`;
         html += transInfoEditor(type, null);
         html += buildSplitTable(null, g.uList, g.dList, false, null, type, g);
         if (canExtra) html += busExtraEditor(busExtraKey(type, g.session), type, g.session);
@@ -5262,7 +5306,7 @@ function openManualSheet() {
 
     ${sec('1. 행사 준비', '더보기 맨 위에서 설정합니다. (동기화 코드를 발행한 <b>방장</b> 기기에서만 수정할 수 있어요)<br>• <b>행사명 수정</b>: 행사 이름<br>• <b>행사 정보 수정</b>: 교회명, 본 교회 차수, 차수별 날짜(달력에서 두 날짜를 고르면 빠른 날=시작, 늦은 날=끝)<br>• <b>구역·차수·차량 목록</b>: 구역, 호차, 교회차, 기타 차편 (개인차 차주는 인원 추가에서 추가·삭제)<br>• <b>회(부서)별 회비 단가</b>: 부서 이름·단가')}
 
-    ${sec('2. 인원 등록', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분(사전 1단계·2단계·현장 접수), 차수는 꼭 골라야 저장됩니다.<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. 본 교회 차수가 아니면 차편을 비워도 됩니다.<br>• 차수를 아직 못 정했으면 <b>차수 미정</b>을 체크해 등록만 먼저 해두세요. 홈 <b>차수별 인원</b>의 <b>⚠ 미정</b> 칸과 <b>입력 점검</b>에 모여 표시되고, 차수가 정해지면 미정을 풀고 실제 차수를 고르면 됩니다.<br>• <b>숙소</b>는 본 교회 차수 참여자에게만 해당되어, 본 차수를 체크했을 때만 드롭다운이 보입니다(옆의 <b>+ 추가/삭제</b>로 숙소 목록을 바로 관리). 본 차수를 빼고 저장하면 숙소도 함께 비워집니다.<br>• 특정 차수만 못 오게 되면 <b>불참 처리 대신 그 차수 체크를 해제</b>하세요 — 한 차수라도 참석하면 참석자입니다. <b>불참/환불</b>은 모든 일정에 오지 않는 경우에만 쓰고, 본 차수 해제는 이력에 <b>본 차수 불참(차수 해제)</b>로 남습니다.<br>• 인도자·관계 아래 <b>연락처</b>를 적어둘 수 있습니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 개인차를 고르면 <b>+ 차주 추가</b>로 차주를 바로 등록할 수 있고(상·하행 모두 반영), <b>차주 삭제</b>로 뺄 수 있습니다.')}
+    ${sec('2. 인원 등록', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분(사전 1단계·2단계·현장 접수), 차수는 꼭 골라야 저장됩니다(단, <b>불참·환불</b>은 차수 없이 저장 가능).<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. 본 교회 차수가 아니면 차편을 비워도 됩니다.<br>• 차수를 아직 못 정했으면 <b>차수 미정</b>을 체크해 등록만 먼저 해두세요. 홈 <b>차수별 인원</b>의 <b>⚠ 미정</b> 칸과 <b>입력 점검</b>에 모여 표시되고, 차수가 정해지면 미정을 풀고 실제 차수를 고르면 됩니다.<br>• <b>숙소</b>는 본 교회 차수 참여자에게만 해당되어, 본 차수를 체크했을 때만 드롭다운이 보입니다(옆의 <b>+ 추가/삭제</b>로 숙소 목록을 바로 관리). 본 차수를 빼고 저장하면 숙소도 함께 비워집니다.<br>• 특정 차수만 못 오게 되면 <b>불참 처리 대신 그 차수 체크를 해제</b>하세요 — 한 차수라도 참석하면 참석자입니다. <b>불참/환불</b>은 모든 일정에 오지 않는 경우에만 쓰고, 본 차수 해제는 이력에 <b>본 차수 불참(차수 해제)</b>로 남습니다.<br>• 인도자·관계 아래 <b>연락처</b>를 적어둘 수 있습니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 개인차를 고르면 <b>+ 차주 추가</b>로 차주를 바로 등록할 수 있고(상·하행 모두 반영), <b>차주 삭제</b>로 뺄 수 있습니다.')}
 
     ${sec('3. 명단 보기·수정·인쇄', '홈의 <b>접수 현황·구역별·차수별·회별</b> 카드에서 항목을 누르면 명단창이 열립니다.<br>• 명단창에서 <b>성명을 누르면 편집창</b>이 열리고, 저장하거나 취소하면 다시 그 명단창으로 돌아옵니다.<br>• 구역별 카드 오른쪽 <b>인쇄</b>는 전체 명단을 인쇄합니다. 각 구역 명단창의 <b>인쇄</b>는 그 구역만 인쇄합니다.<br>• 삭제(구역 초기화·개별 인원)한 직후에는 <b>되돌리기</b> 버튼이 잠깐 떠서, 잘못 지웠으면 바로 되살릴 수 있습니다.<br>• 모든 <b>인쇄</b> 버튼 옆의 <b>사진</b>을 누르면, 인쇄될 내용과 똑같은 문서를 <b>고화질 사진</b>으로 만들어 카카오톡 등으로 바로 <b>공유</b>하거나 저장할 수 있습니다.')}
     ${sub('숙소 탭', '하단의 <b>숙소</b> 탭에서 숙소를 관리합니다. 위쪽 칩으로 <b>전체 · 각 숙소 · 미배정</b>을 오가고(개별 화면에서 <b>뒤로가기</b>를 누르면 전체로 돌아옵니다), 각 숙소 화면에서 <b>+ 인원 추가</b>(검색해서 미배정 인원을 눌러 바로 배정) · <b>전체보기 · 사진 · 인쇄</b>를 쓸 수 있습니다. <b>숙소 관리</b>에서 숙소 이름과 <b>정원</b>을 정하면 홈과 칩에 <b>배정/정원</b>으로 표시되고, 정원을 넘으면 붉게 경고합니다. 명단에서 이름을 누르면 그 사람의 숙소와 비고를 바로 바꿀 수 있습니다. 홈의 <b>숙소 현황</b> 칸을 누르면 그 숙소 명단이 팝업으로 열립니다. 명단에 없는 <b>미등록 인원</b>(타교회 접수자 등)도 <b>+ 인원 추가 → 미등록 인원 추가</b>로 숙소에 넣을 수 있고(교회 이름·성명·회·비고 입력, 명단에서 이름을 누르면 수정·삭제), 정원은 표시용이라 <b>초과 배정도 가능</b>합니다 — 넘으면 붉은 경고만 띄웁니다.')}
@@ -5775,6 +5819,12 @@ function syncDetach() {
 
 /* ---------- 보기 전용 모드 ---------- */
 function isViewOnly() { return !!(DB && DB.viewOnly); }
+// 전도대상자와 연결된 등록 인원의 참석 차수 (연결 없으면 빈칸)
+function evMemberSessions(e) {
+  if (!e || !e.memberId) return '';
+  const m = (DB.members || []).find(x => x.id === e.memberId);
+  return m ? memberSessions(m).join('·') : '';
+}
 // 홈 상단 구원·침례 수를 그 자리에서 갱신 — 표 체크 직후 화면 전체를 다시 그리지 않아
 // 스크롤과 체크 위치가 흔들리지 않으면서도 숫자는 즉시 반영된다.
 function refreshFaithCounts() {
@@ -6545,9 +6595,9 @@ function renderEvangelismSheet(isReopen) {
       <button class="btn btn-secondary" onclick="execPrintEvangelism()" style="flex:1">인쇄</button>
     </div>
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:640px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div style="text-align:center">상태</div><div>비고</div></div>
-        ${(() => { const __ctr={n:0}; return sortMembers(evangelismVisible()).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 56px 56px 48px 80px 48px 38px 30px 30px 38px minmax(60px,1fr);"><div class="no">${numberCellItem(e, __ctr)}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openMemberFromRef('${esc(e.memberId||'')}','${esc(e.name)}','${esc(e.zone)}','renderEvangelismSheet')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join(''); })()}
+      <div class="roster-table" style="min-width:696px; width:max-content;">
+        <div class="roster-row head" style="grid-template-columns: 28px 56px 56px 48px 52px 80px 48px 38px 30px 30px 38px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>차수</div><div>숙소</div><div>인도자</div><div>관계</div><div>구원</div><div>침례</div><div style="text-align:center">상태</div><div>비고</div></div>
+        ${(() => { const __ctr={n:0}; return sortMembers(evangelismVisible()).map((e, i) => `<div class="roster-row" data-ev-id="${esc(e.id)}" style="grid-template-columns: 28px 56px 56px 48px 52px 80px 48px 38px 30px 30px 38px minmax(60px,1fr);"><div class="no">${numberCellItem(e, __ctr)}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.zone)}</div><div class="nm" style="cursor:pointer;${e.status?'color:var(--gold);font-weight:800;':''}" onclick="openMemberFromRef('${esc(e.memberId||'')}','${esc(e.name)}','${esc(e.zone)}','renderEvangelismSheet')">${esc(e.name)}${e.status?' ✎':''}</div><div>${esc(e.dept)}</div><div style="white-space:nowrap;font-size:11px;">${esc(evMemberSessions(e))}</div><div>${esc(e.lodging||'')}</div><div>${esc(e.leader)}</div><div>${esc(e.relation)}</div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="salvation" ${e.salvation?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','salvation',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><input type="checkbox" class="ev-check" data-id="${esc(e.id)}" data-field="baptism" ${e.baptism?'checked':''}${isViewOnly()?' disabled':''} onclick="event.stopPropagation(); setEvangelismCheck('${esc(e.id)}','baptism',this.checked)" style="width:17px;height:17px;cursor:pointer;accent-color:var(--gold)"/></div><div style="text-align:center"><button class="card-action" style="font-size:10px;padding:2px 6px;${e.status?'color:var(--gold)':''}" onclick="openStatusMemo('evangelism','${esc(e.id)}')">${e.status?'♥':'♡'}</button></div><div style="white-space:nowrap;">${esc(e.note)}</div></div>`).join(''); })()}
         ${evangelismVisible().length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : ''}
       </div>
     </div>

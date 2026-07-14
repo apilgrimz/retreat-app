@@ -3984,6 +3984,17 @@ function openDriverDeleteSheet() {
 }
 
 // 숙소만 간단히 편집 (홈 숙소 카드의 화면 성명 클릭용). 저장 후 홈 갱신.
+// 차수 문자열 비교로 '본 차수 해제/복귀'를 감지 — 원칙: 특정 차수만 못 오면 상태 대신 그 차수를
+// 해제한다(한 차수라도 참석하면 참석자). 본 차수 해제는 사실상 '본 차수 불참'이므로 이력에 명시한다.
+function churchAbsenceDiff(oldStr, newStr) {
+  const ch = churchSessionName();
+  if (!ch) return '';
+  const a = String(oldStr || '').split(',').map(x => x.trim());
+  const b = String(newStr || '').split(',').map(x => x.trim());
+  if (a.includes(ch) && !b.includes(ch)) return '본 차수 불참(차수 해제)';
+  if (!a.includes(ch) && b.includes(ch)) return '본 차수 참석 복귀';
+  return '';
+}
 // 인원 편집창의 숙소 칸 표시: 본 차수가 설정돼 있으면 그 차수를 체크했을 때만 보임 (숙소는 본 차수 전용)
 function updateLodgingVisibility() {
   const fld = document.getElementById('mLodgingField');
@@ -3992,6 +4003,22 @@ function updateLodgingVisibility() {
   if (!church) { fld.style.display = ''; return; }
   const chk = document.querySelector('#mSessionList .sess-block[data-name="' + church.replace(/"/g, '\\"') + '"] .sess-check');
   fld.style.display = (chk && chk.checked) ? '' : 'none';
+  // 본 차수 해제 = 본 차수 불참 표식 (헤더 오른쪽에 붉게 — 저장 시 숙소가 비워짐을 미리 알림)
+  const blk = document.querySelector('#mSessionList .sess-block[data-name="' + church.replace(/"/g, '\\"') + '"]');
+  if (blk) {
+    let hint = blk.querySelector('.church-off-hint');
+    if (!hint) {
+      const head = blk.querySelector('.sess-head');
+      if (head) {
+        hint = document.createElement('span');
+        hint.className = 'church-off-hint';
+        hint.style.cssText = 'font-size:11px;color:var(--rose);font-weight:700;margin-left:6px;white-space:nowrap;';
+        hint.textContent = '해제 = 본 차수 불참 · 숙소 비움';
+        head.appendChild(hint);
+      }
+    }
+    if (hint) hint.style.display = (chk && chk.checked) ? 'none' : '';
+  }
 }
 // 인원 편집창 숙소 드롭다운 옆 '+ 추가 / 삭제' 버튼
 function bindLodgingFieldButtons() {
@@ -4148,7 +4175,7 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           return `<label class="time-pill ${sel?'active':''}"><input type="radio" name="mStatus" value="${v}" ${sel?'checked':''}/><span>${lb}</span></label>`;
         }).join('')}
       </div>
-      <div class="helper">불참: 자료·회비는 유지하고 명단에 '불참' 표시, 차편·전도 명단에서 제외. 환불: 집계·회비·전도에서도 제외(자료는 보존).</div>
+      <div class="helper">특정 차수만 못 오면 상태 대신 <b>그 차수 체크를 해제</b>하세요(한 차수라도 참석하면 참석자 · 본 차수 해제 시 숙소 자동 비움, 이력에 '본 차수 불참' 기록). 불참: <b>모든 일정</b>에 안 오는 경우 — 자료·회비는 유지하고 명단에 '불참' 표시, 차편·숙소·전도에서 제외. 환불: 집계·회비·전도에서도 제외(자료는 보존).</div>
     </div>
     <div class="field">
       <label>차수 · 상행/하행 <span style="font-weight:400;color:var(--ink-mute);font-size:11px">(참여할 차수를 체크하세요. 복수 가능)</span></label>
@@ -4412,6 +4439,8 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
           // 구원/침례(불리언)도 감지 — 인원 편집에서 바뀔 수 있으면
           if ((!!m.salvation) !== (!!updated.salvation)) fieldChanges.push(updated.salvation ? '구원 체크' : '구원 해제');
           if ((!!m.baptism) !== (!!updated.baptism)) fieldChanges.push(updated.baptism ? '침례 체크' : '침례 해제');
+          const __chDiff = churchAbsenceDiff(m.session, updated.session);
+          if (__chDiff) fieldChanges.push(__chDiff);
 
           if (fieldChanges.length) {
             action = '인원 수정';
@@ -5233,7 +5262,7 @@ function openManualSheet() {
 
     ${sec('1. 행사 준비', '더보기 맨 위에서 설정합니다. (동기화 코드를 발행한 <b>방장</b> 기기에서만 수정할 수 있어요)<br>• <b>행사명 수정</b>: 행사 이름<br>• <b>행사 정보 수정</b>: 교회명, 본 교회 차수, 차수별 날짜(달력에서 두 날짜를 고르면 빠른 날=시작, 늦은 날=끝)<br>• <b>구역·차수·차량 목록</b>: 구역, 호차, 교회차, 기타 차편 (개인차 차주는 인원 추가에서 추가·삭제)<br>• <b>회(부서)별 회비 단가</b>: 부서 이름·단가')}
 
-    ${sec('2. 인원 등록', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분(사전 1단계·2단계·현장 접수), 차수는 꼭 골라야 저장됩니다.<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. 본 교회 차수가 아니면 차편을 비워도 됩니다.<br>• 차수를 아직 못 정했으면 <b>차수 미정</b>을 체크해 등록만 먼저 해두세요. 홈 <b>차수별 인원</b>의 <b>⚠ 미정</b> 칸과 <b>입력 점검</b>에 모여 표시되고, 차수가 정해지면 미정을 풀고 실제 차수를 고르면 됩니다.<br>• <b>숙소</b>는 본 교회 차수 참여자에게만 해당되어, 본 차수를 체크했을 때만 드롭다운이 보입니다(옆의 <b>+ 추가/삭제</b>로 숙소 목록을 바로 관리). 본 차수를 빼고 저장하면 숙소도 함께 비워집니다.<br>• 인도자·관계 아래 <b>연락처</b>를 적어둘 수 있습니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 개인차를 고르면 <b>+ 차주 추가</b>로 차주를 바로 등록할 수 있고(상·하행 모두 반영), <b>차주 삭제</b>로 뺄 수 있습니다.')}
+    ${sec('2. 인원 등록', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분(사전 1단계·2단계·현장 접수), 차수는 꼭 골라야 저장됩니다.<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. 본 교회 차수가 아니면 차편을 비워도 됩니다.<br>• 차수를 아직 못 정했으면 <b>차수 미정</b>을 체크해 등록만 먼저 해두세요. 홈 <b>차수별 인원</b>의 <b>⚠ 미정</b> 칸과 <b>입력 점검</b>에 모여 표시되고, 차수가 정해지면 미정을 풀고 실제 차수를 고르면 됩니다.<br>• <b>숙소</b>는 본 교회 차수 참여자에게만 해당되어, 본 차수를 체크했을 때만 드롭다운이 보입니다(옆의 <b>+ 추가/삭제</b>로 숙소 목록을 바로 관리). 본 차수를 빼고 저장하면 숙소도 함께 비워집니다.<br>• 특정 차수만 못 오게 되면 <b>불참 처리 대신 그 차수 체크를 해제</b>하세요 — 한 차수라도 참석하면 참석자입니다. <b>불참/환불</b>은 모든 일정에 오지 않는 경우에만 쓰고, 본 차수 해제는 이력에 <b>본 차수 불참(차수 해제)</b>로 남습니다.<br>• 인도자·관계 아래 <b>연락처</b>를 적어둘 수 있습니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 개인차를 고르면 <b>+ 차주 추가</b>로 차주를 바로 등록할 수 있고(상·하행 모두 반영), <b>차주 삭제</b>로 뺄 수 있습니다.')}
 
     ${sec('3. 명단 보기·수정·인쇄', '홈의 <b>접수 현황·구역별·차수별·회별</b> 카드에서 항목을 누르면 명단창이 열립니다.<br>• 명단창에서 <b>성명을 누르면 편집창</b>이 열리고, 저장하거나 취소하면 다시 그 명단창으로 돌아옵니다.<br>• 구역별 카드 오른쪽 <b>인쇄</b>는 전체 명단을 인쇄합니다. 각 구역 명단창의 <b>인쇄</b>는 그 구역만 인쇄합니다.<br>• 삭제(구역 초기화·개별 인원)한 직후에는 <b>되돌리기</b> 버튼이 잠깐 떠서, 잘못 지웠으면 바로 되살릴 수 있습니다.<br>• 모든 <b>인쇄</b> 버튼 옆의 <b>사진</b>을 누르면, 인쇄될 내용과 똑같은 문서를 <b>고화질 사진</b>으로 만들어 카카오톡 등으로 바로 <b>공유</b>하거나 저장할 수 있습니다.')}
     ${sub('숙소 탭', '하단의 <b>숙소</b> 탭에서 숙소를 관리합니다. 위쪽 칩으로 <b>전체 · 각 숙소 · 미배정</b>을 오가고(개별 화면에서 <b>뒤로가기</b>를 누르면 전체로 돌아옵니다), 각 숙소 화면에서 <b>+ 인원 추가</b>(검색해서 미배정 인원을 눌러 바로 배정) · <b>전체보기 · 사진 · 인쇄</b>를 쓸 수 있습니다. <b>숙소 관리</b>에서 숙소 이름과 <b>정원</b>을 정하면 홈과 칩에 <b>배정/정원</b>으로 표시되고, 정원을 넘으면 붉게 경고합니다. 명단에서 이름을 누르면 그 사람의 숙소와 비고를 바로 바꿀 수 있습니다. 홈의 <b>숙소 현황</b> 칸을 누르면 그 숙소 명단이 팝업으로 열립니다. 명단에 없는 <b>미등록 인원</b>(타교회 접수자 등)도 <b>+ 인원 추가 → 미등록 인원 추가</b>로 숙소에 넣을 수 있고(교회 이름·성명·회·비고 입력, 명단에서 이름을 누르면 수정·삭제), 정원은 표시용이라 <b>초과 배정도 가능</b>합니다 — 넘으면 붉은 경고만 띄웁니다.')}

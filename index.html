@@ -2519,36 +2519,28 @@ function execPrintSession(session) {
   const titleText = `${getYearPrefix()} 하계수양회 - ${session} 명단`;
   let ctr = 0;  // 정상 인원만 순번
   let trs = list.map((m) => {
-    let up = m.transUp || ''; let down = m.transDown || '';
-    const extraUp = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
-    const extraDown = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
-    if (extraUp) up = `${m.extraUp[extraUp]} (${extraUp})`;
-    if (extraDown) down = `${m.extraDown[extraDown]} (${extraDown})`;
-    const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-    // 화면 명단과 동일한 상태 반영
+    // 이 차수의 교통편만 표시 (환불·불참은 번호 칸에 표시 — 비고 열 없음)
+    const t = sessionTransText(m, session);
+    const transStr = (!t.up && !t.down) ? '' : esc(`상:${t.up||'-'} / 하:${t.down||'-'}`);
     let noCell, rowStyle = '';
     if (isUncountedOnsite(m)) { noCell = '<span style="color:#0a8f86;font-weight:700;">현장</span>'; }
     else if (m.status === 'refund') { noCell = '<span style="color:#c0392b;font-weight:700;">환불</span>'; rowStyle = 'color:#999; text-decoration:line-through; text-decoration-color:#c0392b;'; }
     else if (m.status === 'noshow') { noCell = '<span style="color:#c0392b;font-weight:700;">불참</span>'; rowStyle = 'color:#999;'; }
     else { ctr += 1; noCell = String(ctr); }
-    let noteCell = esc(m.note || '');
-    if (m.status === 'noshow') noteCell = '<span style="color:#c0392b;font-weight:700;">불참</span>' + (m.note ? ' · ' + esc(m.note) : '');
-    else if (m.status === 'refund') noteCell = '<span style="color:#c0392b;font-weight:700;">환불</span>' + (m.note ? ' · ' + esc(m.note) : '');
     return `<tr${rowStyle ? ` style="${rowStyle}"` : ''}>
       <td>${noCell}</td><td>${esc(m.zone)}</td><td class="print-name">${esc(m.name)}</td>
       <td>${esc(m.dept)}</td><td class="tl trans-cell">${transStr}</td>
-      <td>${esc(m.lodging||'')}</td><td class="tl note-cell">${noteCell}</td>
     </tr>`;
   }).join('');
-  if(!trs) trs = `<tr><td colspan="7" style="padding:20px;color:#666">인원이 없습니다.</td></tr>`;
+  if(!trs) trs = `<tr><td colspan="5" style="padding:20px;color:#666">인원이 없습니다.</td></tr>`;
   const body = `<div class="print-title">${titleText}</div>
     <table class="print-table" style="table-layout:fixed">
       <colgroup>
-        <col style="width:5%"><col style="width:9%"><col style="width:11%">
-        <col style="width:12%"><col style="width:32%"><col style="width:18%"><col style="width:13%">
+        <col style="width:7%"><col style="width:13%"><col style="width:17%">
+        <col style="width:17%"><col style="width:46%">
       </colgroup>
       <thead><tr>
-        <th>번호</th><th>구역</th><th>성명</th><th>회(부서)</th><th>교통편</th><th>숙소</th><th>비고</th>
+        <th>번호</th><th>구역</th><th>성명</th><th>회(부서)</th><th>교통편</th>
       </tr></thead>
       <tbody>${trs}</tbody>
     </table>`;
@@ -2865,16 +2857,13 @@ function openSessionSheet(session, isReopen) {
       <button class="btn btn-secondary btn-block" onclick="execPrintSession('${esc(session)}')">인쇄</button>
     </div>
     <div style="overflow-x:auto;">
-      <div class="roster-table" style="min-width:620px; width:max-content;">
-        <div class="roster-row head" style="grid-template-columns: 28px 45px 58px 58px 250px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>교통편</div><div>비고</div></div>
+      <div class="roster-table" style="min-width:420px; width:max-content;">
+        <div class="roster-row head" style="grid-template-columns: 28px 45px 58px 58px minmax(150px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div>교통편</div></div>
         ${(() => { const __ctr={n:0}; return list.map((m, i) => {
-          let up = m.transUp || ''; let down = m.transDown || '';
-          const eu = Object.keys(m.extraUp || {}).find(k => m.extraUp[k]);
-          const ed = Object.keys(m.extraDown || {}).find(k => m.extraDown[k]);
-          if (eu) up = `${m.extraUp[eu]} (${eu})`;
-          if (ed) down = `${m.extraDown[ed]} (${ed})`;
-          const transStr = allSessionsTransText(m, true);  // 모든 차수 교통편 줄바꿈 표시
-          return `<div class="roster-row" style="grid-template-columns: 28px 45px 58px 58px 250px minmax(60px,1fr); ${statusRowStyle(m)}"><div class="no">${numberCell(m, __ctr)}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openSessionSheet', arg:'${esc(session)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div><div style="white-space:nowrap;">${noteWithStatus(m)}</div></div>`;
+          // 이 차수의 교통편만 표시 (환불·불참 표시는 번호 칸에 나옴 — 비고 열 없음)
+          const t = sessionTransText(m, session);
+          const transStr = (!t.up && !t.down) ? '' : esc(`상:${t.up||'-'} / 하:${t.down||'-'}`);
+          return `<div class="roster-row" style="grid-template-columns: 28px 45px 58px 58px minmax(150px,1fr); ${statusRowStyle(m)}"><div class="no">${numberCell(m, __ctr)}</div><div>${esc(m.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById('${esc(m.id)}', {fn:'openSessionSheet', arg:'${esc(session)}'})">${esc(m.name)}</div><div>${esc(m.dept)}</div><div style="font-size:11px;white-space:nowrap;line-height:1.3;">${transStr}</div></div>`;
         }).join(''); })()}
         ${list.length===0 ? `<div style="padding:20px;text-align:center;color:var(--ink-mute)">인원이 없습니다.</div>`:''}
       </div>

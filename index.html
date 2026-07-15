@@ -1313,21 +1313,36 @@ function recalcAllMembers() {
   (DB.members || []).forEach(recalcMemberRepTrans);
 }
 
-// 탑승 확인 체크 토글: 저장 + 화면(차편 탭 본문 + 전체보기 시트)의 동일 체크박스 즉시 동기화
-function setBoardCheck(id, dir, checked) {
+// 탑승 확인 상태 (차수별). 예전에는 인원 전역 플래그(boardUp/boardDown) 하나여서
+// 여러 차수에 걸친 사람은 어느 차수 화면에서 체크·해제해도 전부 같이 바뀌었다(뒤집힘의 원인 1).
+// 이제 m.boardChecks = { 차수: {up, down} } 로 차수별 저장하고,
+// 옛 전역 플래그는 그 차수 기록이 아직 없을 때 표시 호환으로만 읽는다.
+function boardCheckOf(m, ses, dirField) {
+  const key = dirField === 'boardUp' ? 'up' : 'down';
+  const e = (m.boardChecks || {})[ses || ''];
+  if (e && typeof e[key] === 'boolean') return e[key];
+  return !!m[dirField];
+}
+// 탑승 확인 체크 토글: 차수별 저장 + 화면(차편 탭 본문 + 전체보기 시트)의 동일 체크박스 즉시 동기화
+function setBoardCheck(id, dir, checked, ses) {
+  ses = ses || '';
+  const sesSel = String(ses).replace(/"/g, '\\"');
+  const sel = `.board-check[data-id="${id}"][data-dir="${dir}"][data-ses="${sesSel}"]`;
   if (isViewOnly()) {
     toast('보기 전용으로 참여 중이라 수정할 수 없어요.', true);
     const mm = DB.members.find(x => x.id === id);
-    document.querySelectorAll(`.board-check[data-id="${id}"][data-dir="${dir}"]`).forEach(cb => { cb.checked = mm ? !!mm[dir] : false; });
+    document.querySelectorAll(sel).forEach(cb => { cb.checked = mm ? boardCheckOf(mm, ses, dir) : false; });
     return;
   }
   const m = DB.members.find(x => x.id === id);
   if (!m) return;
-  m[dir] = checked;
+  m.boardChecks = m.boardChecks || {};
+  const e = m.boardChecks[ses] = m.boardChecks[ses] || {};
+  e[dir === 'boardUp' ? 'up' : 'down'] = !!checked;
   // 탑승 확인 체크는 자주 반복되는 사소한 작업이라 이력에 남기지 않음
   saveDB();
-  // 같은 멤버·같은 방향의 모든 체크박스(본문/전체보기 양쪽)를 동기화
-  document.querySelectorAll(`.board-check[data-id="${id}"][data-dir="${dir}"]`).forEach(other => {
+  // 같은 멤버·같은 방향·같은 차수의 모든 체크박스(본문/전체보기 양쪽)를 동기화
+  document.querySelectorAll(sel).forEach(other => {
     if (other.checked !== checked) other.checked = checked;
   });
 }
@@ -1679,15 +1694,16 @@ function buildSplitTable(title, uList, dList, isPrint=false, driver=null, type=n
 
    function buildSide(label, list, headLabel, dirInfo) {
      const dirField = (label === '상행') ? 'boardUp' : 'boardDown';
+     const __bcSes = (group && group.session) ? group.session : '';  // 확인 체크는 차수별 독립
      const dateKey = (label === '상행') ? 'upDate' : 'downDate';
      const baseDate = baseDateOf(list, dateKey);
      const rows = list.length === 0
        ? ``
        : list.map((m, i) => {
-           const checked = !!m[dirField];
+           const checked = boardCheckOf(m, __bcSes, dirField);
            const checkCell = isPrint
              ? `<td class="check-cell">${checked ? '✓' : ''}</td>`
-             : `<td class="check-cell"><input type="checkbox" class="board-check" data-id="${esc(m.id)}" data-dir="${dirField}" ${checked?'checked':''}${isViewOnly()?' disabled':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--gold);"/></td>`;
+             : `<td class="check-cell"><input type="checkbox" class="board-check" data-id="${esc(m.id)}" data-dir="${dirField}" data-ses="${esc(__bcSes)}" ${checked?'checked':''}${isViewOnly()?' disabled':''} style="width:20px; height:20px; cursor:pointer; accent-color:var(--gold);"/></td>`;
            // 기준 날짜와 다른 사람만 성명 아래에 본인 날짜 표시
            const md = memberDateOf(m, dateKey);
            const showTag = group && md && baseDate && md !== baseDate;
@@ -2012,11 +2028,14 @@ function buildPrintDocument(title, bodyHtml, forPhoto) {
 ${forPhoto
   ? '<script src="' + H2C_SRC + '"><\/script>'
   : ('<script>'
-    // ── 인쇄 자동 크기 엔진 ──
-    // 단일 명단표: 43명/장 상한으로 균등 분면(예: 50명→25+25) 후 각 장이 꽉 차는 배율 계산.
-    // 여러 표/짧은 문서: 최소 장수로 채우는 배율. 글자 크기는 약 9.4~15.4px(±3pt) 안에서만 움직인다.
+    // ── 인쇄 자동 크기 엔진 v2: 글자 크기와 행간을 분리해 한 장을 채운다 ──
+    // 1) 단일 명단표: 43명/장 상한으로 균등 분면(예: 50명→25+25) 후,
+    //    글자 배율은 약 9.4~15.4px(±3pt) 안에서 최대로 잡고,
+    //    그래도 남는 세로 공간은 '행간(행 높이)'으로 모든 행에 균등 배분해 페이지를 채운다.
+    //    행간도 글자행의 +90%까지만 — 10명짜리가 우스꽝스럽게 벌어지진 않게.
+    // 2) 여러 표 문서: 최소 장수로 채우는 배율. 한 장짜리면 행간 배분도 함께 적용.
     + 'window.onload=function(){setTimeout(function(){try{'
-    + 'var P=1032,zMin=0.78,zMax=1.28,CAP=43;'
+    + 'var P=1016,zMin=0.78,zMax=1.28,CAP=43,LEAD=0.9;'
     + 'var H=document.body.scrollHeight,f=1;'
     + 'var ts=document.querySelectorAll("table");'
     + 'if(ts.length===1&&ts[0].tBodies.length&&ts[0].tBodies[0].rows.length>3){'
@@ -2025,9 +2044,21 @@ ${forPhoto
     +   'var fixed=Math.max(24,H-M*r0);'
     +   'var N=Math.max(1,Math.ceil(M/CAP)),per=Math.ceil(M/N);'
     +   'for(var k=per;k<M;k+=per){tb.rows[k].style.pageBreakBefore="always";tb.rows[k].style.breakBefore="page";}'
-    +   'f=P/(fixed+per*r0);'
-    + '}else{var nMin=Math.max(1,Math.ceil(H*zMin/P));f=nMin*P/H;}'
-    + 'f=Math.min(zMax,Math.max(zMin,f*0.985));'
+    +   'f=Math.min(zMax,Math.max(zMin,P/(fixed+per*r0)));'
+    +   'var slack=P-f*(fixed+per*r0);'
+    +   'if(slack>2){var pad=Math.min(slack/per,LEAD*f*r0);'
+    +     'for(var q=0;q<M;q++)tb.rows[q].style.height=(r0+pad/f).toFixed(2)+"px";}'
+    + '}else{'
+    +   'var nMin=Math.max(1,Math.ceil(H*zMin/P));'
+    +   'f=Math.min(zMax,Math.max(zMin,nMin*P/H));'
+    +   'if(nMin===1){'
+    +     'var rows=[],r0m=0;'
+    +     'for(var i=0;i<ts.length;i++){var b=ts[i].tBodies[0];if(b)for(var j=0;j<b.rows.length;j++){rows.push(b.rows[j]);if(!r0m)r0m=b.rows[j].getBoundingClientRect().height||24;}}'
+    +     'var sl=P-f*H;'
+    +     'if(sl>2&&rows.length){var pd=Math.min(sl/rows.length,LEAD*f*r0m);'
+    +       'for(var w=0;w<rows.length;w++)rows[w].style.height=(rows[w].getBoundingClientRect().height+pd/f).toFixed(2)+"px";}'
+    +   '}'
+    + '}'
     + 'if(Math.abs(f-1)>0.02)document.body.style.zoom=f.toFixed(4);'
     + 'window.focus();window.print();'
     + '}catch(e){console.error(e);try{window.print();}catch(_e){}}},150);};'
@@ -2486,7 +2517,7 @@ function openTransportFull(onlySession) {
   // 탑승 확인 체크박스 — 클릭 시 멤버에 저장 (상행=boardUp, 하행=boardDown)
   setTimeout(() => {
     document.querySelectorAll('#sheetBody .board-check').forEach(cb => {
-      cb.addEventListener('change', () => setBoardCheck(cb.dataset.id, cb.dataset.dir, cb.checked));
+      cb.addEventListener('change', () => setBoardCheck(cb.dataset.id, cb.dataset.dir, cb.checked, cb.dataset.ses || ''));
     });
     // 추가 탑승자 입력/삭제/탑승확인 (전체보기)
     const readBE = (bus) => {
@@ -4358,6 +4389,9 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
       lodging: lodgingVal,
       salvation: m.salvation || false,
       baptism: $('#mBaptism') ? $('#mBaptism').checked : (m.baptism || false),
+      // 탑승 확인 체크 보존 — 저장이 인원 객체를 통째로 교체하므로 명시적으로 실어 나른다
+      boardChecks: m.boardChecks || {},
+      boardUp: !!m.boardUp, boardDown: !!m.boardDown,
       note: $('#mNote').value.trim(),
       feeOverride: (function(){ const el=$('#mFeeOverride'); if(!el) return (m.feeOverride!==undefined?m.feeOverride:null); const v=el.value.trim(); return v==='' ? null : (isNaN(v) ? null : Number(v)); })(),
       feeReason: ($('#mFeeReason') ? $('#mFeeReason').value.trim() : (m.feeReason||'')),
@@ -7327,7 +7361,7 @@ function bindViewHandlers() {
   });
   // 차편 탭 명단의 탑승 확인 체크박스
   $$('#view .board-check').forEach(cb => {
-    cb.addEventListener('change', () => setBoardCheck(cb.dataset.id, cb.dataset.dir, cb.checked));
+    cb.addEventListener('change', () => setBoardCheck(cb.dataset.id, cb.dataset.dir, cb.checked, cb.dataset.ses || ''));
   });
   $$('[data-action="base-settings"]').forEach(b => b.onclick = openBaseSettingsSheet);
   $$('[data-action="edit-meta"]').forEach(b => b.onclick = (e) => { e.stopPropagation(); openMetaEditSheet(); });

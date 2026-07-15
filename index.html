@@ -2061,12 +2061,16 @@ ${forPhoto
     +   'var avg=sum/M;'
     +   'var top=Math.max(0,ts[0].getBoundingClientRect().top);'  // 1쪽 고정부: 본문 여백+제목
     +   'var th=ts[0].tHead?ts[0].tHead.getBoundingClientRect().height:0;'  // 매 쪽 반복 머리글
+    // 문서 꼬리: 표 아래 여백(margin)·본문 하단 패딩 등 — 행 수와 무관한 고정 높이(≈2행 분).
+    // 이걸 빠뜨리면 34명이든 39명이든 마지막에 늘 1~2행이 다음 장으로 밀린다.
+    +   'var tail=Math.max(0,H-(top+th+sum));'
     +   'var N=Math.max(1,Math.ceil(M/CAP)),per=Math.ceil(M/N);'
     +   'var st=[],en=[],base=[],mx=0;'
     +   'for(var k=0;k<N;k++){'
     +     'st[k]=k*per;en[k]=Math.min(M,st[k]+per);'
     +     'var b=(k===0?top+th:th);'
     +     'for(var q2=st[k];q2<en[k];q2++)b+=rh[q2];'
+    +     'if(k===N-1)b+=tail;'  // 마지막 장이 꼬리까지 담는다
     +     'base[k]=b;if(b>mx)mx=b;'
     +   '}'
     +   'f=Math.min(zMax,Math.max(zMin,P/mx));'  // 가장 높은 장이 딱 들어가는 배율
@@ -3511,6 +3515,10 @@ function bindMemberSearch() {
 }
 
 function render() {
+  // 가로 칩 바(차편 차종·차수, 숙소)의 스크롤 위치 보존 — 화면 안 아무 버튼을 눌러
+  // 다시 그려져도 칩이 맨 왼쪽으로 튀지 않는다.
+  const __hs = {};
+  ['ttTabs', 'trSesTabs', 'lgTabs'].forEach(id => { const el = document.getElementById(id); if (el) __hs[id] = el.scrollLeft; });
   const v = $('#view'); v.innerHTML = '';
   if (currentTab === 'roster') currentTab = 'home';  // 명단 탭 제거됨 → 홈으로
   if (currentTab === 'home')      v.innerHTML = renderHome();
@@ -3521,6 +3529,7 @@ function render() {
   updateTopbarHeight();
   updateTopbarChurch();
   try{ if(typeof refreshSyncUI==='function') refreshSyncUI(); }catch(e){}
+  Object.keys(__hs).forEach(id => { const el = document.getElementById(id); if (el) el.scrollLeft = __hs[id]; });
 }
 
 function renderHome() {
@@ -3536,15 +3545,7 @@ function renderHome() {
   const tStats = getTransportStats(TRANSPORT_DIST_SCOPE);
 
   ensureLodgingDefs();
-  const lodgUnN = lodgingUnassigned().length;
-  let lodgingHtml = `<div class="card"><div class="card-head">
-      <div class="card-title">숙소 현황 <span style="font-weight:400;font-size:11px;color:var(--ink-mute)">(배정/정원 · 누르면 명단)</span></div>
-      <div style="display:flex; gap:8px;">
-        <button class="card-action" data-action="goto-lodging">숙소 탭</button>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(88px, 1fr));gap:8px">${lodgingTilesHtml('popup')}</div>
-  </div>`;
+  const lodgingHtml = '';  // 홈 숙소 현황 카드 제거(사용자 요청) — 숙소는 숙소 탭에서 관리
 
   return `
     <div class="hero">
@@ -5464,7 +5465,7 @@ function openManualSheet() {
     ${sec('2. 인원 등록', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분(사전 1단계·2단계·현장 접수), 차수는 꼭 골라야 저장됩니다(단, <b>불참·환불</b>은 차수 없이 저장 가능).<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. 본 교회 차수가 아니면 차편을 비워도 됩니다.<br>• 차수를 아직 못 정했으면 <b>차수 미정</b>을 체크해 등록만 먼저 해두세요. 홈 <b>차수별 인원</b>의 <b>⚠ 미정</b> 칸과 <b>입력 점검</b>에 모여 표시되고, 차수가 정해지면 미정을 풀고 실제 차수를 고르면 됩니다.<br>• <b>숙소</b>는 본 교회 차수 참여자에게만 해당되어, 본 차수를 체크했을 때만 드롭다운이 보입니다(옆의 <b>+ 추가/삭제</b>로 숙소 목록을 바로 관리). 본 차수를 빼고 저장하면 숙소도 함께 비워집니다.<br>• 특정 차수만 못 오게 되면 <b>불참 처리 대신 그 차수 체크를 해제</b>하세요 — 한 차수라도 참석하면 참석자입니다. <b>불참/환불</b>은 모든 일정에 오지 않는 경우에만 쓰고, 본 차수 해제는 이력에 <b>본 차수 불참(차수 해제)</b>로 남습니다.<br>• 인도자·관계 아래 <b>연락처</b>를 적어둘 수 있습니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 개인차를 고르면 <b>+ 차주 추가</b>로 차주를 바로 등록할 수 있고(상·하행 모두 반영), <b>차주 삭제</b>로 뺄 수 있습니다.')}
 
     ${sec('3. 명단 보기·수정·인쇄', '홈의 <b>접수 현황·구역별·차수별·회별</b> 카드에서 항목을 누르면 명단창이 열립니다.<br>• 명단창에서 <b>성명을 누르면 편집창</b>이 열리고, 저장하거나 취소하면 다시 그 명단창으로 돌아옵니다.<br>• 구역별 카드 오른쪽 <b>인쇄</b>는 전체 명단을 인쇄합니다. 각 구역 명단창의 <b>인쇄</b>는 그 구역만 인쇄합니다.<br>• 삭제(구역 초기화·개별 인원)한 직후에는 <b>되돌리기</b> 버튼이 잠깐 떠서, 잘못 지웠으면 바로 되살릴 수 있습니다.<br>• 모든 <b>인쇄</b> 버튼 옆의 <b>사진</b>을 누르면, 인쇄될 내용과 똑같은 문서를 <b>고화질 사진</b>으로 만들어 카카오톡 등으로 바로 <b>공유</b>하거나 저장할 수 있습니다.')}
-    ${sub('숙소 탭', '하단의 <b>숙소</b> 탭에서 숙소를 관리합니다. 위쪽 칩으로 <b>전체 · 각 숙소 · 미배정</b>을 오가고(개별 화면에서 <b>뒤로가기</b>를 누르면 전체로 돌아옵니다), 각 숙소 화면에서 <b>+ 인원 추가</b>(검색해서 미배정 인원을 눌러 바로 배정) · <b>전체보기 · 사진 · 인쇄</b>를 쓸 수 있습니다. <b>숙소 관리</b>에서 숙소 이름과 <b>정원</b>을 정하면 홈과 칩에 <b>배정/정원</b>으로 표시되고, 정원을 넘으면 붉게 경고합니다. 명단에서 이름을 누르면 그 사람의 숙소와 비고를 바로 바꿀 수 있습니다. 홈의 <b>숙소 현황</b> 칸을 누르면 그 숙소 명단이 팝업으로 열립니다. 명단에 없는 <b>미등록 인원</b>(타교회 접수자 등)도 <b>+ 인원 추가 → 미등록 인원 추가</b>로 숙소에 넣을 수 있고(교회 이름·성명·회·비고 입력, 명단에서 이름을 누르면 수정·삭제), 정원은 표시용이라 <b>초과 배정도 가능</b>합니다 — 넘으면 붉은 경고만 띄웁니다.')}
+    ${sub('숙소 탭', '하단의 <b>숙소</b> 탭에서 숙소를 관리합니다. 위쪽 칩으로 <b>전체 · 각 숙소 · 미배정</b>을 오가고(개별 화면에서 <b>뒤로가기</b>를 누르면 전체로 돌아옵니다), 각 숙소 화면에서 <b>+ 인원 추가</b>(검색해서 미배정 인원을 눌러 바로 배정) · <b>전체보기 · 사진 · 인쇄</b>를 쓸 수 있습니다. <b>숙소 관리</b>에서 숙소 이름과 <b>정원</b>을 정하면 홈과 칩에 <b>배정/정원</b>으로 표시되고, 정원을 넘으면 붉게 경고합니다. 명단에서 이름을 누르면 그 사람의 숙소와 비고를 바로 바꿀 수 있습니다. 명단에 없는 <b>미등록 인원</b>(타교회 접수자 등)도 <b>+ 인원 추가 → 미등록 인원 추가</b>로 숙소에 넣을 수 있고(교회 이름·성명·회·비고 입력, 명단에서 이름을 누르면 수정·삭제), 정원은 표시용이라 <b>초과 배정도 가능</b>합니다 — 넘으면 붉은 경고만 띄웁니다.')}
 
     ${sec('4. 차편 탭 — 전체 구조', '차편 탭 맨 위의 칩으로 화면을 바꿉니다. 칩 순서는 <b>본대 배정 → 미배정 → 1호차 → 2호차 → … → 교회차 → 개인차 → 타교회</b> 입니다.<br>차편 탭에 들어가면 <b>본대 배정</b>이 기본으로 열립니다.' +
     sub('차편 종류는 네 가지', '인원 편집에서 각 차수의 상·하행마다 <b>교통수단 종류</b>를 고르고, 그 다음 <b>세부 차편</b>을 정합니다.<br>• <b>버스(본대)</b>: 교회가 함께 타는 대절 버스. 세부 차편 = 몇 호차<br>• <b>개인차</b>: 성도 개인 차량. 세부 차편 = 차주<br>• <b>교회차</b>: 교회 소유 차량<br>• <b>타교회·대중교통</b>: 그 외 교통편. 세부 차편 = 교회명 등') +

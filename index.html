@@ -1992,6 +1992,7 @@ function buildPrintDocument(title, bodyHtml, forPhoto) {
     font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
     -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { padding: 4mm; }
+  ${forPhoto ? '' : 'body { width: 190mm; margin: 0 auto; }  /* 측정 폭 = @page 콘텐츠 폭 → 줄바꿈이 인쇄와 동일 */'}
   .print-title { text-align: center; font-size: 18px; font-weight: 700; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 2px solid #000; }
   .print-section { margin-top: 14px; }
   .print-section-title { font-size: 13px; font-weight: 700; margin: 12px 0 6px; padding: 4px 6px; background: #eee; border-left: 4px solid #000; }
@@ -2047,19 +2048,23 @@ ${forPhoto
     //    행간도 글자행의 +90%까지만 — 10명짜리가 우스꽝스럽게 벌어지진 않게.
     // 2) 여러 표 문서: 최소 장수로 채우는 배율. 한 장짜리면 행간 배분도 함께 적용.
     + 'window.onload=function(){setTimeout(function(){try{'
-    + 'var P=1016,zMin=0.78,zMax=1.28,CAP=43,LEAD=0.9;'
+    + 'var P=1030,zMin=0.78,zMax=1.28,CAP=43,LEAD=0.9;'
     + 'var H=document.body.scrollHeight,f=1;'
     + 'var ts=document.querySelectorAll("table");'
     + 'if(ts.length===1&&ts[0].tBodies.length&&ts[0].tBodies[0].rows.length>3){'
     +   'var tb=ts[0].tBodies[0],M=tb.rows.length;'
     +   'var r0=tb.rows[0].getBoundingClientRect().height||24;'
-    +   'var fixed=Math.max(24,H-M*r0);'
+    +   'var top=Math.max(0,ts[0].getBoundingClientRect().top);'  // 1쪽 고정부: 본문 여백+제목
+    +   'var th=ts[0].tHead?ts[0].tHead.getBoundingClientRect().height:0;'  // 매 쪽 반복되는 머리글
     +   'var N=Math.max(1,Math.ceil(M/CAP)),per=Math.ceil(M/N);'
-    +   'for(var k=per;k<M;k+=per){tb.rows[k].style.pageBreakBefore="always";tb.rows[k].style.breakBefore="page";}'
-    +   'f=Math.min(zMax,Math.max(zMin,P/(fixed+per*r0)));'
-    +   'var slack=P-f*(fixed+per*r0);'
-    +   'if(slack>2){var pad=Math.min(slack/per,LEAD*f*r0);'
-    +     'for(var q=0;q<M;q++)tb.rows[q].style.height=(r0+pad/f).toFixed(2)+"px";}'
+    +   'f=Math.min(zMax,Math.max(zMin,P/(top+th+per*r0)));'
+    +   'for(var k=0;k<N;k++){'
+    +     'var st=k*per,en=Math.min(M,st+per),cnt=en-st;if(cnt<=0)break;'
+    +     'if(k>0){tb.rows[st].style.pageBreakBefore="always";tb.rows[st].style.breakBefore="page";}'
+    +     'var fx=(k===0?top+th:th);'  // 2쪽부터는 제목이 없어 그만큼 행간을 더 준다
+    +     'var pad=Math.max(0,Math.min((P/f-fx)/cnt-r0,LEAD*r0));'
+    +     'for(var q=st;q<en;q++)tb.rows[q].style.height=(r0+pad).toFixed(2)+"px";'
+    +   '}'
     + '}else{'
     +   'var nMin=Math.max(1,Math.ceil(H*zMin/P));'
     +   'f=Math.min(zMax,Math.max(zMin,nMin*P/H));'
@@ -2088,7 +2093,9 @@ function doPrint(title, bodyHtml) {
   const iframe = document.createElement('iframe');
   iframe.id = 'printFrame';
   iframe.setAttribute('aria-hidden', 'true');
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  // 폭 0이면 엔진의 높이 측정이 무의미해진다(글자가 전부 꺾여 문서가 거대하게 측정됨).
+  // 실제 A4 크기로 렌더링하되 visibility로 숨긴다.
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:210mm;height:297mm;border:0;visibility:hidden;pointer-events:none;';
   document.body.appendChild(iframe);
 
   const fullHtml = buildPrintDocument(title, bodyHtml);

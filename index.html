@@ -2048,22 +2048,33 @@ ${forPhoto
     //    행간도 글자행의 +90%까지만 — 10명짜리가 우스꽝스럽게 벌어지진 않게.
     // 2) 여러 표 문서: 최소 장수로 채우는 배율. 한 장짜리면 행간 배분도 함께 적용.
     + 'window.onload=function(){setTimeout(function(){try{'
-    + 'var P=1030,zMin=0.78,zMax=1.28,CAP=43,LEAD=0.9;'
+    + 'var P=1026,zMin=0.78,zMax=1.28,CAP=43,LEAD=0.9;'
     + 'var H=document.body.scrollHeight,f=1;'
     + 'var ts=document.querySelectorAll("table");'
     + 'if(ts.length===1&&ts[0].tBodies.length&&ts[0].tBodies[0].rows.length>3){'
     +   'var tb=ts[0].tBodies[0],M=tb.rows.length;'
-    +   'var r0=tb.rows[0].getBoundingClientRect().height||24;'
+    // 모든 행의 실제 높이를 합산한다 — 행마다 높이가 다르기 때문(두 줄 교통편, 긴 비고 등).
+    // 첫 행 하나로 추정하면 실제보다 낮게 잡혀 페이지가 넘치고, 자연 넘김이 강제 분면과
+    // 충돌해 한 행짜리 고아 페이지가 생긴다.
+    +   'var rh=[],sum=0;'
+    +   'for(var q=0;q<M;q++){var hq=tb.rows[q].getBoundingClientRect().height||24;rh.push(hq);sum+=hq;}'
+    +   'var avg=sum/M;'
     +   'var top=Math.max(0,ts[0].getBoundingClientRect().top);'  // 1쪽 고정부: 본문 여백+제목
-    +   'var th=ts[0].tHead?ts[0].tHead.getBoundingClientRect().height:0;'  // 매 쪽 반복되는 머리글
+    +   'var th=ts[0].tHead?ts[0].tHead.getBoundingClientRect().height:0;'  // 매 쪽 반복 머리글
     +   'var N=Math.max(1,Math.ceil(M/CAP)),per=Math.ceil(M/N);'
-    +   'f=Math.min(zMax,Math.max(zMin,P/(top+th+per*r0)));'
+    +   'var st=[],en=[],base=[],mx=0;'
     +   'for(var k=0;k<N;k++){'
-    +     'var st=k*per,en=Math.min(M,st+per),cnt=en-st;if(cnt<=0)break;'
-    +     'if(k>0){tb.rows[st].style.pageBreakBefore="always";tb.rows[st].style.breakBefore="page";}'
-    +     'var fx=(k===0?top+th:th);'  // 2쪽부터는 제목이 없어 그만큼 행간을 더 준다
-    +     'var pad=Math.max(0,Math.min((P/f-fx)/cnt-r0,LEAD*r0));'
-    +     'for(var q=st;q<en;q++)tb.rows[q].style.height=(r0+pad).toFixed(2)+"px";'
+    +     'st[k]=k*per;en[k]=Math.min(M,st[k]+per);'
+    +     'var b=(k===0?top+th:th);'
+    +     'for(var q2=st[k];q2<en[k];q2++)b+=rh[q2];'
+    +     'base[k]=b;if(b>mx)mx=b;'
+    +   '}'
+    +   'f=Math.min(zMax,Math.max(zMin,P/mx));'  // 가장 높은 장이 딱 들어가는 배율
+    +   'for(var k2=0;k2<N;k2++){'
+    +     'var cnt=en[k2]-st[k2];if(cnt<=0)break;'
+    +     'if(k2>0){tb.rows[st[k2]].style.pageBreakBefore="always";tb.rows[st[k2]].style.breakBefore="page";}'
+    +     'var pad=Math.max(0,Math.min((P/f-base[k2])/cnt,LEAD*avg));'  // 장별 잔여를 행간으로
+    +     'for(var q3=st[k2];q3<en[k2];q3++)tb.rows[q3].style.height=(rh[q3]+pad).toFixed(1)+"px";'
     +   '}'
     + '}else{'
     +   'var nMin=Math.max(1,Math.ceil(H*zMin/P));'
@@ -2929,6 +2940,11 @@ function handleAppBack() {
     if (currentTab === 'lodging' && lodgingTab.name !== '__all__') { lodgingTab.name = '__all__'; render(); }
     return;
   }
+  if (__trChipPushed) {
+    __trChipPushed = false;
+    if (currentTab === 'transport' && transportTab.session) { transportTab.session = ''; render(); }
+    return;
+  }
 }
 window.addEventListener('popstate', handleAppBack);
 
@@ -3359,7 +3375,32 @@ function feeTotalByZone(zone) {
 let currentTab = 'home';
 const ALL_ZONES = '__ALL__';
 let rosterFilter = { zone: ALL_ZONES, q: '' };
-let transportTab = { type: '__busassign__' };
+let transportTab = { type: '__busassign__', session: '' };  // session: '' = 전체(요약 보기)
+// 차편 탭의 차수 서브칩을 '뒤로가기 한 칸'으로 관리(숙소 칩과 같은 규칙):
+// 차수로 들어가면 history에 한 칸 쌓아, 뒤로가기 시 앱이 꺼지는 대신 전체(요약)로 돌아온다.
+// 차수끼리 오가도 한 칸만 유지한다.
+let __trChipPushed = false;
+function setTransportChip(ses) {
+  const toAll = !ses;
+  if (!toAll && !__trChipPushed && sheetStack.length === 0) {
+    history.pushState({ trChip: 1 }, '', '#tr');
+    __trChipPushed = true;
+  }
+  transportTab.session = ses || '';
+  render();
+  if (toAll && __trChipPushed) { __trChipPushed = false; history.back(); }  // 쌓아둔 칸 회수
+}
+// 개인차 차주 접힘 카드 열림 상태 ('차수|차주')
+const __trOpenDrv = new Set();
+function toggleTransDriver(key) {
+  if (__trOpenDrv.has(key)) __trOpenDrv.delete(key); else __trOpenDrv.add(key);
+  render();
+}
+// 전체(요약)의 차주 바로가기: 그 차주가 있는 차수로 이동하며 카드를 자동으로 펼침
+function gotoTransDriver(drv, ses) {
+  __trOpenDrv.add(ses + '|' + drv);
+  setTransportChip(ses);
+}
 // 숙소 탭 상태: '__all__' 전체 / '__un__' 미배정 / 그 외 = 숙소 이름
 let lodgingTab = { name: '__all__' };
 // 칩 이동을 '뒤로가기 한 칸'으로 관리: 전체(기본)가 아닌 칩으로 가면 history에 한 칸 쌓아,
@@ -5004,9 +5045,17 @@ function renderTransport() {
     return html;
   }
 
+  const isBusType = BUSES.includes(type);
+  let trSes = isBusType ? '' : (transportTab.session || '');
+  if (trSes && !getSessionDefs().some(d => d.name === trSes)) { transportTab.session = ''; trSes = ''; }
+  const __tj = trSes ? esc(trSes).replace(/'/g, "\\'") : '';
   html += `
     <div class="card">
-      <div class="card-head"><div class="card-title">${esc(type)} 탑승 명단</div><div style="display:flex;gap:6px;"><button class="card-action" onclick="openTransportFull()">전체보기</button><button class="card-action" onclick="photoRun('execPrintTransport')">사진</button><button class="card-action" onclick="execPrintTransport()">인쇄</button></div></div>
+      <div class="card-head"><div class="card-title">${esc(type)} 탑승 명단${trSes ? ' · ' + esc(trSes) : ''}</div><div style="display:flex;gap:6px;"><button class="card-action" onclick="openTransportFull(${__tj ? `'${__tj}'` : ''})">전체보기</button><button class="card-action" onclick="photoRun('execPrintTransport'${__tj ? `,'${__tj}'` : ''})">사진</button><button class="card-action" onclick="execPrintTransport(${__tj ? `'${__tj}'` : ''})">인쇄</button></div></div>
+      ${isBusType ? '' : `<div class="transport-tabs" id="trSesTabs" style="margin:2px 0 10px;">
+        <button class="tt-pill ${!trSes ? 'active' : ''}" data-s="">전체</button>
+        ${getSessionDefs().map(d => `<button class="tt-pill ${d.name === trSes ? 'active' : ''}" data-s="${esc(d.name)}">${esc(d.name)}</button>`).join('')}
+      </div>`}
   `;
 
   if (BUSES.includes(type)) {
@@ -5019,31 +5068,63 @@ function renderTransport() {
     html += buildSplitTable(null, uList, dList, false, null, type);
     html += busExtraEditor(busExtraKey(type, churchSessionName()), type, churchSessionName());
   } else if (type === '개인차') {
-    // 차수별(차수 순) → 그 차수의 차주별(차주 성명 가나다순) 블록
+    // 전체(요약: 차수 집계 + 차주 바로가기) ↔ 차수 상세(차주별 접힘 카드) 2단 구조
     const defs = getSessionDefs();
-    let any = false;
-    defs.forEach(def => {
-      const sname = def.name;
-      // 이 차수에 탑승자(상/하행 어느 쪽이든)가 있는 차주만, 차주명 가나다순
-      const drivers = (PRIVATE_CAR_LIST || []).filter(drv => {
-        const g = transSessionGroups('개인차', drv).find(x => x.session === sname);
-        return g && (g.uList.length || g.dList.length);
-      }).sort((a, b) => a.localeCompare(b, 'ko'));
-      if (drivers.length) {
-        // 차수 단위 도구줄: 이 차수의 개인차 전체(모든 차주)를 한 번에 보기·사진·인쇄
-        html += `<div style="display:flex; align-items:center; gap:6px; margin:14px 0 0;"><span style="font-weight:800; color:var(--gold);">${esc(sname)}</span>${transSessionActions(sname)}</div>`;
-      }
-      drivers.forEach(drv => {
-        const g = transSessionGroups('개인차', drv).find(x => x.session === sname);
-        if (!g) return;
+    const drvOf = (sname) => (PRIVATE_CAR_LIST || []).filter(drv => {
+      const g = transSessionGroups('개인차', drv).find(x => x.session === sname);
+      return g && (g.uList.length || g.dList.length);
+    }).sort((a, b) => a.localeCompare(b, 'ko'));
+    if (!trSes) {
+      let any = false, sumRows = '';
+      const drvIndex = {};
+      defs.forEach(def => {
+        const sname = def.name;
+        const drivers = drvOf(sname);
+        if (!drivers.length) return;
         any = true;
-        html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">🚗 ${esc(drv)} · ${esc(sname)}</div>`;
-        html += transInfoEditor('', drv, sname);  // 같은 차주라도 차수별 독립
-        html += buildSplitTable(null, g.uList, g.dList, false, drv, '개인차', g);
+        let u = 0, d = 0;
+        drivers.forEach(drv => {
+          const g = transSessionGroups('개인차', drv).find(x => x.session === sname);
+          u += g.uList.length; d += g.dList.length;
+          (drvIndex[drv] = drvIndex[drv] || []).push(sname);
+        });
+        const sj = esc(sname).replace(/'/g, "\\'");
+        sumRows += `<div class="clickable" style="display:flex; align-items:center; gap:8px; padding:11px 12px; border:1px solid var(--line); border-radius:10px; margin:6px 0; background:var(--bg-1);" onclick="setTransportChip('${sj}')">
+          <span style="font-weight:800; color:var(--gold);">${esc(sname)}</span>
+          <span style="font-size:12px; color:var(--ink-soft);">차주 ${drivers.length}명 · 상행 ${u} / 하행 ${d}</span>
+          <span style="margin-left:auto; color:var(--ink-mute);">›</span>
+        </div>`;
       });
-    });
-    if (!any) {
-      html += `<div class="empty-state">개인차로 가는 사람이 없습니다.<br/><span style="font-size:12px">더보기 → 기초 데이터 설정 → '개인차 목록'에서 차주를 등록하고, 인원 추가에서 개인차를 선택하세요.</span></div>`;
+      if (!any) {
+        html += `<div class="empty-state">개인차로 가는 사람이 없습니다.<br/><span style="font-size:12px">더보기 → 기초 데이터 설정 → '개인차 목록'에서 차주를 등록하고, 인원 추가에서 개인차를 선택하세요.</span></div>`;
+      } else {
+        html += `<div class="notice" style="margin-bottom:8px;">차수를 누르면 그 차수의 차주별 명단이 열립니다.</div>` + sumRows;
+        const names = Object.keys(drvIndex).sort((a, b) => a.localeCompare(b, 'ko'));
+        html += `<div style="font-size:12px; font-weight:700; color:var(--ink-soft); margin:14px 0 6px;">차주 바로가기</div>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">${names.map(n => {
+            const nj = esc(n).replace(/'/g, "\\'");
+            const fj = esc(drvIndex[n][0]).replace(/'/g, "\\'");
+            return `<button class="tt-pill" onclick="gotoTransDriver('${nj}','${fj}')">🚗 ${esc(n)} <span style="color:var(--ink-mute); font-size:11px;">${drvIndex[n].join('·')}</span></button>`;
+          }).join('')}</div>`;
+      }
+    } else {
+      const drivers = drvOf(trSes);
+      if (!drivers.length) html += `<div class="empty-state">이 차수에 개인차로 가는 사람이 없습니다.</div>`;
+      drivers.forEach(drv => {
+        const g = transSessionGroups('개인차', drv).find(x => x.session === trSes);
+        if (!g) return;
+        const okey = trSes + '|' + drv;
+        const open = __trOpenDrv.has(okey) || drivers.length === 1;  // 차주가 한 명이면 바로 펼침
+        const kj = esc(okey).replace(/'/g, "\\'");
+        html += `<div style="border:1px solid var(--line); border-radius:10px; margin:8px 0; overflow:hidden;">
+          <div class="clickable" style="display:flex; align-items:center; gap:8px; padding:11px 12px; background:var(--bg-1);" onclick="toggleTransDriver('${kj}')">
+            <span style="font-weight:700; color:var(--gold-soft);">🚗 ${esc(drv)}</span>
+            <span style="font-size:12px; color:var(--ink-soft);">상행 ${g.uList.length} · 하행 ${g.dList.length}</span>
+            <span style="margin-left:auto; font-size:12px; color:var(--ink-mute);">${open ? '▲' : '▼'}</span>
+          </div>
+          ${open ? `<div style="padding:10px 12px 12px;">${transInfoEditor('', drv, trSes)}${buildSplitTable(null, g.uList, g.dList, false, drv, '개인차', g)}</div>` : ''}
+        </div>`;
+      });
     }
   } else {
     // 교회차 / 타교회 / 대중교통: 차수별 블록 (헤더에 그 차수 날짜 표시)
@@ -5051,22 +5132,30 @@ function renderTransport() {
     //  등록자가 없어도 추가 탑승자가 있는 차수는 블록을 만들어 명단이 보이게 한다.
     const canExtra = supportsExtras(type);
     const groups = sessionGroupsWithExtras(type);
-    if (groups.length === 0) {
-      if (canExtra && getSessionDefs().length) {
-        html += `<div class="empty-state">해당 차편 등록자가 없습니다.<br/><span style="font-size:12px">아래에서 미등록 인원을 바로 추가할 수 있습니다.</span></div>`;
-        getSessionDefs().forEach(def => {
-          html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft);">${esc(type)} · ${esc(def.name)}</div>`;
-          html += busExtraEditor(busExtraKey(type, def.name), type, def.name);
-        });
-      } else {
-        html += `<div class="empty-state">해당 차편 등록자가 없습니다.</div>`;
-      }
-    } else {
-      groups.forEach(g => {
-        html += `<div style="font-weight:700; margin:10px 0 6px; color:var(--gold-soft); display:flex; align-items:center; gap:6px;"><span>${esc(type)} · ${esc(g.session)}</span>${transSessionActions(g.session)}</div>`;
-        html += transInfoEditor(type, null, g.session);
+    if (trSes) {
+      // 차수 상세: 그 차수만 (등록자가 없어도 미등록 추가 폼은 제공)
+      const g = groups.find(x => x.session === trSes);
+      if (g) {
+        html += transInfoEditor(type, null, trSes);
         html += buildSplitTable(null, g.uList, g.dList, false, null, type, g);
-        if (canExtra) html += busExtraEditor(busExtraKey(type, g.session), type, g.session);
+      } else {
+        html += `<div class="empty-state">이 차수에 등록자가 없습니다.</div>`;
+      }
+      if (canExtra) html += busExtraEditor(busExtraKey(type, trSes), type, trSes);
+    } else if (groups.length === 0) {
+      html += `<div class="empty-state">해당 차편 등록자가 없습니다.${canExtra && getSessionDefs().length ? '<br/><span style="font-size:12px">위 칩에서 차수를 고르면 미등록 인원을 추가할 수 있습니다.</span>' : ''}</div>`;
+    } else {
+      // 전체(요약): 차수별 한 줄 — 누르면 그 차수 상세
+      html += `<div class="notice" style="margin-bottom:8px;">차수를 누르면 그 차수의 명단과 시각 입력이 열립니다.</div>`;
+      groups.forEach(g => {
+        const info = getTransInfo(type, null, g.session);
+        const times = [info.upTime ? '상 ' + info.upTime : '', info.downTime ? '하 ' + info.downTime : ''].filter(Boolean).join(' · ');
+        const sj = esc(g.session).replace(/'/g, "\\'");
+        html += `<div class="clickable" style="display:flex; align-items:center; gap:8px; padding:11px 12px; border:1px solid var(--line); border-radius:10px; margin:6px 0; background:var(--bg-1);" onclick="setTransportChip('${sj}')">
+          <span style="font-weight:800; color:var(--gold);">${esc(g.session)}</span>
+          <span style="font-size:12px; color:var(--ink-soft);">상행 ${g.uList.length} / 하행 ${g.dList.length}${times ? ' · ' + times : ''}</span>
+          <span style="margin-left:auto; color:var(--ink-mute);">›</span>
+        </div>`;
       });
     }
   }
@@ -7313,13 +7402,20 @@ function bindViewHandlers() {
     openMemberSheet(emptyMember(startZone), true);
   };
   $$('#ttTabs .tt-pill').forEach(b => b.onclick = () => {
-    transportTab.type = b.dataset.t;
+    if (transportTab.type !== b.dataset.t) {
+      transportTab.type = b.dataset.t;
+      if (__trChipPushed) { __trChipPushed = false; history.back(); }  // 차종을 바꾸면 쌓인 차수 칸 회수
+      transportTab.session = '';
+      __trOpenDrv.clear();
+    }
     const tt = document.getElementById('ttTabs');
     const sl = tt ? tt.scrollLeft : 0;
     render();
     const tt2 = document.getElementById('ttTabs');
-    if (tt2) tt2.scrollLeft = sl;  // 가로 스크롤 위치 복원
+    if (tt2) tt2.scrollLeft = sl;
   });
+  // 차수 서브칩 (본대 외 차편): 전체 ↔ 각 차수, 뒤로가기 한 칸 관리
+  $$('#trSesTabs .tt-pill').forEach(b => b.onclick = () => setTransportChip(b.dataset.s || ''));
   $$('#lgTabs .tt-pill').forEach(b => b.onclick = () => {
     const lg = document.getElementById('lgTabs');
     const sl = lg ? lg.scrollLeft : 0;

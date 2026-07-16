@@ -666,6 +666,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
+const APP_VERSION = 'v11.7.0';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 function mergeHistories(a, b) {
@@ -2052,89 +2053,32 @@ ${forPhoto
     // 일부 기기의 인쇄 경로가 CSS zoom을 무시해(글자·배치가 그대로 인쇄됨) 배율 계산이 헛돌았다.
     // 이제 글자 크기(px)를 실제로 바꾸고 → 재측정(줄바꿈 변화 반영) → 행 높이로 각 장을 채우고
     // → 마지막에 총높이를 검증해 넘치면 행간을 회수한다. 어떤 인쇄 경로에서도 동일하게 동작.
-    + 'var PAGE=1032,SAFE=6,P=PAGE-SAFE,zMin=0.78,zMax=1.28,CAP=43,LEAD=0.9;'
-    + 'var PXPAGE=273*96/25.4,PADMM=4*96/25.4,CP=PXPAGE-PADMM*2-4;'  // 페이지 상자 내부 예산
-    + 'function rectH(el){return el?el.getBoundingClientRect().height:0;}'
-    + 'function scaleFonts(f){var els=document.querySelectorAll(".print-title,.print-section-title,table th,table td");'
-    +   'for(var i=0;i<els.length;i++){var e=els[i];'
-    +     'if(!e.dataset.f0)e.dataset.f0=parseFloat(getComputedStyle(e).fontSize)||11;'
-    +     'e.style.fontSize=(parseFloat(e.dataset.f0)*f).toFixed(2)+"px";}}'
+    // ── 인쇄 엔진 v8: 글자·행간·상자 없이, '개수 상한 균등 분배'만 ──
+    // 현장 검증된 규칙: 제목이 있어도 33명(가중치)까지는 한 장에 무난히 들어간다.
+    // 2~3줄을 차지하는 행은 2~3명으로 계산(가중치 = 행높이/한줄높이 반올림).
+    // 페이지 수 N = ceil(총가중치/33), 가중치 기준 균등 분배 후 그 행 앞에서만 넘긴다.
+    // 글자 크기·행 높이·overflow는 일절 건드리지 않으므로 어떤 기기에서도 잘리거나 뭉개질 수 없다.
+    + 'var CAP=33;'
     + 'var ts=document.querySelectorAll("table");'
     + 'if(ts.length===1&&ts[0].tBodies.length&&ts[0].tBodies[0].rows.length>3){'
-    +   'var tb=ts[0].tBodies[0],M=tb.rows.length;'
-    +   'var N=Math.max(1,Math.ceil(M/CAP)),per=Math.ceil(M/N);'
-    +   'var sum0=0;for(var q=0;q<M;q++)sum0+=rectH(tb.rows[q]);'
-    +   'var top0=Math.max(0,ts[0].getBoundingClientRect().top);'
-    +   'var th0=rectH(ts[0].tHead);'
-    +   'var mx0=0;'
-    +   'for(var k0=0;k0<N;k0++){var b0=(k0?th0:Math.max(0,top0-PADMM)+th0);'  // 상자 구조: 1쪽=제목(패딩 제외)+머리글
-    +     'for(var p0=k0*per;p0<Math.min(M,(k0+1)*per);p0++)b0+=rectH(tb.rows[p0]);'
-    +     'if(b0>mx0)mx0=b0;}'
-    +   'var f=Math.min(zMax,Math.max(zMin,CP/mx0));'
-    +   'var rh=[],sum=0,top=0,th=0,mx=0,tryN=0;'
-    +   'while(true){'
-    +     'scaleFonts(f);'
-    +     'rh=[];sum=0;for(var q3=0;q3<M;q3++){var hq=rectH(tb.rows[q3]);rh.push(hq);sum+=hq;}'
-    +     'top=Math.max(0,ts[0].getBoundingClientRect().top);'
-    +     'th=rectH(ts[0].tHead);'
-    +     'mx=0;'
-    +     'for(var k2=0;k2<N;k2++){var b2=(k2?th:Math.max(0,top-PADMM)+th);'
-    +       'for(var q4=k2*per;q4<Math.min(M,(k2+1)*per);q4++)b2+=rh[q4];'
-    +       'if(b2>mx)mx=b2;}'
-    +     'if(mx<=CP||f<=zMin+0.001||tryN>=3)break;'
-    +     'f=Math.max(zMin,f*CP/mx);tryN++;'  // 글자를 키웠더니 줄바꿈으로 넘치면 줄여 재시도
+    +   'var tb=ts[0].tBodies[0],M=tb.rows.length,hs=[],mn=1e9;'
+    +   'for(var q=0;q<M;q++){var h=tb.rows[q].getBoundingClientRect().height||24;hs.push(h);if(h<mn)mn=h;}'
+    +   'var W=0,w=[];for(var q2=0;q2<M;q2++){var g=Math.max(1,Math.round(hs[q2]/mn));w.push(g);W+=g;}'
+    +   'var N=Math.max(1,Math.ceil(W/CAP));'
+    +   'if(N>1){'
+    +     'var cum=0,k=1,tk=Math.round(W*k/N);'
+    +     'for(var q3=0;q3<M&&k<N;q3++){cum+=w[q3];'
+    +       'if(cum>=tk){var br=tb.rows[q3+1];'
+    +         'if(br){br.style.pageBreakBefore="always";br.style.breakBefore="page";'
+    +           'var pc=tb.rows[q3].cells;for(var c=0;c<pc.length;c++)pc[c].style.borderBottom="2px solid #333";'  // 장 끝 하단 선
+    +         '}'
+    +         'k++;tk=Math.round(W*k/N);'
+    +       '}'
+    +     '}'
     +   '}'
-    +   'var avg=sum/M;'
-    // ── v7: 예측 대신 통제 — 명시적 페이지 상자 ──
-    // 각 장을 고정 높이(273mm) 컨테이너로 직접 만들고 행을 옮겨 담는다. overflow:hidden으로
-    // 봉인되어 기기·브라우저의 넘김 규칙과 무관하게 계산 그대로 인쇄된다. 문서 꼬리(여백)도
-    // 상자가 잘라내므로 마지막 줄 밀림이 원천적으로 불가능하다.
-    + 'var topContent=Math.max(0,top-PADMM);'           // 제목·부제 높이(본문 패딩 제외)
-    + 'document.body.style.padding="0";'
-    + 'var pages=[];'
-    + 'for(var k3=0;k3<N;k3++){'
-    +   'var st=k3*per,en=Math.min(M,st+per),cnt=en-st;if(cnt<=0)break;'
-    +   'var fx=(k3===0?topContent+th:th);'
-    +   'var b4=fx;for(var q5=st;q5<en;q5++)b4+=rh[q5];'
-    +   'var pad=Math.max(0,Math.min((CP-b4)/cnt,LEAD*avg));'
-    +   'for(var q6=st;q6<en;q6++)tb.rows[q6].style.height=(Math.floor((rh[q6]+pad)*10)/10).toFixed(1)+"px";'  // 내림: 반올림 누적으로 예산 초과 방지
-    +   'pages.push([st,en]);'
-    + '}'
-    + 'var tbl=ts[0];'
-    + 'var pgs=[];'
-    + 'for(var k4=0;k4<pages.length;k4++){'
-    +   'var pg=document.createElement("div");'
-    +   'pg.style.cssText="box-sizing:border-box;height:"+PXPAGE.toFixed(1)+"px;padding:"+PADMM.toFixed(1)+"px 0;overflow:hidden;"+(k4<pages.length-1?"page-break-after:always;break-after:page;":"");'
-    +   'pgs.push(pg);'
-    + '}'
-    + 'var par=tbl.parentNode;'
-    + 'par.insertBefore(pgs[0],tbl);'
-    + 'var mv=[];var nd=document.body.firstChild;'      // 제목 등 표 앞 요소들을 1쪽 상자로
-    + 'while(nd&&nd!==pgs[0]){mv.push(nd);nd=nd.nextSibling;}'
-    + 'for(var m1=0;m1<mv.length;m1++)if(mv[m1].nodeType===1&&mv[m1].tagName!=="SCRIPT")pgs[0].appendChild(mv[m1]);'
-    + 'pgs[0].appendChild(tbl);'
-    + 'for(var k5=1;k5<pages.length;k5++){'
-    +   'var t2=document.createElement("table");'
-    +   't2.className=tbl.className;t2.style.cssText=tbl.style.cssText;'
-    +   'var cg=tbl.querySelector("colgroup");if(cg)t2.appendChild(cg.cloneNode(true));'
-    +   'if(tbl.tHead)t2.appendChild(tbl.tHead.cloneNode(true));'
-    +   'var nb=document.createElement("tbody");t2.appendChild(nb);'
-    +   'for(var q7=pages[k5][0];q7<pages[k5][1];q7++)nb.appendChild(tb.rows[per]);'  // 1쪽 몫(per) 뒤가 항상 다음 이동 대상(라이브 컬렉션)
-    +   'pgs[k5].appendChild(t2);'
-    +   'pgs[k5-1].parentNode.insertBefore(pgs[k5],pgs[k5-1].nextSibling);'
-    + '}'
     + '}else{'
-    +   'var H=document.body.scrollHeight;'
-    +   'var nMin=Math.max(1,Math.ceil(H*zMin/PAGE));'
-    +   'var f2=Math.min(zMax,Math.max(zMin,nMin*P/H));'
-    +   'scaleFonts(f2);'
-    +   'if(nMin===1){'
-    +     'var rows=[];for(var i2=0;i2<ts.length;i2++){var b3=ts[i2].tBodies[0];'
-    +       'if(b3)for(var j2=0;j2<b3.rows.length;j2++)rows.push(b3.rows[j2]);}'
-    +     'var H2=document.body.scrollHeight;var sl=P-H2;'
-    +     'if(sl>2&&rows.length){var r0m=rectH(rows[0])||24;var pd=Math.min(sl/rows.length,LEAD*r0m);'
-    +       'for(var w=0;w<rows.length;w++){var oh=rectH(rows[w]);rows[w].style.height=(oh+pd).toFixed(1)+"px";}}'
-    +   '}'
+    +   'var stt=document.querySelectorAll(".print-section-title");'  // 여러 표 문서: 제목이 표와 떨어져 홀로 넘어가지 않게만
+    +   'for(var i2=0;i2<stt.length;i2++){stt[i2].style.breakAfter="avoid";stt[i2].style.pageBreakAfter="avoid";}'
     + '}'
     + 'window.focus();window.print();'
     + '}catch(e){console.error(e);try{window.print();}catch(_e){}}},150);};'
@@ -6772,6 +6716,8 @@ function renderMore() {
         </button>
       </div>
     </div>
+  
+    <div style="text-align:center; color:var(--ink-mute); font-size:11px; margin:16px 0 4px;">앱 버전 ${APP_VERSION}</div>
   `;
 }
 

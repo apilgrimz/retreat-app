@@ -2226,7 +2226,7 @@ function rosterPrintRowsHtml(list, startNo, mode, opts) {
     else if (m.status === 'refund') noteCell = '<span style="color:#c0392b;font-weight:700;">환불</span>' + (m.note ? ' · ' + esc(m.note) : '');
     return `<tr${rowStyle ? ` style="${rowStyle}"` : ''}>
       <td>${noCell}</td><td class="print-name">${esc(m.name)}</td><td>${col3}</td>
-      <td style="white-space:nowrap;font-size:10px;">${esc(m.session)}</td><td class="tl trans-cell">${transStr}</td>
+      <td style="white-space:nowrap;font-size:10px;">${sessionPairsHtml(m)}</td><td class="tl trans-cell">${transStr}</td>
       <td>${esc(m.lodging||'')}</td><td class="tl note-cell">${noteCell}</td>
     </tr>`;
   }).join('');
@@ -3119,7 +3119,7 @@ function busAssignBodyHtml(inline) {
   // 한 방향(상/하행) 명단: 구역별 그룹 + 구역 일괄 + 개별 호차
   const buildSide = (list, dir, label) => {
     if (!list.length) {
-      return `<div style="flex:1; min-width:0;">
+      return `<div style="flex:0 1 auto; min-width:150px;">
         <div style="font-weight:700; color:var(--gold-soft); margin-bottom:4px; text-align:center; font-size:12px;">${label} (0)</div>
         <div style="padding:12px; text-align:center; color:var(--ink-mute); font-size:11px;">없음</div>
       </div>`;
@@ -3163,7 +3163,7 @@ function busAssignBodyHtml(inline) {
       blocks += `</div>`;
       } else { no += zoneMembers.length; }
     });
-    return `<div style="flex:1; min-width:0;">
+    return `<div style="flex:0 1 auto; min-width:150px;">
       <div style="font-weight:700; color:var(--gold-soft); margin-bottom:4px; text-align:center; font-size:12px;">${label} (${list.length})</div>
       ${blocks}
     </div>`;
@@ -3237,10 +3237,18 @@ function boardableMembers(){ return DB.members.filter(isBoardable); }
 // 차편·숙소·전도 명단 대상: 불참·환불 제외 (현장접수는 포함)
 function isBoardable(m){ return isReg(m) && m.status !== 'noshow' && m.status !== 'refund'; }
 // 명단 차수란 표시: 불참→'불참', 환불→'환불', 정상→실제 차수
+// 차수 칸 표기: 두 개씩 한 줄, 초과는 줄바꿈 (화면·사진·인쇄 공통)
+function sessionPairsHtml(m) {
+  const ss = memberSessions(m);
+  if (!ss.length) return esc(m.session || '');
+  const out = [];
+  for (let i = 0; i < ss.length; i += 2) out.push(esc(ss.slice(i, i + 2).join(', ')));
+  return out.join('<br/>');
+}
 function sessionCell(m){
   if (m.status === 'noshow') return '<span style="color:var(--rose);font-weight:700">불참</span>';
   if (m.status === 'refund') return '<span style="color:var(--rose);font-weight:700">환불</span>';
-  return esc(m.session || '');
+  return sessionPairsHtml(m);
 }
 // 불참·환불자 행에 밑줄(취소선 느낌) 스타일
 function statusRowStyle(m){
@@ -5773,7 +5781,7 @@ function intakeTable(list, withRegister, groupKey) {
       act = '<div style="text-align:center"><button class="intake-act" onclick="intakeRegister(\'' + esc(m.id) + '\')">등록</button></div>';
     }
     const rowStyle = (isOnsite && m.status === 'noshow') ? 'text-decoration:underline;text-decoration-color:var(--rose);text-underline-offset:3px;' : '';
-    return '<div class="roster-row" style="grid-template-columns:' + cols + ';' + rowStyle + '"><div class="no">' + (i + 1) + '</div><div>' + esc(m.zone) + '</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById(\'' + esc(m.id) + '\', {fn:\'openIntakeGroup\', arg:\'' + esc(groupKey || '') + '\'})">' + esc(m.name) + '</div><div>' + esc(m.dept) + '</div><div>' + esc(m.session || '') + '</div>' + act + '</div>';
+    return '<div class="roster-row" style="grid-template-columns:' + cols + ';' + rowStyle + '"><div class="no">' + (i + 1) + '</div><div>' + esc(m.zone) + '</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="openMemberById(\'' + esc(m.id) + '\', {fn:\'openIntakeGroup\', arg:\'' + esc(groupKey || '') + '\'})">' + esc(m.name) + '</div><div>' + esc(m.dept) + '</div><div>' + sessionPairsHtml(m) + '</div>' + act + '</div>';
   }).join('');
   const minW = isOnsite ? '426' : (withRegister ? '386' : '334');
   return '<div style="overflow-x:auto"><div class="roster-table" style="margin-bottom:0;min-width:' + minW + 'px">' + head + rows + '</div></div>';

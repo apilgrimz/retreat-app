@@ -2231,11 +2231,12 @@ function rosterPrintRowsHtml(list, startNo, mode, opts) {
     </tr>`;
   }).join('');
   if (!trs) trs = `<tr><td colspan="7" style="padding:20px; color:#666;">등록된 인원이 없습니다.</td></tr>`;
-  // 비율(합=100) — 차수 칸을 넓혀 "1차, 3차" 복수 차수도 한 줄에:
+  // 비율(합=100) — 차수는 '두 개씩 줄바꿈'이라 좁혀도 되고(9%), 비고를 조금 줄여
+  // 교통편을 넓혔다(구역 31 · 회 35 · 전체 35%) — 교통편이 숙소 칸을 침범하지 않게.
   let cols;
-  if (mode === 'zone')      cols = `<col style="width:5%"><col style="width:10%"><col style="width:9%"><col style="width:11%"><col style="width:26%"><col style="width:15%"><col style="width:24%">`;
-  else if (mode === 'dept') cols = `<col style="width:5%"><col style="width:10%"><col style="width:8%"><col style="width:11%"><col style="width:31%"><col style="width:15%"><col style="width:20%">`;
-  else                      cols = `<col style="width:5%"><col style="width:8%"><col style="width:9%"><col style="width:11%"><col style="width:32%"><col style="width:18%"><col style="width:17%">`;
+  if (mode === 'zone')      cols = `<col style="width:5%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:31%"><col style="width:15%"><col style="width:21%">`;
+  else if (mode === 'dept') cols = `<col style="width:5%"><col style="width:10%"><col style="width:8%"><col style="width:9%"><col style="width:35%"><col style="width:15%"><col style="width:18%">`;
+  else                      cols = `<col style="width:5%"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:35%"><col style="width:18%"><col style="width:16%">`;
   return `<table class="print-table" style="table-layout:fixed">
     <colgroup>${cols}</colgroup>
     <thead><tr>

@@ -679,7 +679,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.11.0';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.11.1';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 function mergeHistories(a, b) {
@@ -3377,17 +3377,19 @@ function homeStatHeadHtml(){
     </div>`;
 }
 // 차수별 인원 (칸마다 전도·침례 소계)
-function homeSessionsSectionHtml(){
+function homeSessionsSectionHtml(forSheet){
   const sess = sessionCounts();
   const cN = SESSIONS.length + ((!SESSIONS.includes(SESSION_TBD) && tbdCount()) ? 1 : 0);
-  // 전도·침례는 한 줄(숫자와 함께 안 끊기게, nowrap) — 칸이 모자라면 가로 스크롤
-  const sub = (ev, bp) => `<div style="font-size:9px;color:#666;margin-top:1px;white-space:nowrap;">전도 ${ev} · 침례 ${bp}</div>`;
+  // 전도·침례는 한 줄(nowrap). 시트=넉넉한 칸+가로 스크롤 / 인쇄=190mm 안에 딱(잘림 방지: 소계 8.5px)
+  const sub = (ev, bp) => `<div style="font-size:${forSheet ? 9 : 8.5}px;color:#666;margin-top:1px;white-space:nowrap;">전도 ${ev} · 침례 ${bp}</div>`;
+  const gridOpen = forSheet
+    ? `<div style="overflow-x:auto;"><div class="grid-stat" style="grid-template-columns:repeat(${cN}, minmax(84px, 1fr)); min-width:${cN * 88}px;">`
+    : `<div class="grid-stat" style="grid-template-columns:repeat(${cN}, minmax(0, 1fr));">`;
+  const gridClose = forSheet ? `</div></div>` : `</div>`;
   return `<div class="print-section-title">차수별 인원</div>
-    <div style="overflow-x:auto;">
-    <div class="grid-stat" style="grid-template-columns:repeat(${cN}, minmax(84px, 1fr)); min-width:${cN * 88}px;">
+    ${gridOpen}
       ${SESSIONS.map(s => `<div class="stat-cell"><div class="lbl">${esc(s)}</div><div class="val">${sess[s]||0}</div>${sub(evangelismCountBySession(s), baptismCountBySession(s))}</div>`).join('')}${(!SESSIONS.includes(SESSION_TBD) && tbdCount()) ? `<div class="stat-cell"><div class="lbl">미정</div><div class="val">${tbdCount()}</div>${sub(evangelismCountBySession(SESSION_TBD), baptismCountBySession(SESSION_TBD))}</div>` : ''}
-    </div>
-    </div>`;
+    ${gridClose}`;
 }
 // 통합 표: [구역/회 | 계 | 차수들 | 전도 | 침례 | 불참 | 환불 | 회비]
 // 계 = 사람 단위(중복 차수 없음) · 환불 제외 · 불참 포함 · 영유아 제외 (isCounted 기준)
@@ -3462,7 +3464,7 @@ function homeTransSectionHtml(forSheet){
 // 홈 하단 '종합 통계' 버튼 → 인쇄 서식 그대로 시트(흰 종이 미리보기)
 function openStatSheet(kind){
   let title = '', body = '';
-  if (kind === 'sessions'){ title = '차수별 인원'; body = homeStatHeadHtml() + homeSessionsSectionHtml(); }
+  if (kind === 'sessions'){ title = '차수별 인원'; body = homeStatHeadHtml() + homeSessionsSectionHtml(true); }
   else if (kind === 'dist'){ title = '인원 분포 및 회비 결산'; body = homeDistSectionHtml(); }
   else { title = '차편 분포'; body = homeTransSectionHtml(true); }
   openSheet(title, `<div class="stat-sheet">${body}</div>`, null, { hideSave: true, reopener: () => openStatSheet(kind) });

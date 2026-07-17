@@ -2818,9 +2818,10 @@ function execPrintHome() {
       <div style="text-align:left;font-size:15px;font-weight:700;"><b>차수:</b> ${esc(DB.meta.session||'2차')}</div>
       <div style="text-align:right;font-size:14px;font-weight:700;">${esc(dateLine)}</div>
     </div>
-    <div class="grid-stat" style="grid-template-columns:repeat(3, 1fr)">
+    <div class="grid-stat" style="grid-template-columns:repeat(4, 1fr)">
       <div class="stat-cell"><div class="lbl">등록 인원</div><div class="val">${total} 명</div></div>
       <div class="stat-cell"><div class="lbl">전도대상자</div><div class="val">${evCount} 명</div></div>
+      <div class="stat-cell"><div class="lbl">침례</div><div class="val">${baptismList().length} 명</div></div>
       <div class="stat-cell"><div class="lbl">총 회비</div><div class="val" style="color:#b8860b">${won(feeTotal)} 원</div></div>
     </div>
 
@@ -2829,36 +2830,9 @@ function execPrintHome() {
       ${SESSIONS.map(s => `<div class="stat-cell"><div class="lbl">${esc(s)}</div><div class="val">${sess[s]||0}</div><div style="font-size:9px;color:#666;margin-top:1px;">전도 ${evangelismCountBySession(s)} · 침례 ${baptismCountBySession(s)}</div></div>`).join('')}${(!SESSIONS.includes(SESSION_TBD) && tbdCount()) ? `<div class="stat-cell"><div class="lbl">미정</div><div class="val">${tbdCount()}</div><div style="font-size:9px;color:#666;margin-top:1px;">전도 ${evangelismCountBySession(SESSION_TBD)} · 침례 ${baptismCountBySession(SESSION_TBD)}</div></div>` : ''}
     </div>
 
-    <div class="print-section-title">차수별 참석 분포 <span style="font-weight:400;font-size:11px;color:#666;">· 구역/회 × 차수</span></div>
-    ${statTablesHtml(true)}
-
-    <div class="print-section-title">인원 분포 및 회비 결산</div>
-    <div style="display:flex; gap:4%; align-items:flex-start;">
-      <table class="print-table" style="width:48%; margin:0;">
-        <thead><tr><th style="width:46px">구역</th><th style="width:30px">인원</th><th style="width:30px">전도</th><th style="width:30px">침례</th><th style="width:56px">회비</th></tr></thead>
-        <tbody>
-          ${ZONES.map(z => {
-            const ct = zoneCount(z);  // 환불·영유아 제외
-            const ev = evangelismCountByZone(z);
-            const fee = feeTotalByZone(z);
-            return `<tr><td><b>${esc(z)}</b></td><td>${ct}</td><td>${ev}</td><td>${baptismCountByZone(z) || ''}</td><td style="text-align:right;padding-right:8px">${won(fee)}원</td></tr>`;
-          }).join('')}
-          <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${total}</td><td>${evCount}</td><td>${baptismList().length}</td><td style="text-align:right;padding-right:8px">${won(feeTotal)}원</td></tr>
-        </tbody>
-      </table>
-      <table class="print-table" style="width:48%; margin:0;">
-        <thead><tr><th style="width:60px">회(부서)</th><th style="width:30px">인원</th><th style="width:30px">전도</th><th style="width:30px">침례</th><th style="width:56px">회비</th></tr></thead>
-        <tbody>
-          ${DEPTS.map(d => {
-            const c = depts[d]||0;
-            const ev = evangelismCountByDept(d);
-            const fee = deptFees[d]||0;
-            return `<tr><td><b>${esc(d)}</b></td><td>${c}</td><td>${ev}</td><td>${baptismCountByDept(d) || ''}</td><td style="text-align:right;padding-right:8px">${won(fee)}원</td></tr>`;
-          }).join('')}
-          <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${total}</td><td>${evCount}</td><td>${baptismList().length}</td><td style="text-align:right;padding-right:8px">${won(feeTotal)}원</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <div class="print-section-title">인원 분포 및 회비 결산 <span style="font-weight:400;font-size:11px;color:#666;">· 계 = 등록(영유아 제외) · 차수별 참석 · 전도/침례 · 회비</span></div>
+    ${mergedStatTableHtml('zone')}
+    ${mergedStatTableHtml('dept')}
 
     <div class="print-section-title">차편 분포 <span style="font-weight:400;font-size:11px;color:#666;">· 본 교회 차수(${esc(mainSession)})</span></div>
     <div style="display:flex; gap:4%; margin-bottom:12px;">
@@ -3381,42 +3355,59 @@ function baptismCountBySession(sess){
 }
 // 종합 통계 표 (홈·인쇄 공용). forPrint=false: 차수 요약 + [구역|차수들|전도|침례] + [회|…] 매트릭스,
 // forPrint=true: 매트릭스만([구역|차수들|계], 전도·침례는 분포표에 이미 있음), 흑백 인쇄용 스타일.
-function statTablesHtml(forPrint){
+function statTablesHtml(){
   const sl = statSessionsList();
   const bapTotal = baptismList().length;
   const evTotal = evangelismCounted().length;
   const sessC = sessionCounts();
   const sesTotal = (s2) => (s2 === SESSION_TBD && !SESSIONS.includes(SESSION_TBD)) ? tbdCount() : (sessC[s2] || 0);
-  const thS = forPrint ? '' : `background:var(--bg-2); color:var(--ink-soft);`;
-  const cellS = `padding:${forPrint ? '2px 4px' : '4px 6px'}; border:1px solid ${forPrint ? '#bbb' : 'var(--line-soft)'}; text-align:center; white-space:nowrap;`;
-  const tbl = (inner) => forPrint
-    ? `<table class="print-table" style="margin:0 0 10px; font-size:10px; width:100%;">${inner}</table>`
-    : `<div style="overflow-x:auto; margin-bottom:12px;"><table style="border-collapse:collapse; font-size:11px; min-width:100%;">${inner}</table></div>`;
+  const thS = `background:var(--bg-2); color:var(--ink-soft);`;
+  const cellS = `padding:4px 6px; border:1px solid var(--line-soft); text-align:center; white-space:nowrap;`;
+  const tbl = (inner) => `<div style="overflow-x:auto; margin-bottom:12px;"><table style="border-collapse:collapse; font-size:11px; min-width:100%;">${inner}</table></div>`;
   const v0 = (n) => n ? n : '';
   let out = '';
-  // (홈 전용) 차수 요약: 차수 | 참석 | 전도 | 침례
-  if (!forPrint) {
-    out += tbl(`<thead><tr>${['차수','참석','전도','침례'].map(h=>`<th style="${cellS}${thS}">${h}</th>`).join('')}</tr></thead>
-      <tbody>${sl.map(s2 => `<tr><td style="${cellS}font-weight:700;">${esc(s2)}</td><td style="${cellS}">${sesTotal(s2)}</td><td style="${cellS}">${v0(evangelismCountBySession(s2))}</td><td style="${cellS}">${v0(baptismCountBySession(s2))}</td></tr>`).join('')}</tbody>`);
-  }
-  // 구역 × 차수 매트릭스
-  const zoneTail = forPrint ? ['계'] : ['전도','침례'];
-  out += tbl(`<thead><tr>${['구역', ...sl, ...zoneTail].map(h=>`<th style="${cellS}${thS}">${esc(h)}</th>`).join('')}</tr></thead>
-    <tbody>${ZONES.map(z => {
-      const cells = sl.map(s2 => `<td style="${cellS}">${v0(attendCountBy(s2, 'zone', z))}</td>`).join('');
-      const tail = forPrint ? `<td style="${cellS}font-weight:700;">${zoneCount(z)}</td>` : `<td style="${cellS}">${v0(evangelismCountByZone(z))}</td><td style="${cellS}">${v0(baptismCountByZone(z))}</td>`;
-      return `<tr><td style="${cellS}font-weight:700;">${esc(z)}</td>${cells}${tail}</tr>`;
-    }).join('')}<tr style="font-weight:700;${forPrint ? 'background:#f0f0f0;' : 'background:var(--bg-2);'}"><td style="${cellS}">합계</td>${sl.map(s2 => `<td style="${cellS}">${sesTotal(s2)}</td>`).join('')}${forPrint ? `<td style="${cellS}">${totalRegistered()}</td>` : `<td style="${cellS}">${evTotal}</td><td style="${cellS}">${bapTotal}</td>`}</tr></tbody>`);
-  // 회(부서) × 차수 매트릭스
-  const depts2 = deptCounts();
-  out += tbl(`<thead><tr>${['회(부서)', ...sl, ...zoneTail].map(h=>`<th style="${cellS}${thS}">${esc(h)}</th>`).join('')}</tr></thead>
-    <tbody>${DEPTS.map(d => {
-      const cells = sl.map(s2 => `<td style="${cellS}">${v0(attendCountBy(s2, 'dept', d))}</td>`).join('');
-      const tail = forPrint ? `<td style="${cellS}font-weight:700;">${depts2[d]||0}</td>` : `<td style="${cellS}">${v0(evangelismCountByDept(d))}</td><td style="${cellS}">${v0(baptismCountByDept(d))}</td>`;
-      return `<tr><td style="${cellS}font-weight:700;">${esc(d)}</td>${cells}${tail}</tr>`;
-    }).join('')}<tr style="font-weight:700;${forPrint ? 'background:#f0f0f0;' : 'background:var(--bg-2);'}"><td style="${cellS}">합계</td>${sl.map(s2 => `<td style="${cellS}">${sesTotal(s2)}</td>`).join('')}${forPrint ? `<td style="${cellS}">${totalRegistered()}</td>` : `<td style="${cellS}">${evTotal}</td><td style="${cellS}">${bapTotal}</td>`}</tr></tbody>`);
+  // 차수 요약: 차수 | 참석 | 전도 | 침례
+  out += tbl(`<thead><tr>${['차수','참석','전도','침례'].map(h=>`<th style="${cellS}${thS}">${h}</th>`).join('')}</tr></thead>
+    <tbody>${sl.map(s2 => `<tr><td style="${cellS}font-weight:700;">${esc(s2)}</td><td style="${cellS}">${sesTotal(s2)}</td><td style="${cellS}">${v0(evangelismCountBySession(s2))}</td><td style="${cellS}">${v0(baptismCountBySession(s2))}</td></tr>`).join('')}</tbody>`);
+  // 구역 × 차수 + 전도·침례
+  out += tbl(`<thead><tr>${['구역', ...sl, '전도', '침례'].map(h=>`<th style="${cellS}${thS}">${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${ZONES.map(z => `<tr><td style="${cellS}font-weight:700;">${esc(z)}</td>${sl.map(s2 => `<td style="${cellS}">${v0(attendCountBy(s2, 'zone', z))}</td>`).join('')}<td style="${cellS}">${v0(evangelismCountByZone(z))}</td><td style="${cellS}">${v0(baptismCountByZone(z))}</td></tr>`).join('')}
+    <tr style="font-weight:700;background:var(--bg-2);"><td style="${cellS}">합계</td>${sl.map(s2 => `<td style="${cellS}">${sesTotal(s2)}</td>`).join('')}<td style="${cellS}">${evTotal}</td><td style="${cellS}">${bapTotal}</td></tr></tbody>`);
+  // 회(부서) × 차수 + 전도·침례
+  out += tbl(`<thead><tr>${['회(부서)', ...sl, '전도', '침례'].map(h=>`<th style="${cellS}${thS}">${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${DEPTS.map(d2 => `<tr><td style="${cellS}font-weight:700;">${esc(d2)}</td>${sl.map(s2 => `<td style="${cellS}">${v0(attendCountBy(s2, 'dept', d2))}</td>`).join('')}<td style="${cellS}">${v0(evangelismCountByDept(d2))}</td><td style="${cellS}">${v0(baptismCountByDept(d2))}</td></tr>`).join('')}
+    <tr style="font-weight:700;background:var(--bg-2);"><td style="${cellS}">합계</td>${sl.map(s2 => `<td style="${cellS}">${sesTotal(s2)}</td>`).join('')}<td style="${cellS}">${evTotal}</td><td style="${cellS}">${bapTotal}</td></tr></tbody>`);
   return out;
 }
+// 인쇄용 통합 표: [구역/회 | 계 | 차수들 | 전도 | 침례 | 회비] — 분포·매트릭스·결산을 한 표로 (한 장 인쇄용)
+function mergedStatTableHtml(kind){
+  const sl = statSessionsList();
+  const isZone = kind === 'zone';
+  const keys = isZone ? ZONES : DEPTS;
+  const depts2 = isZone ? null : deptCounts();
+  const deptFees2 = isZone ? null : feeTotalByDept();
+  const sessC = sessionCounts();
+  const sesTotal = (s2) => (s2 === SESSION_TBD && !SESSIONS.includes(SESSION_TBD)) ? tbdCount() : (sessC[s2] || 0);
+  const cnt = k => isZone ? zoneCount(k) : (depts2[k] || 0);
+  const evF = k => isZone ? evangelismCountByZone(k) : evangelismCountByDept(k);
+  const bapF = k => isZone ? baptismCountByZone(k) : baptismCountByDept(k);
+  const feeF = k => isZone ? feeTotalByZone(k) : (deptFees2[k] || 0);
+  const attF = (s2, k) => attendCountBy(s2, isZone ? 'zone' : 'dept', k);
+  const evTotal = evangelismCounted().length;
+  const bapTotal = baptismList().length;
+  const feeSum = keys.reduce((a, k) => a + feeF(k), 0);
+  const v0 = (n) => n ? n : '';
+  return `<table class="print-table" style="width:100%; margin:0 0 10px; font-size:9.5px;">
+    <thead><tr><th style="width:9%">${isZone ? '구역' : '회(부서)'}</th><th style="width:6%">계</th>${sl.map(s2=>`<th>${esc(s2)}</th>`).join('')}<th style="width:6%">전도</th><th style="width:6%">침례</th><th style="width:14%">회비</th></tr></thead>
+    <tbody>
+      ${keys.map(k => `<tr><td><b>${esc(k)}</b></td><td>${cnt(k)}</td>${sl.map(s2=>`<td>${v0(attF(s2,k))}</td>`).join('')}<td>${v0(evF(k))}</td><td>${v0(bapF(k))}</td><td style="text-align:right;padding-right:6px">${won(feeF(k))}원</td></tr>`).join('')}
+      <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${totalRegistered()}</td>${sl.map(s2=>`<td>${sesTotal(s2)}</td>`).join('')}<td>${evTotal}</td><td>${bapTotal}</td><td style="text-align:right;padding-right:6px">${won(feeSum)}원</td></tr>
+    </tbody>
+  </table>`;
+}
+// 홈 종합 통계 카드 접기/펼치기 (기본 접힘 — 홈이 길어지지 않게)
+let __homeStatOpen = false;
+function toggleHomeStats(){ __homeStatOpen = !__homeStatOpen; render(); }
 // 개인차 차주 우선 + 표준 정렬
 function sortMembersDriverFirst(list, driver) {
   const drv = String(driver||'').trim();
@@ -3678,10 +3669,11 @@ function renderHome() {
     </div>
 
     <div class="card">
-      <div class="card-head">
-        <div class="card-title">종합 통계 <span style="font-size:11px;color:var(--ink-mute);font-weight:500">차수·구역·회 × 참석/전도/침례</span></div>
+      <div class="card-head clickable" onclick="toggleHomeStats()" style="cursor:pointer;">
+        <div class="card-title">종합 통계 <span style="font-size:12px;color:var(--gold-soft);font-weight:700">전도 ${evCount} · 침례 ${bapN}</span></div>
+        <div style="font-size:12px; color:var(--ink-mute); flex-shrink:0;">${__homeStatOpen ? '▲ 접기' : '▼ 펼치기'}</div>
       </div>
-      ${statTablesHtml(false)}
+      ${__homeStatOpen ? `<div style="font-size:11px;color:var(--ink-mute);margin:-2px 0 8px;">차수·구역·회 × 참석/전도/침례</div>` + statTablesHtml() : ''}
     </div>
 
     <div class="card">

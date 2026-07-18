@@ -679,7 +679,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.11.3';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.11.4';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 function mergeHistories(a, b) {
@@ -3403,10 +3403,11 @@ function mergedStatTableHtml(kind){
   const sl = statSessionsList();
   const isZone = kind === 'zone';
   const EXT = '__EXT__';
-  // 본교회 구역 목록에 없는 구역(빈 값 포함)은 전부 '타교회' 한 줄로 묶는다.
-  const inExt = m => !ZONES.includes(m.zone || '');
+  // '타교회' 묶음: 구역 목록에 '타교회' 항목이 있어도 그 행까지 흡수해 '한 줄'만 나온다.
+  const ownZones = isZone ? ZONES.filter(z => z !== '타교회') : null;
+  const inExt = m => !ownZones.includes(m.zone || '');  // 본교회 구역이 아니면 전부(빈 값·'타교회' 포함)
   const hasExt = isZone && statBaseMembers().some(inExt);
-  const keys = isZone ? [...ZONES, ...(hasExt ? [EXT] : [])] : DEPTS;
+  const keys = isZone ? [...ownZones, ...(hasExt ? [EXT] : [])] : DEPTS;
   const keyLabel = k => k === EXT ? '타교회' : k;
   const mMatch = (m, k) => isZone ? (k === EXT ? inExt(m) : (m.zone || '') === k) : (m.dept || '') === k;
   const depts2 = isZone ? null : deptCounts();
@@ -3418,13 +3419,13 @@ function mergedStatTableHtml(kind){
   const att = (s2, k) => statBaseMembers().filter(m => mMatch(m, k) && memberSessions(m).includes(s2)).length;
   const stF = (k, st) => DB.members.filter(m => isReg(m) && m.status === st && mMatch(m, k)).length;
   const evF = k => isZone
-    ? (k === EXT ? evangelismCounted().filter(e => !ZONES.includes(e.zone || '')).length : evangelismCountByZone(k))
+    ? (k === EXT ? evangelismCounted().filter(e => !ownZones.includes(e.zone || '')).length : evangelismCountByZone(k))
     : evangelismCountByDept(k);
   const bapF = k => isZone
-    ? (k === EXT ? baptismList().filter(b2 => !ZONES.includes(b2.zone || '')).length : baptismCountByZone(k))
+    ? (k === EXT ? baptismList().filter(b2 => !ownZones.includes(b2.zone || '')).length : baptismCountByZone(k))
     : baptismCountByDept(k);
   const feeF = k => isZone
-    ? (k === EXT ? Math.max(0, allFee - ZONES.reduce((a2, z) => a2 + feeTotalByZone(z), 0)) : feeTotalByZone(k))
+    ? (k === EXT ? Math.max(0, allFee - ownZones.reduce((a2, z) => a2 + feeTotalByZone(z), 0)) : feeTotalByZone(k))
     : (deptFees2[k] || 0);
   const evTotal = evangelismCounted().length;
   const bapTotal = baptismList().length;

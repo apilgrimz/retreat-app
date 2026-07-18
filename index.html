@@ -679,7 +679,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.11.1';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.11.2';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 function mergeHistories(a, b) {
@@ -3345,9 +3345,9 @@ function statSessionsList(){
   if (!SESSIONS.includes(SESSION_TBD) && tbdCount()) list.push(SESSION_TBD);
   return list;
 }
-// 차수×구역/회 참석 인원 (집계 기준 = '차수별 인원'과 동일: 영유아 제외)
+// 차수×구역/회 참석 인원 — 영유아 포함(분포표 집계), 빈 값('') 묶음도 지원
 function attendCountBy(sess, field, key){
-  return countableMembers().filter(m => m[field] === key && memberSessions(m).includes(sess)).length;
+  return statBaseMembers().filter(m => (m[field] || '') === key && memberSessions(m).includes(sess)).length;
 }
 // 차수별 전도대상자 수 — 연결 인원이 그 차수에 참석하는 항목 (미연결 항목은 차수 불명이라 제외)
 function evangelismCountBySession(sess){
@@ -3360,9 +3360,15 @@ function baptismCountBySession(sess){
 // 종합 통계 표 (홈·인쇄 공용). forPrint=false: 차수 요약 + [구역|차수들|전도|침례] + [회|…] 매트릭스,
 // forPrint=true: 매트릭스만([구역|차수들|계], 전도·침례는 분포표에 이미 있음), 흑백 인쇄용 스타일.
 // ── 등록 현황 공용 섹션 (인쇄와 같은 서식 — 인쇄·홈 시트 공유) ──
-// 상태 인원(불참/환불) 수: '계'와 같은 모수(등록자 기준·영유아 제외)
+// 통계 모수: 등록자 중 환불 제외(불참 포함) — 영유아 '포함'. '계' 열만 영유아를 뺀다.
+function statBaseMembers(){ return DB.members.filter(m => isCounted(m)); }
+// 상태 인원(불참/환불) 수 — 영유아 포함
 function statusCountBy(field, key, status){
-  return DB.members.filter(m => isReg(m) && m.status === status && m[field] === key && !isInfantDept(m.dept)).length;
+  return DB.members.filter(m => isReg(m) && m.status === status && (m[field] || '') === key).length;
+}
+// 차수 참석 합계(전 구역·회) — 표의 행 합과 정확히 일치
+function attendTotalCount(sess){
+  return statBaseMembers().filter(m => memberSessions(m).includes(sess)).length;
 }
 // 서두 집계 4칸: 등록 / 전도 / 침례 / 총 회비
 function homeStatHeadHtml(){
@@ -3396,7 +3402,17 @@ function homeSessionsSectionHtml(forSheet){
 function mergedStatTableHtml(kind){
   const sl = statSessionsList();
   const isZone = kind === 'zone';
-  const keys = isZone ? ZONES : DEPTS;
+  let keys;
+  if (isZone) {
+    // 고정 구역 + 데이터에 실제로 있는 구역(타교회 등) + 구역 미기재 묶음 — 누락 없이 전부 집계
+    const known = new Set(ZONES);
+    const extra = [...new Set(statBaseMembers().map(m => m.zone || '').filter(z => z && !known.has(z)))].sort((a, b) => a.localeCompare(b, 'ko'));
+    keys = [...ZONES, ...extra];
+    if (statBaseMembers().some(m => !(m.zone || ''))) keys.push('');
+  } else {
+    keys = DEPTS;
+  }
+  const keyLabel = k => k === '' ? '(구역 미기재)' : k;
   const depts2 = isZone ? null : deptCounts();
   const deptFees2 = isZone ? null : feeTotalByDept();
   const sessC = sessionCounts();
@@ -3415,14 +3431,14 @@ function mergedStatTableHtml(kind){
   return `<table class="print-table hs-fill" style="width:100%; margin:0 0 10px; font-size:9.5px;">
     <thead><tr><th style="width:9%">${isZone ? '구역' : '회(부서)'}</th><th style="width:6%">계</th>${sl.map(s2=>`<th>${esc(s2)}</th>`).join('')}<th style="width:5%">전도</th><th style="width:5%">침례</th><th style="width:5%">불참</th><th style="width:5%">환불</th><th style="width:12%">회비</th></tr></thead>
     <tbody>
-      ${keys.map(k => `<tr><td><b>${esc(k)}</b></td><td>${cnt(k)}</td>${sl.map(s2=>`<td>${v0(attendCountBy(s2, fld, k))}</td>`).join('')}<td>${v0(evF(k))}</td><td>${v0(bapF(k))}</td><td>${v0(statusCountBy(fld, k, 'noshow'))}</td><td>${v0(statusCountBy(fld, k, 'refund'))}</td><td style="text-align:right;padding-right:6px">${won(feeF(k))}원</td></tr>`).join('')}
-      <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${totalRegistered()}</td>${sl.map(s2=>`<td>${sesTotal(s2)}</td>`).join('')}<td>${evTotal}</td><td>${bapTotal}</td><td>${nsSum}</td><td>${rfSum}</td><td style="text-align:right;padding-right:6px">${won(feeSum)}원</td></tr>
+      ${keys.map(k => `<tr><td><b>${esc(keyLabel(k))}</b></td><td>${cnt(k)}</td>${sl.map(s2=>`<td>${v0(attendCountBy(s2, fld, k))}</td>`).join('')}<td>${v0(evF(k))}</td><td>${v0(bapF(k))}</td><td>${v0(statusCountBy(fld, k, 'noshow'))}</td><td>${v0(statusCountBy(fld, k, 'refund'))}</td><td style="text-align:right;padding-right:6px">${won(feeF(k))}원</td></tr>`).join('')}
+      <tr style="background:#f0f0f0;font-weight:700"><td>합계</td><td>${totalRegistered()}</td>${sl.map(s2=>`<td>${attendTotalCount(s2)}</td>`).join('')}<td>${evTotal}</td><td>${bapTotal}</td><td>${nsSum}</td><td>${rfSum}</td><td style="text-align:right;padding-right:6px">${won(feeSum)}원</td></tr>
     </tbody>
   </table>`;
 }
 // 인원 분포 및 회비 결산 섹션
 function homeDistSectionHtml(){
-  return `<div class="print-section-title">인원 분포 및 회비 결산 <span style="font-weight:400;font-size:10.5px;color:#666;white-space:nowrap;">· 계=사람 단위 · 환불 제외 · 불참 포함 · 영유아 제외</span></div>
+  return `<div class="print-section-title">인원 분포 및 회비 결산 <span style="font-weight:400;font-size:10.5px;color:#666;white-space:nowrap;">· 계=환불·영유아 제외(사람 단위) · 차수/불참/환불 칸=영유아 포함</span></div>
     ${mergedStatTableHtml('zone')}
     ${mergedStatTableHtml('dept')}`;
 }

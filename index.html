@@ -177,8 +177,9 @@ nav.tabbar {
 .stat-sheet .print-section-title span { color:#666 !important; }
 .stat-sheet .grid-stat { display:grid; gap:8px; margin-bottom:12px; }
 .stat-sheet .stat-cell { border:1px solid #ccc; border-radius:8px; padding:8px 4px; text-align:center; background:#fafafa; }
-.stat-sheet .stat-cell .lbl { font-size:11px; color:#666; }
-.stat-sheet .stat-cell .val { font-size:15px; font-weight:800; color:#222; }
+.stat-sheet .stat-cell .lbl { font-size:11px; color:#666; line-height:1.3; }
+.stat-sheet .stat-cell .val { font-size:15px; font-weight:800; color:#222; line-height:1.3; }
+.stat-sheet .stat-cell .sb { color:#666; line-height:1.3; height:1.3em; margin-top:1px; white-space:nowrap; overflow:hidden; }
 .stat-sheet .print-table { border-collapse:collapse; font-size:10.5px; margin:0 0 12px; min-width:600px; }
 .stat-sheet .print-table th, .stat-sheet .print-table td { border:1px solid #999; padding:3px 4px; text-align:center; white-space:nowrap; }
 .stat-sheet .print-table th { background:#ececec; }
@@ -679,7 +680,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.11.8';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.11.9';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 function mergeHistories(a, b) {
@@ -2051,9 +2052,11 @@ function buildPrintDocument(title, bodyHtml, forPhoto) {
   .lodging-print-table tr:last-child td.spacer { border-top: none; border-bottom: none; }
   .grid-stat { display: grid; gap: 6px; margin-bottom: 10px; }
   .stat-cell { border: 1px solid #000; padding: 6px 4px; text-align: center; }
-  .stat-cell .lbl { font-size: 10px; color: #555; }
-  .stat-cell .val { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .stat-cell .lbl { font-size: 10px; color: #555; line-height: 1.3; }
+  .stat-cell .val { font-size: 16px; font-weight: 700; margin-top: 2px; line-height: 1.3; }
   .stat-cell .sub { font-size: 10px; color: #b8860b; font-weight: 700; margin-top: 1px; }
+  /* 차수/미정/불참 칸의 아래 줄 — 내용(한글·빈칸)에 관계없이 같은 높이로 고정 */
+  .stat-cell .sb { color: #666; line-height: 1.3; height: 1.3em; margin-top: 1px; white-space: nowrap; overflow: hidden; }
   .meta-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; color: #333; }
   @media print { .no-print { display: none; } }
 </style>
@@ -3399,10 +3402,11 @@ function homeSessionsSectionHtml(forSheet){
   // 인쇄는 190mm 고정폭 — 칸이 9개 이상이면 전도·침례를 두 줄로 내려 오른쪽 잘림을 막는다.
   const twoLine = !forSheet && cN >= 9;
   const fs = forSheet ? 9 : (cN >= 9 ? 8 : 8.5);
-  const sub = (ev, bp) => twoLine
-    ? `<div style="font-size:${fs}px;color:#666;margin-top:1px;white-space:nowrap;">전도 ${ev}</div><div style="font-size:${fs}px;color:#666;white-space:nowrap;">침례 ${bp}</div>`
-    : `<div style="font-size:${fs}px;color:#666;margin-top:1px;white-space:nowrap;">전도 ${ev} · 침례 ${bp}</div>`;
-  const spacer = `<div style="font-size:${fs}px;margin-top:1px;">&nbsp;</div>` + (twoLine ? `<div style="font-size:${fs}px;">&nbsp;</div>` : '');
+  // 아래 줄은 .sb 클래스로 통일한다. 줄 높이를 CSS에서 고정(height:1.3em)하므로
+  // 한글이 든 칸과 빈 칸(불참)의 높이가 같아져 글자 위치가 칸마다 어긋나지 않는다.
+  const line = txt => `<div class="sb" style="font-size:${fs}px;">${txt}</div>`;
+  const sub = (ev, bp) => twoLine ? line(`전도 ${ev}`) + line(`침례 ${bp}`) : line(`전도 ${ev} · 침례 ${bp}`);
+  const spacer = line('&nbsp;') + (twoLine ? line('&nbsp;') : '');
   const gridOpen = forSheet
     ? `<div style="overflow-x:auto;"><div class="grid-stat" style="grid-template-columns:repeat(${cN}, minmax(84px, 1fr)); min-width:${cN * 88}px;">`
     : `<div class="grid-stat" style="grid-template-columns:repeat(${cN}, minmax(0, 1fr));">`;

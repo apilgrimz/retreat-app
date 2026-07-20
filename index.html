@@ -679,7 +679,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.11.4';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.11.5';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 function mergeHistories(a, b) {
@@ -3360,8 +3360,8 @@ function baptismCountBySession(sess){
 // 종합 통계 표 (홈·인쇄 공용). forPrint=false: 차수 요약 + [구역|차수들|전도|침례] + [회|…] 매트릭스,
 // forPrint=true: 매트릭스만([구역|차수들|계], 전도·침례는 분포표에 이미 있음), 흑백 인쇄용 스타일.
 // ── 등록 현황 공용 섹션 (인쇄와 같은 서식 — 인쇄·홈 시트 공유) ──
-// 통계 모수: 등록자 중 환불 제외(불참 포함) — 영유아 '포함'. '계' 열만 영유아를 뺀다.
-function statBaseMembers(){ return DB.members.filter(m => isCounted(m)); }
+// 차수 칸 모수: 등록자 중 환불·불참 제외 — 영유아는 '포함'(계 열만 영유아를 뺀다)
+function statBaseMembers(){ return DB.members.filter(m => isCounted(m) && m.status !== 'noshow'); }
 // 상태 인원(불참/환불) 수 — 영유아 포함
 function statusCountBy(field, key, status){
   return DB.members.filter(m => isReg(m) && m.status === status && (m[field] || '') === key).length;
@@ -3443,7 +3443,7 @@ function mergedStatTableHtml(kind){
 }
 // 인원 분포 및 회비 결산 섹션
 function homeDistSectionHtml(){
-  return `<div class="print-section-title">인원 분포 및 회비 결산 <span style="font-weight:400;font-size:10.5px;color:#666;white-space:nowrap;">· 계=환불·영유아 제외(사람 단위) · 차수/불참/환불 칸=영유아 포함</span></div>
+  return `<div class="print-section-title">인원 분포 및 회비 결산 <span style="font-weight:400;font-size:10.5px;color:#666;white-space:nowrap;">· 계=환불·영유아 제외(불참 포함) · 차수 칸=참석 인원(불참 제외·영유아 포함)</span></div>
     ${mergedStatTableHtml('zone')}
     ${mergedStatTableHtml('dept')}`;
 }
@@ -3503,18 +3503,20 @@ function sortMembersDriverFirst(list, driver) {
   });
 }
 function totalRegistered() { return countableMembers().length; }  // 영유아 제외
+// 차수별 인원 = 그 차수 '참석' 인원: 영유아·환불 제외 + 불참 제외
+// (계/등록 인원은 불참을 포함하지만, 차수 칸은 실제 참석 개념이므로 불참을 뺀다)
 function sessionCounts() {
   const r = Object.fromEntries(SESSIONS.map(s => [s, 0]));
-  countableMembers().forEach(m => {  // 영유아 제외
+  countableMembers().filter(m => m.status !== 'noshow').forEach(m => {
     (m.session||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(s => {
       if (r.hasOwnProperty(s)) r[s]++;
     });
   });
   return r;
 }
-// 차수 미정 인원 수 (차수별 타일과 같은 기준: countableMembers, 영유아 제외)
+// 차수 미정 인원 수 (차수별 타일과 같은 기준: 영유아·환불·불참 제외)
 function tbdCount() {
-  return countableMembers().filter(m => memberSessions(m).includes(SESSION_TBD)).length;
+  return countableMembers().filter(m => m.status !== 'noshow' && memberSessions(m).includes(SESSION_TBD)).length;
 }
 // 차수 미정 안내 배너 (미배정 화면 상단) — 차수가 있어야 배차가 가능하므로 상기시킨다
 function tbdNoticeHtml() {

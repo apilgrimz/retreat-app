@@ -680,7 +680,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.11.9';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.12.0';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 function mergeHistories(a, b) {
@@ -2750,12 +2750,12 @@ function execPrintEvangelism() {
 function execPrintFeeSupport() {
   const titleText = `${getYearPrefix()} 하계수양회 - 회비 지원 명단`;
   const fsTotal = feeSupportCounted().reduce((s, fs) => s + (fs.amount||0), 0);
-  let trs = sortMembers(feeSupportVisible()).map((fs, i) => `<tr>
+  let trs = sortMembers(feeSupportVisible()).map((fs, i) => `<tr${feeSupportNoShow(fs) ? ' style="text-decoration:underline;"' : ''}>
     <td>${i+1}</td><td>${esc(fs.zone)}</td>
     <td class="print-name">${esc(fs.name)}</td>
     <td>${esc(fs.dept)}</td>
     <td style="text-align:right; padding-right:10px;">${won(fs.amount)}원</td>
-    <td class="tl">${esc(fs.note)}</td>
+    <td class="tl">${feeNoteHtml(fs, true)}</td>
   </tr>`).join('');
   if (!trs) trs = `<tr><td colspan="6" style="padding:20px; color:#666">등록된 회비 지원자가 없습니다.</td></tr>`;
   trs += `<tr style="background:#f8f4e6;font-weight:700">
@@ -3332,6 +3332,15 @@ function feeSupportVisible(){
 //  (현장접수자는 '오는 것 전제'로 명단엔 넣되, 등록 전까지 집계에서 빼는 원칙)
 function evangelismCounted(){
   return evangelismVisible().filter(e => { const m = linkedMember(e); return !(m && isUncountedMember(m)); });
+}
+// 회비 지원 명단: 연결된 인원이 불참이면 줄에 밑줄을 긋고 비고에 '불참'을 표시한다.
+// (환불은 취소선이므로 밑줄과 구분된다)
+function feeSupportNoShow(fs){ const m = linkedMember(fs); return !!(m && m.status === 'noshow'); }
+function feeNoteHtml(fs, forPrint){
+  const note = esc(fs.note || '');
+  if (!feeSupportNoShow(fs)) return note;
+  const tag = `<span style="color:${forPrint ? '#c0392b' : 'var(--rose)'};font-weight:700">불참</span>`;
+  return note ? tag + ' · ' + note : tag;
 }
 function feeSupportCounted(){
   return feeSupportVisible().filter(f => { const m = linkedMember(f); return !(m && isUncountedMember(m)); });
@@ -5415,7 +5424,7 @@ function renderFeeSupportSheet(isReopen) {
       <div class="roster-table" style="margin-bottom:0; min-width:562px; width:max-content;">
         <div class="roster-row head" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">번호</div><div>구역</div><div>성명</div><div>회(부서)</div><div style="text-align:right">금액</div><div>비고</div></div>
         ${feeSupportVisible().length === 0 ? `<div style="text-align:center; padding:20px; font-size:12px; color:var(--ink-mute);">등록된 데이터가 없습니다.</div>` : 
-          (() => { const __ctr={n:0}; return sortMembers(feeSupportVisible()).map((fs, i) => `<div class="roster-row" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);"><div class="no">${numberCellItem(fs, __ctr)}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="event.stopPropagation(); openMemberFromRef('${esc(fs.memberId||'')}','${esc(fs.name)}','${esc(fs.zone)}','renderFeeSupportSheet')">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${esc(fs.note)}</div></div>`).join(''); })()}
+          (() => { const __ctr={n:0}; return sortMembers(feeSupportVisible()).map((fs, i) => `<div class="roster-row" data-fs-id="${esc(fs.id)}" style="grid-template-columns: 28px 68px 55px 60px 65px minmax(60px,1fr);${feeSupportNoShow(fs) ? ' text-decoration:underline;' : ''}"><div class="no">${numberCellItem(fs, __ctr)}</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fs.zone)}</div><div class="nm" style="cursor:pointer;color:var(--gold-soft)" onclick="event.stopPropagation(); openMemberFromRef('${esc(fs.memberId||'')}','${esc(fs.name)}','${esc(fs.zone)}','renderFeeSupportSheet')">${esc(fs.name)}</div><div>${esc(fs.dept)}</div><div style="text-align:right; font-weight:700; color:var(--gold);">${won(fs.amount)}</div><div style="white-space:nowrap;">${feeNoteHtml(fs, false)}</div></div>`).join(''); })()}
       </div>
     </div>
   `;
@@ -5693,7 +5702,7 @@ function openManualSheet() {
 
     ${sec('2. 인원 등록·수정', '홈 <b>구역별 인원</b> 카드의 <b>· 추가</b>를 누르거나, 각 구역·회 타일을 눌러 뜬 명단창의 <b>+ 인원 추가</b>로 등록합니다.<br>• 이름, 부서(회), 접수 구분, 차수는 꼭 골라야 저장됩니다. 단, <b>불참·환불</b>을 고르면 차수 없이도 저장됩니다.<br>• 차수를 체크하면 그 차수의 상·하행 날짜와 차편을 정합니다. <b>차편 정보(시각·선탑자·날짜)와 탑승 확인 체크는 차수별로 따로 저장</b>되므로, 같은 차주·같은 차편이라도 차수가 다르면 완전히 독립입니다.<br>• 차수를 아직 못 정했으면 <b>차수 미정</b>으로 등록해 두세요. 홈 차수별 카드의 <b>⚠ 미정</b>에 모여 표시됩니다.<br>• <b>숙소</b>는 본 교회 차수를 체크했을 때만 보이고, 본 차수를 빼면 숙소도 비워집니다.<br>• 특정 차수만 못 오면 <b>불참 대신 그 차수 체크만 해제</b>하세요 — 한 차수라도 참석하면 참석자입니다. 불참/환불은 모든 일정에 오지 않을 때만 씁니다.<br>• 부서가 <b>미취학·영유아</b>면 인도자 칸이 <b>보호자</b>로 바뀝니다.<br>• 접수 구분 <b>타교회 접수</b>는 각 명단(구역·회·차편·숙소)에는 나오되 <b>모든 집계(인원·회비·전도)에서 빠집니다.</b> 번호란에 <b>타교회</b>로 표시됩니다.<br>• <b>불참</b> 인원은 자기 접수 구분 명단에 그대로 남고, 불참 수는 홈 <b>차수별 인원</b> 카드에서 확인합니다.')}
 
-    ${sec('3. 홈 탭 한눈에', '위에서 아래로: <b>검색창</b>(이름으로 전체 검색) → <b>구역별</b> 타일(인원·회비, 누르면 명단) → <b>회별</b> 타일(같은 방식) → <b>차수별</b> 타일(누르면 그 차수 명단 — 구역 명단처럼 영유아도 표시되고 수에서만 빠집니다. ⚠ 미정·<b>불참</b> 타일 포함) → <b>전도대상자 · 회비 지원</b> 버튼(누르면 전체 명단이 열리고 그 안에 사진·인쇄가 있습니다) → <b>종합 통계</b> 버튼 3종.<br>• 최상단 히어로의 <b>구원 N · 침례 N · 접수 현황 · 기도 명단</b> 버튼으로 각 명단을 바로 엽니다.<br>• 히어로 우상단 <b>사진·인쇄</b>는 <b>등록 현황</b> 문서(집계 4칸 → 차수별 인원 → 인원 분포·회비 → 차편 분포)를 만듭니다. 구역 10개 이하면 한 장에 들어가고, 넘치면 차편 분포만 다음 장으로 넘어가며 첫 장은 아래 여백 없이 채워집니다.')}
+    ${sec('3. 홈 탭 한눈에', '위에서 아래로: <b>검색창</b>(이름으로 전체 검색) → <b>구역별</b> 타일(인원·회비, 누르면 명단) → <b>회별</b> 타일(같은 방식) → <b>차수별</b> 타일(누르면 그 차수 명단 — 구역 명단처럼 영유아도 표시되고 수에서만 빠집니다. ⚠ 미정·<b>불참</b> 타일 포함) → <b>전도대상자 · 회비 지원</b> 버튼(누르면 전체 명단이 열리고 그 안에 사진·인쇄가 있습니다. 회비 지원 명단의 불참자는 <b>밑줄</b>과 비고 <b>불참</b>으로 표시됩니다) → <b>종합 통계</b> 버튼 3종.<br>• 최상단 히어로의 <b>구원 N · 침례 N · 접수 현황 · 기도 명단</b> 버튼으로 각 명단을 바로 엽니다.<br>• 히어로 우상단 <b>사진·인쇄</b>는 <b>등록 현황</b> 문서(집계 4칸 → 차수별 인원 → 인원 분포·회비 → 차편 분포)를 만듭니다. 구역 10개 이하면 한 장에 들어가고, 넘치면 차편 분포만 다음 장으로 넘어가며 첫 장은 아래 여백 없이 채워집니다.')}
     ${sub('종합 통계', '홈 맨 아래 버튼 3종 — <b>차수별 인원 · 인원 분포·회비 · 차편 분포</b> — 를 누르면 인쇄 서식 그대로의 표가 흰 화면으로 열립니다.<br>• 통합 표는 <b>[구역/회 | 계 | 각 차수 | 전도 | 침례 | 불참 | 환불 | 회비]</b> 구성입니다.<br>• <b>계</b> = 사람 단위(여러 차수 참석해도 1명) · 환불·타교회 접수 제외 · 불참 포함. <b>영유아는 이 인원 분포 표에만 포함</b>되고, 등록 인원·차수별 인원·홈 타일에서는 제외됩니다.<br>• 차수별 전도·침례는 <b>연결된 인원의 참석 차수</b> 기준입니다(미연결 전도 항목은 구역·회 합계에만).<br>• <b>차수별 인원</b> 표(시트·인쇄) 끝에는 <b>불참</b> 칸이 있습니다.')}
     ${sub('숙소 탭', '위쪽 칩으로 <b>전체 · 각 숙소 · 미배정</b>을 오갑니다(개별 화면에서 <b>뒤로가기</b>는 전체로 복귀). 각 숙소에서 <b>+ 인원 추가</b>(검색 배정), <b>미등록 인원 추가</b>(타교회 접수자), <b>전체보기·사진·인쇄</b>를 쓸 수 있습니다. <b>숙소 관리</b>에서 정원을 정하면 배정/정원이 표시되고 초과 시 붉게 경고합니다(초과 배정 가능).')}
 

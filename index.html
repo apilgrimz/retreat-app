@@ -680,7 +680,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.12.1';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.12.2';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 // '이력 지운 시점' 표식 — meta에 담겨 클라우드·다른 기기로 함께 전파된다.
@@ -3755,11 +3755,8 @@ function renderHome() {
 
   return `
     <div class="hero">
-      <!-- 행사명 줄: 좌측 행사명(약간 크게) + 우측 인쇄 -->
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-        <div class="title" style="font-size:15px;font-weight:700;color:var(--ink-soft);margin-bottom:0">${esc(DB.meta.title)}</div>
-        <div style="display:flex;gap:6px;flex-shrink:0"><button class="card-action" onclick="photoRun('execPrintHome')" style="font-size:12px">사진</button><button class="card-action" onclick="execPrintHome()" style="font-size:12px">인쇄</button></div>
-      </div>
+      <!-- 행사명 줄 (등록 현황 사진·인쇄는 맨 아래 '종합 통계' 카드로 이동) -->
+      <div class="title" style="font-size:15px;font-weight:700;color:var(--ink-soft);margin-bottom:0">${esc(DB.meta.title)}</div>
       <!-- 행사명 바로 아래: 차수 / 상행 / 하행 -->
       <div class="sub" style="margin-top:8px">
         <div class="sub-item">차수 <b>${esc(DB.meta.session||'2차')}</b></div>
@@ -3842,7 +3839,10 @@ function renderHome() {
     </div>
 
     <div class="card">
-      <div class="card-head"><div class="card-title">종합 통계</div></div>
+      <div class="card-head">
+        <div class="card-title">종합 통계 <span style="font-size:11px;color:var(--ink-mute);font-weight:500">· 등록 현황</span></div>
+        <div style="display:flex;gap:6px;flex-shrink:0"><button class="card-action" onclick="photoRun('execPrintHome')">사진</button><button class="card-action" onclick="execPrintHome()">인쇄</button></div>
+      </div>
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;">
         <button class="btn btn-secondary" onclick="openStatSheet('sessions')" style="font-size:13px; padding:11px 4px;">차수별 인원</button>
         <button class="btn btn-secondary" onclick="openStatSheet('dist')" style="font-size:13px; padding:11px 4px;">인원 분포·회비</button>
@@ -5713,7 +5713,7 @@ function openManualSheet() {
     sub('불참·환불', '<b>불참</b>은 등록 인원·회비 집계에 <b>포함</b>되고 차수별 참석 수에서만 빠지며, 자기 접수 구분 명단에 그대로 남습니다. 불참 수는 홈 <b>차수별 인원</b> 카드의 불참 타일에서 보고, 그 타일을 누르면 불참 명단이 열립니다. <b>환불</b>은 모든 집계에서 빠지고 명단에는 취소선으로 남습니다.') +
     sub('영유아', '영유아는 <b>명단에는 표시되고 수에서만 빠집니다</b>(구역별·차수별 모두). 회별 카드에는 영유아 부서가 따로 있어 그대로 집계되고, 통계의 <b>인원 분포 표에만</b> 계에 포함됩니다.'))}
 
-    ${sec('3. 홈 탭 한눈에', '위에서 아래로: <b>검색창</b>(이름 일부만 입력해도 됩니다) → <b>구역별</b> 타일(인원·회비, 누르면 명단) → <b>회별</b> 타일(같은 방식) → <b>차수별</b> 타일(누르면 그 차수 명단 — 구역 명단처럼 영유아도 표시되고 수에서만 빠집니다. ⚠ 미정·<b>불참</b> 타일 포함) → <b>전도대상자 · 회비 지원</b> 버튼(누르면 전체 명단이 열리고 그 안에 사진·인쇄가 있습니다. 회비 지원 명단의 불참자는 <b>밑줄</b>과 비고 <b>불참</b>으로 표시됩니다) → <b>종합 통계</b> 버튼 3종.<br>• 최상단 히어로의 <b>구원 N · 침례 N · 접수 현황 · 기도 명단</b> 버튼으로 각 명단을 바로 엽니다.<br>• 히어로 우상단 <b>사진·인쇄</b>는 <b>등록 현황</b> 문서(집계 4칸 → 차수별 인원 → 인원 분포·회비 → 차편 분포)를 만듭니다. 구역 10개 이하면 한 장에 들어가고, 넘치면 차편 분포만 다음 장으로 넘어가며 첫 장은 아래 여백 없이 채워집니다.')}
+    ${sec('3. 홈 탭 한눈에', '위에서 아래로: <b>검색창</b>(이름 일부만 입력해도 됩니다) → <b>구역별</b> 타일(인원·회비, 누르면 명단) → <b>회별</b> 타일(같은 방식) → <b>차수별</b> 타일(누르면 그 차수 명단 — 구역 명단처럼 영유아도 표시되고 수에서만 빠집니다. ⚠ 미정·<b>불참</b> 타일 포함) → <b>전도대상자 · 회비 지원</b> 버튼(누르면 전체 명단이 열리고 그 안에 사진·인쇄가 있습니다. 회비 지원 명단의 불참자는 <b>밑줄</b>과 비고 <b>불참</b>으로 표시됩니다) → <b>종합 통계</b> 카드(버튼 3종 + 우측 사진·인쇄).<br>• 최상단 히어로의 <b>구원 N · 침례 N · 접수 현황 · 기도 명단</b> 버튼으로 각 명단을 바로 엽니다.<br>• 맨 아래 <b>종합 통계</b> 카드 우측의 <b>사진·인쇄</b>는 <b>등록 현황</b> 문서(집계 4칸 → 차수별 인원 → 인원 분포·회비 → 차편 분포)를 만듭니다. 구역 10개 이하면 한 장에 들어가고, 넘치면 차편 분포만 다음 장으로 넘어가며 첫 장은 아래 여백 없이 채워집니다.')}
     ${sub('종합 통계', '홈 맨 아래 버튼 3종 — <b>차수별 인원 · 인원 분포·회비 · 차편 분포</b> — 를 누르면 인쇄 서식 그대로의 표가 흰 화면으로 열립니다.<br>• 통합 표는 <b>[구역/회 | 계 | 각 차수 | 전도 | 침례 | 불참 | 환불 | 회비]</b> 구성입니다.<br>• <b>계</b> = 사람 단위(여러 차수 참석해도 1명) · 환불·타교회 접수 제외 · 불참 포함. <b>영유아는 이 인원 분포 표에만 포함</b>되고, 등록 인원·차수별 인원·홈 타일에서는 제외됩니다.<br>• 차수 칸은 그 차수 <b>참석</b> 인원이라 불참이 빠집니다.<br>• 구역 목록에 없는 구역과 구역이 비어 있는 인원은 모두 <b>타교회</b> 한 줄로 묶입니다.<br>• 차수별 전도·침례는 <b>연결된 인원의 참석 차수</b> 기준입니다(미연결 전도 항목은 구역·회 합계에만).<br>• <b>차수별 인원</b> 표(시트·인쇄) 끝에는 <b>불참</b> 칸이 있습니다.')}
     ${sub('접수 현황', '히어로의 <b>접수 현황</b>에서 접수 구분별 명단을 봅니다 — 사전 1·2단계, 현장 접수, 타차수 접수, 타교회 접수, 환불. 현장 접수 명단에서는 <b>등록</b> 버튼으로 당일 참석을 집계에 반영합니다. 각 그룹마다 사진·인쇄가 있습니다.')}
     ${sub('숙소 탭', '위쪽 칩으로 <b>전체 · 각 숙소 · 미배정</b>을 오갑니다(개별 화면에서 <b>뒤로가기</b>는 전체로 복귀). 각 숙소에서 <b>+ 인원 추가</b>(검색 배정), <b>미등록 인원 추가</b>(타교회 접수자), <b>전체보기·사진·인쇄</b>를 쓸 수 있습니다. <b>숙소 관리</b>에서 정원을 정하면 배정/정원이 표시되고 초과 시 붉게 경고합니다(초과 배정 자체는 가능합니다).')}

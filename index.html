@@ -680,12 +680,35 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.12.2';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.12.3';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 // '이력 지운 시점' 표식 — meta에 담겨 클라우드·다른 기기로 함께 전파된다.
 // 이 시각 이전 기록은 어느 기기에서 올라와도 병합에서 걸러지므로, 지운 이력이 되살아나지 않는다.
 function historyCutOf(){ return Number((DB && DB.meta && DB.meta.historyClearedAt) || 0); }
+// 기초 목록(차주·구역·호차·교회차·기타 차편) 병합 — 합집합.
+// 한 기기에서 추가한 항목이 다른 기기의 오래된 목록에 덮여 사라지지 않게 한다.
+// 삭제는 별도 표식(settings.removedNames)으로만 전파되므로, 실제 삭제는 정상 반영된다.
+function mergeNameLists(local, remote, removed) {
+  const rm = new Set(Array.isArray(removed) ? removed : []);
+  const out = [];
+  const seen = new Set();
+  [].concat(Array.isArray(local) ? local : [], Array.isArray(remote) ? remote : []).forEach(function (x) {
+    const v = String(x == null ? '' : x);
+    if (!v || seen.has(v) || rm.has(v)) return;
+    seen.add(v); out.push(v);
+  });
+  return out;
+}
+// 삭제 표식 기록 — 어느 기기에서 지워도 다른 기기에서 되살아나지 않게
+function markNameRemoved(name) {
+  if (!DB.settings) DB.settings = {};
+  const list = Array.isArray(DB.settings.removedNames) ? DB.settings.removedNames.slice() : [];
+  const v = String(name || '');
+  if (v && list.indexOf(v) < 0) list.push(v);
+  if (list.length > 300) list.splice(0, list.length - 300);
+  DB.settings.removedNames = list;
+}
 function mergeHistories(a, b, cut) {
   const cutMs = Number(cut || 0);
   const seen = new Set(); const out = [];
@@ -4208,6 +4231,9 @@ function bindAddDriverBtns(scope) {
         if (PRIVATE_CAR_LIST.includes(nm)) { toast('이미 있는 차주예요. 목록에서 선택하세요.'); }
         else {
           PRIVATE_CAR_LIST.push(nm);
+          if (DB.settings && Array.isArray(DB.settings.removedNames)) {  // 지웠던 이름을 다시 등록하면 표식 해제
+            DB.settings.removedNames = DB.settings.removedNames.filter(function (x) { return x !== nm; });
+          }
           DB.settings = DB.settings || {};
           DB.settings.privateCarList = PRIVATE_CAR_LIST.slice();
           if (typeof updateTransportOptions === 'function') updateTransportOptions();
@@ -4256,6 +4282,7 @@ function openDriverDeleteSheet() {
           PRIVATE_CAR_LIST = PRIVATE_CAR_LIST.filter(function (x) { return x !== nm; });
           DB.settings = DB.settings || {};
           DB.settings.privateCarList = PRIVATE_CAR_LIST.slice();
+          markNameRemoved(nm);  // 다른 기기에서 되살아나지 않도록 삭제 표식
           // 사용 중이던 멤버의 해당 차편 비우기
           DB.members.forEach(function (m) {
             Object.keys(m.sessionTrans || {}).forEach(function (k) {
@@ -6440,6 +6467,15 @@ function onRoomMeta(doc) {
   const __keepExtras = __locExRev > __remExRev;
   const __locDefs = (__ls.lodgings || []).slice();
   const __locExtras = JSON.parse(JSON.stringify(__ls.lodgingExtras || {}));
+  // 기초 목록 보호: 내 기기의 목록을 미리 떠 둔다 (아래에서 서버 값과 합집합 병합)
+  const __locNameLists = {
+    privateCarList: (__ls.privateCarList || []).slice(),
+    zones: (__ls.zones || []).slice(),
+    buses: (__ls.buses || []).slice(),
+    churchCars: (__ls.churchCars || []).slice(),
+    otherTransports: (__ls.otherTransports || []).slice(),
+  };
+  const __locRemoved = (__ls.removedNames || []).slice();
   const firstMeta = sync.firstSnap && sync.firstSnap.meta;
   if (firstMeta) {
     // 재연결 첫 스냅샷: 서버 값으로 완전히 교체 (roomCode는 보존)
@@ -6462,10 +6498,16 @@ function onRoomMeta(doc) {
     if (cutB) DB.meta.historyClearedAt = cutB;
     DB.history = mergeHistories(DB.history, Array.isArray(data.history) ? data.history : [], cutB);
   }
+  if (!DB.settings) DB.settings = {};
+  // 기초 목록 보호 적용 (양 분기 공통) — 합집합 병합으로 어느 기기의 추가도 사라지지 않게.
+  // 삭제는 removedNames 표식으로만 반영되므로 의도적 삭제는 정상 전파된다.
+  DB.settings.removedNames = mergeNameLists(__locRemoved, DB.settings.removedNames, []);
+  ['privateCarList', 'zones', 'buses', 'churchCars', 'otherTransports'].forEach(function (k) {
+    DB.settings[k] = mergeNameLists(__locNameLists[k], DB.settings[k], DB.settings.removedNames);
+  });
   hydrateEvent(DB);
   if (sync.mirror) sync.mirror.meta = stableStr(roomMetaOf(DB));
   // 숙소 설정 보호 적용 (양 분기 공통)
-  if (!DB.settings) DB.settings = {};
   if (__keepDefs || !Array.isArray(DB.settings.lodgings)) {
     DB.settings.lodgings = __locDefs; DB.settings.lodgingsRev = __locDefRev;
   } else {

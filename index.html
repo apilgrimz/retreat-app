@@ -680,7 +680,7 @@ function saveDB() {
 // 데이터가 실제로 바뀌는 지점에서 한 줄 기록. DB.history에 쌓이므로 클라우드로 함께 동기화됨.
 //  action: '인원 추가' 같은 작업 종류, target: '김하나(11구역)' 같은 대상. 최근 HISTORY_MAX건만 유지.
 const HISTORY_MAX = 200;
-const APP_VERSION = 'v11.12.3';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
+const APP_VERSION = 'v11.12.4';  // 더보기 하단 표시 — 업데이트 반영 확인용 (sw.js 버전과 함께 올릴 것)
 // 두 이력 목록을 시각 기준으로 합친다(중복 제거 · 최신순 · 상한 유지).
 // meta 문서가 기기별 '통째 밀어넣기'라, 이력이 짧은(옛) 기기가 나중에 써넣으면 기록이 지워지던 문제를 막는다.
 // '이력 지운 시점' 표식 — meta에 담겨 클라우드·다른 기기로 함께 전파된다.
@@ -6252,6 +6252,7 @@ function snapOf(ev) {
 function syncDetach() {
   sync.unsub.forEach(function (u) { try { u(); } catch (e) {} });
   sync.unsub = []; sync.code = null; sync.mirror = null;
+  clearTimeout(sync.pushTimer);   // 예약돼 있던 업로드도 함께 취소 (전환 직후 오발송 방지)
 }
 
 /* ---------- 보기 전용 모드 ---------- */
@@ -6432,6 +6433,7 @@ function syncAttachActive() {
   saveAutoBackup('동기화 연결 직전');
   const code = DB.roomCode;
   sync.code = code;
+  sync.evId = DB.id;   // 이 연결이 '어느 행사'의 것인지 기록 — 수신 시 대조
   sync.mirror = snapOf(DB);
   // 재연결 시: 첫 스냅샷에서 서버 데이터로 완전히 덮어쓰기 위한 플래그
   sync.firstSnap = { meta: true, members: true, evangelism: true, feeSupport: true, prayList: true };
@@ -6451,6 +6453,7 @@ function onSyncErr(err) {
 function onRoomMeta(doc) {
   if (!doc.exists) return;
   if (!DB || DB.roomCode !== sync.code) return;
+  if (sync.evId && DB.id !== sync.evId) return;   // 연결을 건 그 행사에만 적용 (다른 행사 자료 보호)
   const data = doc.data() || {};
   sync.applyingRemote = true;
   // ── 숙소 설정 보호 v2 ──
@@ -6527,6 +6530,7 @@ function onRoomMeta(doc) {
 
 function onSubSnap(sub, qs) {
   if (!DB || DB.roomCode !== sync.code) return;
+  if (sync.evId && DB.id !== sync.evId) return;   // 연결을 건 그 행사에만 적용 (다른 행사 자료 보호)
   if (!DB[sub]) DB[sub] = [];
   if (!sync.mirror) sync.mirror = snapOf(DB);
 
@@ -6596,12 +6600,23 @@ function syncPushIfLinked() {
   if (sync.code !== DB.roomCode) return;
   clearTimeout(sync.pushTimer);
   const code = DB.roomCode;
-  sync.pushTimer = setTimeout(function () { pushDiff(code, DB); }, 400);
+  const ev = DB;                       // 지금 이 행사를 고정해 둔다(400ms 뒤 DB가 바뀌어 있을 수 있음)
+  const evId = DB.id;
+  sync.pushTimer = setTimeout(function () {
+    // 예약 후 다른 행사로 전환됐거나 연결이 끊겼으면 올리지 않는다.
+    // (이 방어가 없으면 6월 행사 자료가 9월 행사 코드로 올라가 서로의 자료를 덮어쓴다)
+    if (!ev || ev.roomCode !== code) return;
+    if (sync.code !== code) return;
+    if (!VAULT || !(VAULT.events || []).some(function (x) { return x.id === evId; })) return;  // 삭제된 행사
+    pushDiff(code, ev);
+  }, 400);
 }
 
 async function pushDiff(code, ev) {
   if (!fb.ready) return;
-  if (ev && ev.viewOnly) return;
+  if (!ev || ev.viewOnly) return;
+  if (ev.roomCode !== code) return;   // 이 행사의 코드가 아니면 절대 올리지 않는다(행사 간 오염 방지)
+  if (sync.code !== code) return;     // 지금 연결된 방이 아니면 중단
   if (!sync.mirror) sync.mirror = { meta: '', members: {}, evangelism: {}, feeSupport: {} };
   const writes = [];
   const metaStr = stableStr(roomMetaOf(ev));

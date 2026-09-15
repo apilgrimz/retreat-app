@@ -4846,9 +4846,12 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     // 편집창을 닫으면(스택에서 제거) 아래 명단창으로 복귀하며 자동 갱신된다.
     closeSheet();
     }
-  });
+  }, { afterPaint: function () { setTimeout(bindMemberFormUI, 30); } });
 
-  setTimeout(() => {
+  // 폼 이벤트 연결부 — 함수로 분리해 두고 afterPaint로 매번 다시 연결한다.
+  //  하위 시트(차주 추가·삭제, 숙소 관리 등)에서 돌아오면 paintSheetTop이 편집창 HTML을
+  //  통째로 다시 그리므로, 여기서 재연결하지 않으면 차편 종류·날짜 버튼이 죽는다.
+  function bindMemberFormUI() {
     updateLeaderLabel(($('#mDept')||{}).value);
     // 접수 구분: 라디오지만 "이미 선택된 걸 다시 누르면 해제" 토글
     document.querySelectorAll('#mRegTypeRow input[name="mRegType"]').forEach(r => { r._was = r.checked; });
@@ -4983,10 +4986,15 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
     // 숙소: 본 차수 선택 시에만 표시 + 드롭다운 옆 추가/삭제
     updateLodgingVisibility();
     bindLodgingFieldButtons();
-  }, 30);
+    // 삭제 버튼도 다시 연결 (하위 시트에서 돌아오면 DOM이 새로 그려지므로)
+    if (typeof rebindMemberDelete === 'function') rebindMemberDelete();
+  }
 
-  if (!isNew) {
-    setTimeout(() => { $('#mDelete').onclick = () => { confirmModal('삭제', `${m.name}을(를) 삭제합니다.`, () => { 
+  function rebindMemberDelete() {
+    if (isNew) return;
+    const __delBtn = $('#mDelete');
+    if (!__delBtn) return;
+    __delBtn.onclick = () => { confirmModal('삭제', `${m.name}을(를) 삭제합니다.`, () => { 
       // 삭제될 데이터 스냅샷 (되돌리기용)
       const snapMember = JSON.parse(JSON.stringify(m));
       const snapEv = DB.evangelism.filter(x => x.memberId === m.id || (!x.memberId && x.name === m.name && x.zone === m.zone)).map(x => JSON.parse(JSON.stringify(x)));
@@ -5004,8 +5012,9 @@ function openMemberSheet(m, isNew=false, afterSave=null) {
         saveDB(); render();
         toast(`${m.name}을(를) 복구했어요`);
       });
-    }); }; }, 50);
+    }); };
   }
+  if (!isNew) setTimeout(rebindMemberDelete, 50);
 }
 
 function driverList(driver, direction) {
